@@ -1,4 +1,4 @@
-In this repository, there is code available to implement our proposed framework for improving NILM robustness based on the Diffusion model.
+In this repository, there is code available to implement our proposed framework for improving NILM robustness based on the Diffusion model.dd
 
 Our work uses Diffusion model to synthesize high-usage robust electrical load data, mix it with the original data to improve the robustness of the model, and use synthetic data to fill in the gaps when the data set is insufficient.
 
