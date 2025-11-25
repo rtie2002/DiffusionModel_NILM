@@ -34,6 +34,12 @@ def parse_args():
     parser.add_argument('--train', action='store_true', default=False, help='Train or Test.')
     parser.add_argument('--sample', type=int, default=0)
     parser.add_argument('--milestone', type=int, default=1000)
+    parser.add_argument(
+        '--opts',
+        nargs='+',
+        default=None,
+        help='Optional key-value overrides like dataloader.batch_size 32'
+    )
 
     args = parser.parse_args()
     args.save_dir = os.path.join(args.output, f'{args.name}')
@@ -47,7 +53,29 @@ def main():
         seed_everything(args.seed)
 
     if args.gpu is not None:
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA is not available but --gpu was specified. Remove --gpu or install a CUDA-enabled PyTorch build.")
         torch.cuda.set_device(args.gpu)
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    # Display device information
+    print("=" * 60)
+    print("DEVICE INFORMATION")
+    print("=" * 60)
+    if torch.cuda.is_available():
+        print(f"✓ Using device: CUDA (GPU)")
+        print(f"  GPU Name: {torch.cuda.get_device_name(0)}")
+        print(f"  GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB")
+        print(f"  CUDA Version: {torch.version.cuda}")
+    else:
+        print(f"⚠ Using device: CPU (No GPU detected)")
+        print(f"  Warning: Training will be MUCH slower on CPU!")
+    print("=" * 60)
+    print()
+
+    if args.config is None:
+        raise ValueError("Missing --config argument. Provide a YAML config path (e.g. Config/microwave.yaml).")
 
     config = load_yaml_config(args.config)
     config = merge_opts_to_config(config, args.opts)
@@ -55,7 +83,7 @@ def main():
     logger = Logger(args)
     logger.save_config(config)
 
-    model = instantiate_from_config(config['model']).cuda()
+    model = instantiate_from_config(config['model']).to(device)
     dataloader_info = build_dataloader(config, args)
     trainer = Trainer(config=config, args=args, model=model, dataloader=dataloader_info, logger=logger)
 

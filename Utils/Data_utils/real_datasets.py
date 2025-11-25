@@ -128,9 +128,16 @@ class CustomDataset(Dataset):
     @staticmethod
     def read_data(filepath, name=''):
         """Reads a single .csv
+        Supports both single-column and two-column (aggregate, power) formats.
+        If 'power' column exists, extracts only that column for diffusion model training.
         """
         df = pd.read_csv(filepath, header=0)
-        data = df.values
+        # If CSV has 'power' column, use it directly (for two-column format: aggregate, power)
+        if 'power' in df.columns:
+            data = df[['power']].values
+        # Otherwise, use all columns (for backward compatibility)
+        else:
+            data = df.values
         scaler = MinMaxScaler()
         scaler = scaler.fit(data)
         return data, scaler

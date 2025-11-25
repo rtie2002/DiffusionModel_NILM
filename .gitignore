@@ -1,0 +1,6 @@
+/NILM-main/dataset_preprocess/UK_DALE
+*.png
+*.csv
+*.pyc
+/OUTPUT
+*.csv
