@@ -6,7 +6,7 @@ import argparse
 import numpy as np
 import os
 
-DATA_DIRECTORY = 'UK_DALE/'
+DATA_DIRECTORY = '/content/drive/MyDrive/dataset_dat/UK_DALE/'
 SAVE_PATH = 'created_data/UK_DALE/'
 AGG_MEAN = 522
 AGG_STD = 814
