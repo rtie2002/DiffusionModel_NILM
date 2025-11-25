@@ -6,7 +6,7 @@ import argparse
 import numpy as np
 import os
 
-DATA_DIRECTORY = '/content/drive/MyDrive/dataset_dat/UK_DALE/'
+DATA_DIRECTORY = 'UK_DALE/'
 SAVE_PATH = 'created_data/UK_DALE/'
 AGG_MEAN = 522
 AGG_STD = 814
@@ -17,7 +17,9 @@ if not os.path.exists(SAVE_PATH):
 def get_arguments():
     parser = argparse.ArgumentParser(description='sequence to point learning \
                                      example for NILM')
-    parser.add_argument('--data_dir', type=str, default=DATA_DIRECTORY,
+    parser.add_argument('--server', type=str, default='local', choices=['local', 'colab'],
+                          help='Server environment: local or colab')
+    parser.add_argument('--data_dir', type=str, default=None,
                           help='The directory containing the UKDALE data')
     parser.add_argument('--appliance_name', type=str, default='washingmachine',  # ---------------
                           help='which appliance you want to train: kettle,\
@@ -28,7 +30,16 @@ def get_arguments():
                         help='Std value of aggregated reading (mains)')
     parser.add_argument('--save_path', type=str, default=SAVE_PATH,
                           help='The directory to store the training data')
-    return parser.parse_args()
+    args = parser.parse_args()
+    
+    # Set data_dir based on server environment if not explicitly provided
+    if args.data_dir is None:
+        if args.server == 'colab':
+            args.data_dir = '/content/drive/MyDrive/dataset_dat/UK_DALE/'
+        else:
+            args.data_dir = DATA_DIRECTORY
+    
+    return args
 
 params_appliance = {
     'kettle': {
@@ -178,7 +189,7 @@ def main():
 
 
         df_align = mains_df.join(app_df, how='outer'). \
-            resample(str(sample_seconds) + 'S').mean().fillna(method='backfill', limit=1)#fillna(method='backfill', limit=1)
+            resample(str(sample_seconds) + 'S').mean().bfill(limit=1)#bfill(limit=1)
         df_align = df_align.dropna()
 
         df_align.reset_index(inplace=True)
@@ -246,7 +257,7 @@ def main():
         #     print("    Size of test set is {:.4f} M rows.".format(len(df_align) / 10 ** 6))
         #     continue
 
-        train = train.append(df_align, ignore_index=True)
+        train = pd.concat([train, df_align], ignore_index=True)
         del df_align
 
     # Crop dataset
