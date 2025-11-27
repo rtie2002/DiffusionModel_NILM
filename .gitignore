@@ -4,3 +4,4 @@
 *.pyc
 /OUTPUT
 *.csv
+*.pt

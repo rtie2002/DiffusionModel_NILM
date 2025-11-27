@@ -7,6 +7,14 @@ import time
 import torch
 from Utils.io_utils import write_args, save_config_to_yaml
 
+try:
+    from torch.utils.tensorboard import SummaryWriter
+except ImportError:
+    try:
+        from tensorboardX import SummaryWriter
+    except ImportError:
+        SummaryWriter = None
+
 
 class Logger(object):
     def __init__(self, args):
@@ -27,7 +35,9 @@ class Logger(object):
         self.text_writer = open(os.path.join(log_dir, 'log.txt'), 'a') # 'w')
         if args.tensorboard:
             self.log_info('using tensorboard')
-            self.tb_writer = torch.utils.tensorboard.SummaryWriter(log_dir=log_dir) # tensorboard.SummaryWriter(log_dir=log_dir)
+            if SummaryWriter is None:
+                raise ImportError("TensorBoard not available. Install with: pip install tensorboard")
+            self.tb_writer = SummaryWriter(log_dir=log_dir)
         else:
             self.tb_writer = None
             
