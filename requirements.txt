@@ -3,10 +3,10 @@
 # Pinned versions for compatibility
 # ============================================
 
-# Core Deep Learning
-torch==2.1.0
-torchvision==0.16.0
-torchaudio==2.1.0
+# Core Deep Learning (Updated for Windows compatibility)
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
 
 # Numerical Computing (CRITICAL: Must be compatible)
 numpy==1.24.3
