@@ -1,37 +1,23 @@
-# ============================================
-# DiffusionModel_NILM Requirements
-# Simplified for Python 3.10-3.12 compatibility
-# ============================================
+# Core dependencies
+torch>=2.0.0
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.10.0
+scikit-learn>=1.3.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
 
-# Core Deep Learning
-torch
-torchvision
-torchaudio
-
-# Numerical Computing
-numpy
-pandas
-scipy
-
-# Machine Learning
-scikit-learn
-
-# Visualization
-matplotlib
-seaborn
-
-# Deep Learning Utilities
-einops
-tqdm
-ema-pytorch
-tensorboard
+# Deep learning utilities
+einops>=0.8.0
+tqdm>=4.65.0
+ema_pytorch>=0.5.0
+tensorboard>=2.13.0
 
 # Configuration
-PyYAML
+PyYAML>=6.0
 
 # TensorFlow (for NILM models)
-tensorflow
+tensorflow>=2.13.0
 
-# Optional
-jupyter
-h5py
+# Optional but recommended
+jupyter>=1.0.0
