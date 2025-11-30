@@ -272,7 +272,7 @@ def main():
 
     test.reset_index(drop=True, inplace=True)
     train.drop(train.index[-test_len:], inplace=True)
-    test.to_csv(args.save_path + appliance_name + '_test_.csv', mode='a', index=False, header=False)
+    test.to_csv(args.save_path + appliance_name + '_test_.csv', mode='w', index=False, header=False)
 
 
     # Validation CSV
@@ -280,10 +280,10 @@ def main():
     val.reset_index(drop=True, inplace=True)
     train.drop(train.index[-val_len:], inplace=True)
     # Validation CSV
-    val.to_csv(args.save_path + appliance_name + '_validation_' + '.csv', mode='a', index=False, header=False)
+    val.to_csv(args.save_path + appliance_name + '_validation_' + '.csv', mode='w', index=False, header=False)
 
     # Training CSV
-    train.to_csv(args.save_path + appliance_name + '_training_.csv', mode='a', index=False, header=False)
+    train.to_csv(args.save_path + appliance_name + '_training_.csv', mode='w', index=False, header=False)
 
     print("    Size of total training set is {:.4f} M rows.".format(len(train) / 10 ** 6))
     print("    Size of total validation set is {:.4f} M rows.".format(len(val) / 10 ** 6))
