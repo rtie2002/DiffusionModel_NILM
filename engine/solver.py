@@ -129,12 +129,28 @@ class Trainer(object):
             self.logger.log_info('Begin to sample...')
         samples = np.empty([0, shape[0], shape[1]])
         num_cycle = int(num // size_every) + 1
+        
+        print(f"\n{'='*70}")
+        print(f"Generating {num} windows in {num_cycle} batches (batch_size={size_every})")
+        print(f"{'='*70}\n")
 
-        for _ in range(num_cycle):
+        for batch_idx in range(num_cycle):
+            windows_completed = batch_idx * size_every
+            windows_this_batch = min(size_every, num - windows_completed)
+            
+            print(f"Batch {batch_idx + 1}/{num_cycle} | Windows completed: {windows_completed}/{num} | Generating {windows_this_batch} windows...")
+            
             sample = self.ema.ema_model.generate_mts(batch_size=size_every)
             samples = np.row_stack([samples, sample.detach().cpu().numpy()])
             torch.cuda.empty_cache()
+            
+            windows_completed_after = min((batch_idx + 1) * size_every, num)
+            print(f"✓ Batch {batch_idx + 1}/{num_cycle} complete! Total windows: {windows_completed_after}/{num}\n")
 
+        print(f"{'='*70}")
+        print(f"✓ All {num} windows generated successfully!")
+        print(f"{'='*70}\n")
+        
         if self.logger is not None:
             self.logger.log_info('Sampling done, time: {:.2f}'.format(time.time() - tic))
         return samples

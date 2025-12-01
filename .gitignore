@@ -5,3 +5,4 @@
 /OUTPUT
 *.csv
 *.pt
+*.npy

@@ -33,6 +33,9 @@ def parse_args():
     # args for training
     parser.add_argument('--train', action='store_true', default=False, help='Train or Test.')
     parser.add_argument('--sample', type=int, default=0)
+    parser.add_argument('--sample_num', type=int, default=None,
+                        help='Number of samples to generate. If None, uses len(dataset). '
+                             'Set to match real data size or any custom value.')
     parser.add_argument('--milestone', type=int, default=1000)
     parser.add_argument(
         '--opts',
@@ -92,9 +95,20 @@ def main():
     else:
         trainer.load(args.milestone)
         dataset = dataloader_info['dataset']
-        samples = trainer.sample(num=len(dataset), size_every=400, shape=[dataset.window, dataset.var_num])
+        
+        # Determine number of samples to generate
+        if args.sample_num is not None:
+            num_samples = args.sample_num
+            print(f"Generating custom number of samples: {num_samples}")
+        else:
+            num_samples = len(dataset)
+            print(f"Generating default number of samples: {num_samples} (dataset size)")
+        
+        samples = trainer.sample(num=num_samples, size_every=400, shape=[dataset.window, dataset.var_num])
         if dataset.auto_norm:
             samples = unnormalize_to_zero_to_one(samples)
+            print(f"Generated data shape: {samples.shape}")
+            print(f"Total data points: {samples.size:,}")
             np.save(os.path.join(args.save_dir, f'ddpm_fake_{args.name}.npy'), samples)
 
 if __name__ == '__main__':
