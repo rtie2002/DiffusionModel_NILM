@@ -158,12 +158,18 @@ def mix_data(appliance_name, real_rows, synthetic_rows, output_suffix="mixed"):
     
     # 6. Normalize synthetic data to Z-score (aggregate uses fixed params)
     # For aggregate, use fixed normalization parameters (from ukdale_processing.py)
-    aggregate_mean = 522  # Fixed aggregate mean
-    aggregate_std = 814   # Fixed aggregate std
-    syn_aggregate_zscore = (syn_aggregate_watts - aggregate_mean) / aggregate_std
-    
-    # For appliance, use appliance-specific params
-    syn_appliance_zscore = normalize_to_zscore(syn_appliance_watts, appliance_name)
+    if actual_syn_rows > 0:
+        aggregate_mean = 522  # Fixed aggregate mean
+        aggregate_std = 814   # Fixed aggregate std
+        syn_aggregate_zscore = (syn_aggregate_watts - aggregate_mean) / aggregate_std
+        
+        # For appliance, use appliance-specific params
+        syn_appliance_zscore = normalize_to_zscore(syn_appliance_watts, appliance_name)
+    else:
+        # No synthetic data - create empty arrays
+        syn_aggregate_zscore = np.array([])
+        syn_appliance_zscore = np.array([])
+        print("\nNo synthetic data to normalize (synthetic_rows=0)")
     
     # 7. Combine real + synthetic (preserve as separate arrays for window shuffling)
     print("\n=== Combining Data ===")
@@ -188,19 +194,20 @@ def mix_data(appliance_name, real_rows, synthetic_rows, output_suffix="mixed"):
         real_app_windows.append(real_appliance[-real_remainder:])
         print(f"  + Real remainder: {real_remainder} points")
     
-    # Split synthetic data into windows
+    # Split synthetic data into windows (skip if no synthetic data)
     syn_agg_windows = []
     syn_app_windows = []
-    for i in range(0, len(syn_aggregate_zscore) - window_size + 1, window_size):
-        syn_agg_windows.append(syn_aggregate_zscore[i:i+window_size])
-        syn_app_windows.append(syn_appliance_zscore[i:i+window_size])
-    
-    # Add remainder if exists
-    syn_remainder = len(syn_aggregate_zscore) % window_size
-    if syn_remainder > 0:
-        syn_agg_windows.append(syn_aggregate_zscore[-syn_remainder:])
-        syn_app_windows.append(syn_appliance_zscore[-syn_remainder:])
-        print(f"  + Synthetic remainder: {syn_remainder} points")
+    if len(syn_aggregate_zscore) > 0:
+        for i in range(0, len(syn_aggregate_zscore) - window_size + 1, window_size):
+            syn_agg_windows.append(syn_aggregate_zscore[i:i+window_size])
+            syn_app_windows.append(syn_appliance_zscore[i:i+window_size])
+        
+        # Add remainder if exists
+        syn_remainder = len(syn_aggregate_zscore) % window_size
+        if syn_remainder > 0:
+            syn_agg_windows.append(syn_aggregate_zscore[-syn_remainder:])
+            syn_app_windows.append(syn_appliance_zscore[-syn_remainder:])
+            print(f"  + Synthetic remainder: {syn_remainder} points")
     
     print(f"Real windows: {len(real_agg_windows)}")
     print(f"Synthetic windows: {len(syn_agg_windows)}")
