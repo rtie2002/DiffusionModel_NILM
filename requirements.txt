@@ -39,7 +39,8 @@ tensorboard
 PyYAML
 
 # TensorFlow (for NILM models)
-tensorflow
+tensorflow==2.15.0  # Compatible with Keras 2.15.0
+keras==2.15.0       # Required for NILM-main compatibility (TF 1.x style scripts)
 
 # Optional
 jupyter
