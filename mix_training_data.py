@@ -22,13 +22,36 @@ APPLIANCE_SPECS = {
 }
 
 
-def load_synthetic_data(appliance_name):
+
+def load_synthetic_data(appliance_name, custom_path=None):
     """Load and prepare synthetic data from NPY file"""
     print(f"\n=== Loading Synthetic Data for {appliance_name} ===")
     
     # Load NPY file (shape: [batch, window, 1])
-    npy_path = f'OUTPUT/{appliance_name}_512/ddpm_fake_{appliance_name}_512.npy'
-    synthetic = np.load(npy_path)
+    if custom_path and appliance_name in custom_path:  # Only use custom path if it looks relevant or if explicitly passed for this appliance
+        # Actually, simpler logic: if custom_path is provided, IT IS for this appliance context
+        # But we loop over all appliances. We only want to use custom_path for the TARGET appliance.
+        # So we'll handle that logic in the caller.
+        npy_path = custom_path
+    else:
+        npy_path = f'OUTPUT/{appliance_name}_512/ddpm_fake_{appliance_name}_512.npy'
+        
+    if custom_path: # Verify we are loading what we think we are loading
+         pass 
+
+    # Caller handles the logic of when to pass custom_path. Here we just use it if given.
+    if custom_path:
+        npy_path = custom_path
+    else:
+        npy_path = f'OUTPUT/{appliance_name}_512/ddpm_fake_{appliance_name}_512.npy'
+
+    print(f"Loading form: {npy_path}")
+    try:
+        synthetic = np.load(npy_path)
+    except FileNotFoundError:
+        print(f"Error: File not found: {npy_path}")
+        raise
+
     print(f"Loaded synthetic NPY: {synthetic.shape}")
     print(f"Value range: [{synthetic.min():.4f}, {synthetic.max():.4f}]")
     
@@ -39,12 +62,22 @@ def load_synthetic_data(appliance_name):
     return synthetic_flat
 
 
-def load_real_data(appliance_name):
+def load_real_data(appliance_name, custom_path=None):
     """Load real training data"""
     print(f"\n=== Loading Real Data for {appliance_name} ===")
     
-    csv_path = f'NILM-main/dataset_preprocess/created_data/UK_DALE/{appliance_name}_training_.csv'
-    real_data = pd.read_csv(csv_path, header=None)
+    if custom_path:
+        csv_path = custom_path
+    else:
+        csv_path = f'NILM-main/dataset_preprocess/created_data/UK_DALE/{appliance_name}_training_.csv'
+        
+    print(f"Loading form: {csv_path}")
+    try:
+        real_data = pd.read_csv(csv_path, header=None)
+    except FileNotFoundError:
+        print(f"Error: File not found: {csv_path}")
+        raise
+
     print(f"Loaded real CSV: {real_data.shape}")
     print(f"Columns: 0=aggregate, 1=appliance")
     
@@ -104,7 +137,7 @@ def create_synthetic_aggregate(all_appliances_synthetic):
     return aggregate
 
 
-def mix_data(appliance_name, real_rows, synthetic_rows, output_suffix="mixed"):
+def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, synthetic_path=None, output_suffix="mixed"):
     """
     Mix real and synthetic data
     
@@ -112,6 +145,8 @@ def mix_data(appliance_name, real_rows, synthetic_rows, output_suffix="mixed"):
         appliance_name: Target appliance
         real_rows: Number of real data rows to use
         synthetic_rows: Number of synthetic data rows to use  
+        real_path: Optional custom path for real data
+        synthetic_path: Optional custom path for synthetic data (target appliance only)
         output_suffix: Suffix for output file
     """
     print(f"\n{'='*60}")
@@ -120,7 +155,7 @@ def mix_data(appliance_name, real_rows, synthetic_rows, output_suffix="mixed"):
     print(f"{'='*60}")
     
     # 1. Load real data
-    real_data = load_real_data(appliance_name)
+    real_data = load_real_data(appliance_name, custom_path=real_path)
     real_aggregate = real_data.iloc[:real_rows, 0].values  # Column 0
     real_appliance = real_data.iloc[:real_rows, 1].values  # Column 1
     print(f"\nReal data selected: {len(real_aggregate):,} rows")
@@ -129,7 +164,10 @@ def mix_data(appliance_name, real_rows, synthetic_rows, output_suffix="mixed"):
     print("\n=== Loading ALL 5 Appliances ===")
     all_synthetic = {}
     for app_name in APPLIANCE_SPECS.keys():
-        syn_normalized = load_synthetic_data(app_name)
+        # Use custom path ONLY if this is the target appliance
+        path_to_use = synthetic_path if (app_name == appliance_name) else None
+        
+        syn_normalized = load_synthetic_data(app_name, custom_path=path_to_use)
         syn_watts = denormalize_synthetic(syn_normalized, app_name)
         all_synthetic[app_name] = syn_watts
     
@@ -258,20 +296,57 @@ def mix_data(appliance_name, real_rows, synthetic_rows, output_suffix="mixed"):
     return output_file
 
 
-def main():
+if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Mix real and synthetic NILM data')
-    parser.add_argument('--appliance', type=str, required=True,
+    parser.add_argument('--appliance', type=str, required=False,
                         choices=list(APPLIANCE_SPECS.keys()),
                         help='Target appliance')
     parser.add_argument('--real_rows', type=int, default=200000,
                         help='Number of real data rows (default: 200000)')
     parser.add_argument('--synthetic_rows', type=int, default=200000,
                         help='Number of synthetic rows (default: 200000)')
+    parser.add_argument('--real_path', type=str, default=None,
+                        help='Path to real data CSV')
+    parser.add_argument('--synthetic_path', type=str, default=None,
+                        help='Path to synthetic data NPY for target appliance')
     parser.add_argument('--suffix', type=str, default=None,
                         help='Output file suffix (default: {real}k+{syn}k)')
     
     args = parser.parse_args()
     
+    # Interactive mode if no arguments provided (specifically appliance)
+    if args.appliance is None:
+        print("\n=== Interactive Data Mixing Mode ===")
+        print("Available appliances:", ", ".join(list(APPLIANCE_SPECS.keys())))
+        
+        while True:
+            user_app = input("Enter target appliance name: ").strip().lower()
+            if user_app in APPLIANCE_SPECS:
+                args.appliance = user_app
+                break
+            print(f"Invalid appliance. Please choose from: {list(APPLIANCE_SPECS.keys())}")
+            
+        user_real = input(f"Enter real rows (default {args.real_rows}): ").strip()
+        if user_real.isdigit():
+            args.real_rows = int(user_real)
+            
+        user_syn = input(f"Enter synthetic rows (default {args.synthetic_rows}): ").strip()
+        if user_syn.isdigit():
+            args.synthetic_rows = int(user_syn)
+            
+        # Interactive prompts for inputs
+        default_real_path = f'NILM-main/dataset_preprocess/created_data/UK_DALE/{args.appliance}_training_.csv'
+        print(f"\nReal data path (default: {default_real_path})")
+        user_real_path = input("Enter path or press Enter for default: ").strip()
+        if user_real_path:
+            args.real_path = user_real_path.strip('"').strip("'")
+            
+        default_syn_path = f'OUTPUT/{args.appliance}_512/ddpm_fake_{args.appliance}_512.npy'
+        print(f"\nSynthetic data path for {args.appliance} (default: {default_syn_path})")
+        user_syn_path = input("Enter path or press Enter for default: ").strip()
+        if user_syn_path:
+            args.synthetic_path = user_syn_path.strip('"').strip("'")
+
     # Auto-generate suffix if not provided
     if args.suffix is None:
         real_k = args.real_rows // 1000
@@ -283,13 +358,11 @@ def main():
         appliance_name=args.appliance,
         real_rows=args.real_rows,
         synthetic_rows=args.synthetic_rows,
+        real_path=args.real_path,
+        synthetic_path=args.synthetic_path,
         output_suffix=args.suffix
     )
     
     print(f"\nNext step: Train NILM model with:")
     print(f"  python NILM-main/S2S_train.py --appliance_name {args.appliance}")
     print(f"  Then manually change the training file path to: {output_file.name}")
-
-
-if __name__ == '__main__':
-    main()

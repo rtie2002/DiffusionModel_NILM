@@ -67,94 +67,19 @@ APPLIANCE_PARAMS = {
     }
 }
 
-def remove_isolated_spikes(power_sequence, window_size=5, spike_threshold=3.0, 
-                          background_threshold=50):
-    """
-    Remove isolated spikes that suddenly appear when surrounding data is near zero.
-    
-    A spike is detected when:
-    1. Current value is significantly higher than surrounding median
-    2. Surrounding values are mostly near zero (below background_threshold)
-    
-    Args:
-        power_sequence: 1D array of power values (in Watts)
-        window_size: Size of window for median calculation (default: 5)
-        spike_threshold: How many times larger than median to consider a spike (default: 3.0)
-        background_threshold: Threshold to consider surrounding as "near zero" (default: 50W)
-    
-    Returns:
-        power_sequence with isolated spikes removed (set to 0)
-        num_spikes_removed: Number of spikes detected and removed
-    """
-    power_sequence = power_sequence.copy()
-    n = len(power_sequence)
-    num_spikes = 0
-    
-    # Pad array for edge handling
-    half_window = window_size // 2
-    padded = np.pad(power_sequence, half_window, mode='edge')
-    
-    for i in range(n):
-        current_value = power_sequence[i]
-        
-        # Skip if current value is already low
-        if current_value < background_threshold:
-            continue
-        
-        # Get surrounding values (excluding center point)
-        window_start = i
-        window_end = i + window_size
-        window = padded[window_start:window_end]
-        
-        # Calculate median of surrounding values (excluding center)
-        surrounding = np.concatenate([window[:half_window], window[half_window+1:]])
-        median_surrounding = np.median(surrounding)
-        
-        # Check if surrounding is mostly near zero
-        low_values_count = np.sum(surrounding < background_threshold)
-        is_background_low = low_values_count >= (len(surrounding) * 0.6)  # 60% threshold
-        
-        # Detect spike: current value is much higher than surrounding AND surrounding is low
-        if is_background_low and current_value > spike_threshold * median_surrounding:
-            # Additional check: current value should be significantly above background
-            if current_value > background_threshold * 2:
-                # Isolated spike detected - remove it
-                power_sequence[i] = 0
-                num_spikes += 1
-    
-    return power_sequence, num_spikes
-
-
-def algorithm1_data_cleaning(power_sequence, x_threshold, l_window=100, x_noise=0,
-                             remove_spikes=True, spike_window=5, spike_threshold=3.0,
-                             background_threshold=50, clip_max=None):
+def algorithm1_data_cleaning(power_sequence, x_threshold, l_window=100, x_noise=0):
     """
     Algorithm 1: Data Cleaning and Selection for Appliance Power Data
     
     Input:
-        power_sequence: power sequence x = [x1,...,xt,...] (in Watts)
-        x_threshold: appliance start threshold (Watts)
+        power_sequence: power sequence x = [x1,...,xt,...]
+        x_threshold: appliance start threshold
         l_window: window length (default: 100, from paper Table 2)
         x_noise: power noise threshold (default: 0)
-        remove_spikes: whether to remove isolated spikes (default: True)
-        spike_window: window size for spike detection (default: 5)
-        spike_threshold: threshold multiplier for spike detection (default: 3.0)
-        background_threshold: threshold to consider background as "low" (default: 50W)
-        clip_max: optional maximum value to clip outliers (default: None)
     
     Output:
         cleaned and selected power data
     """
-    # Step 0: Remove isolated spikes (optional preprocessing)
-    if remove_spikes:
-        power_sequence, num_spikes = remove_isolated_spikes(
-            power_sequence, 
-            window_size=spike_window,
-            spike_threshold=spike_threshold,
-            background_threshold=background_threshold
-        )
-        print(f"  Spike removal: {num_spikes} isolated spikes detected and removed")
-    
     # Step 1: Initialize T_selected as an empty list
     T_selected = []
     
@@ -176,13 +101,6 @@ def algorithm1_data_cleaning(power_sequence, x_threshold, l_window=100, x_noise=
     
     # Step 10: x = x[T_selected]
     x_selected = power_sequence[T_selected]
-    
-    # Step 10.5: Clip outliers if specified
-    if clip_max is not None:
-        num_clipped = np.sum(x_selected > clip_max)
-        x_selected = np.clip(x_selected, 0, clip_max)
-        if num_clipped > 0:
-            print(f"  Clipped {num_clipped} values above {clip_max}W ({num_clipped/len(x_selected)*100:.2f}%)")
     
     # Step 11-12: Apply MinMaxScaler
     scaler = MinMaxScaler()
@@ -365,18 +283,6 @@ def main():
                         help='Window length for Algorithm 1 (default: 100, from paper)')
     parser.add_argument('--plot_samples', type=int, default=5000,
                         help='Number of samples to plot in visualization (default: 5000, use 0 for all data)')
-    parser.add_argument('--remove_spikes', action='store_true', default=True,
-                        help='Remove isolated spikes that appear when surrounding is near zero (default: True)')
-    parser.add_argument('--no_remove_spikes', action='store_false', dest='remove_spikes',
-                        help='Disable spike removal')
-    parser.add_argument('--spike_window', type=int, default=5,
-                        help='Window size for spike detection (default: 5)')
-    parser.add_argument('--spike_threshold', type=float, default=3.0,
-                        help='Spike threshold multiplier (default: 3.0, higher = less sensitive)')
-    parser.add_argument('--background_threshold', type=float, default=50,
-                        help='Background threshold in Watts to consider surrounding as "low" (default: 50W)')
-    parser.add_argument('--clip_max', type=float, default=None,
-                        help='Optional: Clip values above this maximum (in Watts) before normalization to improve data distribution')
     
     args = parser.parse_args()
     
@@ -458,21 +364,11 @@ def main():
     print(f"\nApplying Algorithm 1:")
     print(f"  Threshold: {x_threshold} W (original power units - from paper Table 1)")
     print(f"  Window length: {args.window}")
-    print(f"  Spike removal: {'Enabled' if args.remove_spikes else 'Disabled'}")
-    if args.remove_spikes:
-        print(f"    Spike window: {args.spike_window}")
-        print(f"    Spike threshold: {args.spike_threshold}x median")
-        print(f"    Background threshold: {args.background_threshold}W")
     
     x_cleaned, scaler = algorithm1_data_cleaning(
         power_data_original, 
         x_threshold=x_threshold, 
-        l_window=args.window,
-        remove_spikes=args.remove_spikes,
-        spike_window=args.spike_window,
-        spike_threshold=args.spike_threshold,
-        background_threshold=args.background_threshold,
-        clip_max=args.clip_max
+        l_window=args.window
     )
     
     print(f"  Selected data length: {len(x_cleaned)}")
@@ -485,7 +381,7 @@ def main():
     output_df.to_csv(output_file, index=False, header=True)
     
     print(f"\n{'='*60}")
-    print(f"SUCCESS: Algorithm 1 processing complete!")
+    print(f"SUCCESS: Algorithm 1 processing complete (NO spike removal)!")
     print(f"{'='*60}")
     print(f"  Saved: {output_file}")
     print(f"  Rows: {len(output_df)}")

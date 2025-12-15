@@ -118,10 +118,31 @@ python main.py --config Config/kettle.yaml --name kettle_512 --milestone 10 --sa
 
 ## Visualize Synthetic Data
 
+### Interactive Mode (Recommended)
 ```bash
+# Just run the script - it will prompt you for file paths
+python evaluation/visualize_synthetic_data.py
+
+# Follow the prompts:
+# 1. Enter synthetic data path (or press Enter for default)
+# 2. Select appliance (1-5)
+# 3. Enter real data path (optional, or press Enter to skip)
+```
+
+### Command-Line Mode
+```bash
+# Using appliance name (uses default paths)
 python evaluation/visualize_synthetic_data.py --appliance kettle
 python evaluation/visualize_synthetic_data.py --appliance microwave
+
+# Using custom file paths
+python evaluation/visualize_synthetic_data.py \
+  --synthetic_path OUTPUT/kettle_512/ddpm_fake_kettle_512.npy \
+  --real_path Data/datasets/kettle.csv
 ```
+
+**Output:** `OUTPUT/visualizations/{appliance}_visualization.png`
+
 
 ---
 
