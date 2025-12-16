@@ -44,14 +44,8 @@ def load_synthetic_data(appliance_name, custom_path=None):
             if len(candidates) > 1:
                 print(f"Warning: Multiple files found for {appliance_name}, using: {npy_path}")
         else:
-            # Fallback to old path pattern if not found in new folder (legacy support)
-            old_path = f'OUTPUT/{appliance_name}_512/ddpm_fake_{appliance_name}_512.npy'
-            if Path(old_path).exists():
-                npy_path = old_path
-            else:
-                print(f"Error: No synthetic file found for {appliance_name} in {default_dir}")
-                print(f"       and not found at legacy path: {old_path}")
-                raise FileNotFoundError(f"Synthetic data for {appliance_name} missing.")
+            print(f"Error: No synthetic file found for {appliance_name} in {default_dir}")
+            raise FileNotFoundError(f"Synthetic data for {appliance_name} missing in {default_dir}")
 
     print(f"Loading from: {npy_path}")
     try:

@@ -146,10 +146,10 @@ sess = tf.InteractiveSession()
 appliance_name = args.appliance_name
 
 if originModel:
-    trainfile = f'{applianceName}_{TrainPercent}training_'
+    trainfile = f'{appliance_name}_{TrainPercent}training_'
 else:
     #trainfile=f'{datasetName}Combined{applianceName}_fileEight'
-    trainfile = f'{datasetName}Combined{applianceName}_file{TrainPercent}' #20
+    trainfile = f'{datasetName}Combined{appliance_name}_file{TrainPercent}' #20
     # trainfile = 'LongCleanCombinedMicroWave_fileEight'
 
 # path for training data

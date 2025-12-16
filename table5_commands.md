@@ -66,15 +66,28 @@ For **ALL** mixed data experiments (100k+100k, 100k+200k, etc.), the script expe
 
 ### Training (Robust)
 ```python
-# 1. Set Robust Mode (originModel = False)
+# ========================================
+# Cell 5: Setup for ROBUST Experiment
+# ========================================
+%cd /content/drive/MyDrive/DiffusionModel_NILM/NILM-main
+# 1. Modify the script to use Robust Mode (originModel = False)
+# This finds "originModel=True" and replaces it with "originModel=False"
 !sed -i "s/originModel=True/originModel=False/" EasyS2S_train.py
-
-# 2. Run Training
+# 2. Verify dataset exists (Expect UK_DALECombinedkettle_file20.csv)
+!ls -la dataset_preprocess/created_data/UK_DALE/kettle/
+# ========================================
+# Cell 7: Train EasyS2S (Table 5 Robust + Mixed Data)
+# ========================================
 !MPLBACKEND=Agg python3.10 EasyS2S_train.py --appliance_name kettle --n_epoch 100 --batchsize 1024
 ```
 
 ### Testing (Robust)
 ```python
+import os
+os.environ['PATH'] = '/usr/bin:' + os.environ['PATH']
+
+%cd /content/drive/MyDrive/DiffusionModel_NILM/NILM-main
+
 # 1. Set Robust Mode (originModel = False)
 !sed -i "s/originModel=True/originModel=False/" EasyS2S_test.py
 
