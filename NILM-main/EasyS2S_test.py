@@ -253,7 +253,7 @@ else:
         # param_file = args.trained_model_dir + f'/easy{TrainNum}_{datasetName}' + args.appliance_name + f'{TrainPercent}_maeloss_model'
         #param_file = args.trained_model_dir + f'/easy{TrainNum}_{datasetName}' + args.appliance_name + f'{TrainPercent}_abdata_model'
     else:
-        param_file = args.trained_model_dir + f'/easy{TrainNum}_{datasetName}' + args.appliance_name + f'combine{TrainPercent}_pointnet_model'
+        param_file = args.trained_model_dir + f'/easy{TrainNum}_{datasetName}' + args.appliance_name + f'Combine{TrainPercent}_pointnet_model'
         # param_file = args.trained_model_dir + f'/easy{TrainNum}_{datasetName}' + args.appliance_name + f'combine{TrainPercent}_abdata_model'
 # Loading weigths
 log('Model file: {}'.format(param_file))
