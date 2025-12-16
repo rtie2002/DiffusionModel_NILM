@@ -27,7 +27,7 @@ TrainNum=0
 TrainPercent='20'
 TorF=False
 datasetName='UK_DALE'
-applianceName='microwave'
+# applianceName='microwave' # REMOVED HARDCODED VALUE
 originModel=True
 originHome=True
 EMAON=False
@@ -137,7 +137,7 @@ def get_arguments():
                         help="To plot the predicted appliance against ground truth or not.")
     parser.add_argument('--cnn',
                         type=str,
-                        default=f'{applianceName}', #--------------------
+                        default='kettle', # Fixed default
                         help='The trained CNN by which appliance to load.')
     parser.add_argument('--crop_dataset',
                         type=int,
@@ -146,9 +146,12 @@ def get_arguments():
     return parser.parse_args()
 
 
+
 args = get_arguments()
+applianceName = args.appliance_name # Use the argument!
 log('Arguments: ')
 log(args)
+
 
 
 def load_dataset(filename, header=0):

@@ -51,12 +51,11 @@ tensorboard --logdir ./tensorboard_test
 ## NILM Data Preprocessing (ukdale_processing.py)
 
 ```bash
-# Run from the project root
-python NILM-main/dataset_preprocess/ukdale_processing.py --appliance_name kettle
-python NILM-main/dataset_preprocess/ukdale_processing.py --appliance_name microwave
-python NILM-main/dataset_preprocess/ukdale_processing.py --appliance_name fridge
-python NILM-main/dataset_preprocess/ukdale_processing.py --appliance_name dishwasher
-python NILM-main/dataset_preprocess/ukdale_processing.py --appliance_name washingmachine
+python ukdale_processing.py --appliance_name kettle
+python ukdale_processing.py --appliance_name microwave
+python ukdale_processing.py --appliance_name fridge
+python ukdale_processing.py --appliance_name dishwasher
+python ukdale_processing.py --appliance_name washingmachine
 ```
 
 ---
