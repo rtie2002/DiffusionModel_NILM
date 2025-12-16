@@ -94,7 +94,7 @@ def get_arguments():
                                      the target appliance.')
     parser.add_argument('--appliance_name',
                         type=remove_space,
-                        default=f'{applianceName}',  #-------------------
+                        default='kettle',  #-------------------
                         help='the name of target appliance')
     parser.add_argument('--datadir',
                         type=str,
