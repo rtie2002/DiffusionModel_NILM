@@ -7,10 +7,20 @@ Calculates Fréchet Inception Distance (FID) to evaluate
 the quality of synthetic appliance power data.
 
 Usage:
-    python evaluation/context-FID.py --appliance fridge --real_path path/to/real.npy --synthetic_path path/to/synthetic.npy
+    # Interactive mode (recommended - no path quoting issues):
+    python evaluation/fid_ts.py
+    
+    # Or explicitly:
+    python evaluation/fid_ts.py --interactive
+    
+    # Command-line mode with custom paths:
+    python evaluation/fid_ts.py --appliance fridge --real_path "path/to/real.npy" --synthetic_path "path/to/synthetic.npy"
     
     # Or use default paths:
-    python evaluation/context-FID.py --appliance fridge
+    python evaluation/fid_ts.py --appliance fridge
+    
+    # Evaluate all appliances:
+    python evaluation/fid_ts.py --all
 """
 
 import warnings
@@ -467,12 +477,91 @@ def main():
                        help='Feature extraction method (default: flatten)')
     parser.add_argument('--quiet', action='store_true',
                        help='Suppress detailed output')
+    parser.add_argument('--interactive', action='store_true',
+                       help='Run in interactive mode with prompts')
     
     args = parser.parse_args()
     
+    # Interactive mode - prompt user for inputs
+    if args.interactive or (not args.all and not args.appliance):
+        print("=" * 70)
+        print("FID EVALUATION - INTERACTIVE MODE")
+        print("=" * 70)
+        print()
+        print("This tool calculates FID score between real and synthetic data.")
+        print("You can provide file paths directly to avoid path quoting issues.")
+        print()
+        print("-" * 70)
+        
+        # Prompt for real data path
+        print("Enter the path to GROUND TRUTH (real) data:")
+        print("(You can paste the full path, no quotes needed)")
+        real_path = input("Ground truth path: ").strip().strip('"').strip("'")
+        
+        # Validate real path
+        while not os.path.exists(real_path):
+            print(f"\n[ERROR] File not found: {real_path}")
+            print("Please check the path and try again.")
+            real_path = input("Ground truth path: ").strip().strip('"').strip("'")
+        
+        print(f"[OK] Found: {real_path}")
+        print()
+        
+        # Prompt for synthetic data path
+        print("Enter the path to SYNTHETIC data:")
+        print("(You can paste the full path, no quotes needed)")
+        synthetic_path = input("Synthetic path: ").strip().strip('"').strip("'")
+        
+        # Validate synthetic path
+        while not os.path.exists(synthetic_path):
+            print(f"\n[ERROR] File not found: {synthetic_path}")
+            print("Please check the path and try again.")
+            synthetic_path = input("Synthetic path: ").strip().strip('"').strip("'")
+        
+        print(f"[OK] Found: {synthetic_path}")
+        print()
+        
+        # Prompt for method
+        print("-" * 70)
+        print("Feature extraction method:")
+        print("  1. flatten (default) - Use raw time series")
+        print("  2. statistics - Use statistical features")
+        method_input = input("Select method (1 or 2, default=1): ").strip()
+        
+        if method_input == '2':
+            method = 'statistics'
+        else:
+            method = 'flatten'
+        
+        print(f"Using method: {method}")
+        print()
+        
+        # Try to auto-detect appliance name from filename for display purposes
+        synthetic_filename = os.path.basename(synthetic_path).lower()
+        appliances = ['fridge', 'kettle', 'microwave', 'dishwasher', 'washingmachine']
+        detected_appliance = None
+        for app in appliances:
+            if app in synthetic_filename:
+                detected_appliance = app
+                break
+        
+        # Use detected appliance or generic name
+        appliance_name = detected_appliance if detected_appliance else "unknown"
+        
+        # Run evaluation
+        fid_score = evaluate_fid(
+            appliance_name=appliance_name,
+            real_path=real_path,
+            synthetic_path=synthetic_path,
+            method=method,
+            verbose=True
+        )
+        return fid_score
+    
+    # Command-line mode
     # Validate arguments
     if not args.all and not args.appliance:
-        parser.error("Either --appliance or --all must be specified")
+        parser.error("Either --appliance, --all, or --interactive must be specified")
     
     if args.all:
         # Batch evaluation
