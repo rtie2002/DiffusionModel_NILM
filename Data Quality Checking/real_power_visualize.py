@@ -26,7 +26,7 @@ import os
 import argparse
 import sys
 import matplotlib.pyplot as plt
-from matplotlib.widgets import Slider, Button, CheckButtons
+from matplotlib.widgets import Slider, Button
 
 # Normalization parameters from ukdale_processing.py
 AGG_MEAN = 522
@@ -371,7 +371,7 @@ def interactive_viewer(file_path, max_windows=100, denormalize=True):
     
     # Create figure with adjusted margins for cleaner layout
     fig, ax = plt.subplots(figsize=(14, 8))
-    plt.subplots_adjust(bottom=0.15, left=0.12, right=0.95, top=0.95)
+    plt.subplots_adjust(bottom=0.15, left=0.08, right=0.95, top=0.95)
     
     # Initial setup
     current_window = 0
@@ -389,7 +389,15 @@ def interactive_viewer(file_path, max_windows=100, denormalize=True):
         line, = ax.plot(x_data, windows[current_window, :, 0], linewidth=1.5, label=col_name, color=color, alpha=0.8)
         lines[col_name] = line
     
-    ax.legend(loc='upper right')
+    # Create interactive legend (clickable to toggle visibility)
+    legend = ax.legend(loc='upper right')
+    # Make each legend line and text individually pickable for easier clicking
+    for legend_line in legend.get_lines():
+        legend_line.set_picker(True)
+        legend_line.set_pickradius(5)  # 5 pixel radius for easier clicking
+    for legend_text in legend.get_texts():
+        legend_text.set_picker(True)  # Make text clickable too
+    
     ax.set_xlim(start_step, start_step + window_length)
     ax.set_xlabel('Global Time Step', fontsize=12)
     ylabel = 'Power (Watts)' if (denormalize and appliance_name) else 'Z-Score Value'
@@ -397,15 +405,11 @@ def interactive_viewer(file_path, max_windows=100, denormalize=True):
     ax.grid(True, alpha=0.3)
     
     # Controls - sliders at bottom
-    ax_slider = plt.axes([0.12, 0.08, 0.55, 0.03])
+    ax_slider = plt.axes([0.08, 0.08, 0.59, 0.03])
     window_slider = Slider(ax_slider, 'Window', 0, num_windows - 1, valinit=current_window, valstep=1, valfmt='%d')
     
-    ax_scale = plt.axes([0.12, 0.03, 0.55, 0.03])
+    ax_scale = plt.axes([0.08, 0.03, 0.59, 0.03])
     scale_slider = Slider(ax_scale, 'Y-Scale', 0.1, 5.0, valinit=1.0, valfmt='%.2f')
-    
-    # Checkboxes for Column Selection - smaller and compact
-    ax_check = plt.axes([0.01, 0.30, 0.09, 0.5])  # Narrower panel
-    check = CheckButtons(ax_check, list(data_dict.keys()), [True]*len(data_dict))
     
     # Buttons - positioned at bottom right
     ax_prev = plt.axes([0.70, 0.08, 0.08, 0.04])
@@ -474,11 +478,38 @@ def interactive_viewer(file_path, max_windows=100, denormalize=True):
         update_view_range()
         fig.canvas.draw_idle()
         
-    def toggle_visibility(label):
-        line = lines[label]
-        line.set_visible(not line.get_visible())
-        line.figure.canvas.draw_idle()
-        # Don't auto-scale when toggling visibility
+    def on_pick(event):
+        """Handle legend pick events to toggle line visibility"""
+        legend_lines = legend.get_lines()
+        legend_texts = legend.get_texts()
+        
+        # Check if a legend line was clicked
+        for i, (legend_line, orig_line) in enumerate(zip(legend_lines, lines.values())):
+            if event.artist == legend_line:
+                # Toggle visibility
+                visible = not orig_line.get_visible()
+                orig_line.set_visible(visible)
+                
+                # Update legend line and text alpha to show state
+                legend_line.set_alpha(1.0 if visible else 0.2)
+                legend_texts[i].set_alpha(1.0 if visible else 0.3)
+                
+                fig.canvas.draw_idle()
+                return
+        
+        # Check if a legend text was clicked
+        for i, (legend_text, orig_line) in enumerate(zip(legend_texts, lines.values())):
+            if event.artist == legend_text:
+                # Toggle visibility
+                visible = not orig_line.get_visible()
+                orig_line.set_visible(visible)
+                
+                # Update legend line and text alpha to show state
+                legend_lines[i].set_alpha(1.0 if visible else 0.2)
+                legend_text.set_alpha(1.0 if visible else 0.3)
+                
+                fig.canvas.draw_idle()
+                return
         
     def prev_window(event):
         if current_window > 0:
@@ -494,10 +525,10 @@ def interactive_viewer(file_path, max_windows=100, denormalize=True):
         update_view_range()
         fig.canvas.draw_idle()
     
-    # Connect
+    # Connect events
     window_slider.on_changed(update_window)
     scale_slider.on_changed(update_scale)
-    check.on_clicked(toggle_visibility)
+    fig.canvas.mpl_connect('pick_event', on_pick)  # Connect legend click handler
     btn_prev.on_clicked(prev_window)
     btn_next.on_clicked(next_window)
     btn_reset.on_clicked(auto_fit_y)
@@ -508,7 +539,7 @@ def interactive_viewer(file_path, max_windows=100, denormalize=True):
     print("\n" + "=" * 60)
     print("INTERACTIVE VIEWER OPENED")
     print("=" * 60)
-    print("• Use Checkboxes on left to Show/Hide columns")
+    print("• Click on Legend items to Show/Hide lines")
     print("• Use Slider to scroll through windows")
     print("• Use Y-Scale to zoom vertically")
     print("=" * 60 + "\n")

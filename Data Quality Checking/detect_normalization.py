@@ -264,8 +264,8 @@ def interactive_viewer(file_path, max_windows=100):
     ax_scale = plt.axes([0.12, 0.03, 0.55, 0.03])
     scale_slider = Slider(ax_scale, 'Y-Scale', 0.1, 5.0, valinit=1.0, valfmt='%.2f')
     
-    # Checkboxes for Column Selection - smaller and compact
-    ax_check = plt.axes([0.01, 0.30, 0.09, 0.5])  # Narrower panel
+    # Checkboxes - tiny box in top-right corner (outside graph area)
+    ax_check = plt.axes([0.96, 0.88, 0.03, 0.08])  # Far right, very small
     check = CheckButtons(ax_check, list(data_dict.keys()), [True]*len(data_dict))
     
     # Buttons - positioned at bottom right
