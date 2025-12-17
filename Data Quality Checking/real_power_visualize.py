@@ -28,6 +28,60 @@ import sys
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider, Button, CheckButtons
 
+# Normalization parameters from ukdale_processing.py
+AGG_MEAN = 522
+AGG_STD = 814
+
+APPLIANCE_PARAMS = {
+    'kettle': {'mean': 700, 'std': 1000, 'max_power': 3998},
+    'microwave': {'mean': 500, 'std': 800, 'max_power': 2000},  # Clipped in algorithm1_v2.py
+    'fridge': {'mean': 200, 'std': 400, 'max_power': 350},  # Clipped in algorithm1_v2.py
+    'dishwasher': {'mean': 700, 'std': 1000, 'max_power': 3964},
+    'washingmachine': {'mean': 400, 'std': 700, 'max_power': 3999}  # Original from paper
+}
+
+def detect_data_type(data):
+    """
+    Detect if data is MinMax [0,1], Z-score, or raw power
+    
+    Returns: 'minmax_0_1', 'zscore', or 'raw'
+    """
+    min_val = np.min(data)
+    max_val = np.max(data)
+    mean_val = np.mean(data)
+    std_val = np.std(data)
+    
+    # Check for MinMax [0, 1]
+    if 0.0 <= min_val < 0.05 and 0.8 < max_val <= 1.05:
+        return 'minmax_0_1'
+    
+    # Check for Z-score (mean ~0, reasonable std)
+    elif -2 < mean_val < 2 and 0.2 < std_val < 3.0 and min_val < 0:
+        return 'zscore'
+    
+    # Raw power (positive, large values)
+    elif min_val >= 0 and max_val > 100:
+        return 'raw'
+    
+    # Default to Z-score if uncertain
+    return 'zscore'
+
+def denormalize_zscore_to_watts(zscore_data, mean, std):
+    """Convert Z-score normalized data back to watts"""
+    return zscore_data * std + mean
+
+def denormalize_minmax_to_watts(minmax_data, max_power):
+    """Convert MinMax [0,1] normalized data back to watts"""
+    return minmax_data * max_power
+
+def detect_appliance_from_path(file_path):
+    """Detect appliance name from file path"""
+    file_lower = file_path.lower()
+    for appliance in APPLIANCE_PARAMS.keys():
+        if appliance in file_lower:
+            return appliance
+    return None
+
 
 def detect_normalization(file_path, verbose=True):
     """
@@ -157,11 +211,32 @@ def analyze_column(data_flat):
         'range': data_range
     }
 
-def interactive_viewer(file_path, max_windows=100):
+def interactive_viewer(file_path, max_windows=100, denormalize=True):
     """
     Interactive MATLAB-like data viewer with scrolling, zoom, and multi-column support.
+    Can denormalize Z-score data back to watts.
     """
     print(f"\nLoading data for interactive viewer: {file_path}")
+    
+    # Auto-detect appliance from path
+    detected_appliance = detect_appliance_from_path(file_path)
+    appliance_name = None
+    
+    if denormalize:
+        if detected_appliance:
+            print(f"\n✓ Detected appliance: {detected_appliance}")
+            confirm = input(f"Use '{detected_appliance}' for denormalization? (y/n, default=y): ").strip().lower()
+            if confirm in ['', 'y', 'yes']:
+                appliance_name = detected_appliance
+        
+        if not appliance_name:
+            print(f"\nAvailable appliances: {', '.join(APPLIANCE_PARAMS.keys())}")
+            user_input = input("Enter appliance name (or 'skip' to show Z-score): ").strip().lower()
+            if user_input in APPLIANCE_PARAMS:
+                appliance_name = user_input
+            elif user_input != 'skip':
+                print(f"Unknown appliance '{user_input}', showing Z-score data")
+                denormalize = False
     
     # Load data (Detect normalization internally calls analyze_column but returns dict)
     # We mainly need the data dictionary logic here.
@@ -228,6 +303,69 @@ def interactive_viewer(file_path, max_windows=100):
         print("No numeric data found to plot.")
         return
 
+    # Denormalize data if requested
+    if denormalize and appliance_name:
+        print(f"\n{'='*60}")
+        print(f"DENORMALIZING TO WATTS")
+        print(f"{'='*60}")
+        print(f"Appliance: {appliance_name}")
+        
+        # Denormalize each column
+        for col_name in data_dict.keys():
+            col_str = str(col_name)
+            
+            # Determine column type and parameters
+            if col_str == '0':
+                # Column 0 = aggregate
+                mean, std = AGG_MEAN, AGG_STD
+                max_power = None  # Aggregate doesn't use max_power
+                label = "Aggregate"
+            elif col_str == '1':
+                # Column 1 = appliance
+                mean = APPLIANCE_PARAMS[appliance_name]['mean']
+                std = APPLIANCE_PARAMS[appliance_name]['std']
+                max_power = APPLIANCE_PARAMS[appliance_name]['max_power']
+                label = appliance_name.capitalize()
+            elif col_str.lower() in ['data', 'power']:
+                # NPY or single-column CSV
+                mean = APPLIANCE_PARAMS[appliance_name]['mean']
+                std = APPLIANCE_PARAMS[appliance_name]['std']
+                max_power = APPLIANCE_PARAMS[appliance_name]['max_power']
+                label = appliance_name.capitalize()
+            else:
+                continue
+            
+            # Get data
+            original_shape = data_dict[col_name].shape
+            data_flat = data_dict[col_name].reshape(-1)
+            
+            # Detect data type
+            data_type = detect_data_type(data_flat)
+            print(f"\n{label}:")
+            print(f"  Detected type: {data_type}")
+            print(f"  Original range: [{data_flat.min():.4f}, {data_flat.max():.4f}]")
+            
+            # Apply appropriate denormalization
+            if data_type == 'minmax_0_1':
+                # MinMax [0,1] → Watts
+                data_watts = denormalize_minmax_to_watts(data_flat, max_power)
+                print(f"  Denormalization: MinMax × {max_power}W")
+            elif data_type == 'zscore':
+                # Z-score → Watts
+                data_watts = denormalize_zscore_to_watts(data_flat, mean, std)
+                print(f"  Denormalization: Z-score (mean={mean}W, std={std}W)")
+            else:  # raw
+                # Already in watts
+                data_watts = data_flat
+                print(f"  No conversion needed (already in watts)")
+            
+            print(f"  Final range: [{data_watts.min():.1f}W, {data_watts.max():.1f}W]")
+            
+            # Update data_dict
+            data_dict[col_name] = data_watts.reshape(original_shape)
+        
+        print(f"{'='*60}\n")
+
     print(f"Loaded {num_windows} windows, each with {window_length} time steps")
     print(f"Columns found: {list(data_dict.keys())}")
     
@@ -254,7 +392,8 @@ def interactive_viewer(file_path, max_windows=100):
     ax.legend(loc='upper right')
     ax.set_xlim(start_step, start_step + window_length)
     ax.set_xlabel('Global Time Step', fontsize=12)
-    ax.set_ylabel('Value', fontsize=12)
+    ylabel = 'Power (Watts)' if (denormalize and appliance_name) else 'Z-Score Value'
+    ax.set_ylabel(ylabel, fontsize=12)
     ax.grid(True, alpha=0.3)
     
     # Controls - sliders at bottom
@@ -392,6 +531,8 @@ def main():
     parser.add_argument('--view', '-v', action='store_true', help='Open viewer')
     parser.add_argument('--no-view', action='store_true', help='Skip viewer')
     parser.add_argument('--max-windows', type=int, default=100000, help='Max windows to display (default: 100000, effectively all)')
+    parser.add_argument('--denormalize', action='store_true', default=True, help='Denormalize Z-score to watts (default: True)')
+    parser.add_argument('--no-denormalize', dest='denormalize', action='store_false', help='Keep Z-score values (do not convert to watts)')
     
     args = parser.parse_args()
     
@@ -429,7 +570,7 @@ def main():
         if should_view:
             try:
                 print("\nOpening interactive viewer...")
-                interactive_viewer(file_path, max_windows=args.max_windows)
+                interactive_viewer(file_path, max_windows=args.max_windows, denormalize=args.denormalize)
             except Exception as e:
                 print(f"Error opening viewer: {e}")
                 

@@ -15,10 +15,10 @@ from pathlib import Path
 # Appliance specifications from ukdale_processing.py
 APPLIANCE_SPECS = {
     'kettle': {'mean': 700, 'std': 1000, 'max_power': 3998},
-    'microwave': {'mean': 500, 'std': 800, 'max_power': 3969},
+    'microwave': {'mean': 500, 'std': 800, 'max_power': 2000},
     'fridge': {'mean': 200, 'std': 400, 'max_power': 350},
     'dishwasher': {'mean': 700, 'std': 1000, 'max_power': 3964},
-    'washingmachine': {'mean': 400, 'std': 700, 'max_power': 2000}
+    'washingmachine': {'mean': 400, 'std': 700, 'max_power': 3999}
 }
 
 
@@ -81,29 +81,88 @@ def load_real_data(appliance_name, custom_path=None):
     return real_data
 
 
-def denormalize_synthetic(synthetic_normalized, appliance_name):
-    """Convert synthetic data from [0,1] to watts"""
-    specs = APPLIANCE_SPECS[appliance_name]
-    max_power = specs['max_power']
+def get_real_data_stats(appliance_name):
+    """Calculate actual Z-score statistics from real UK-DALE training data
     
-    # [0, 1] -> [0, max_power] watts
-    synthetic_watts = synthetic_normalized * max_power
-    print(f"Denormalized to watts: [{synthetic_watts.min():.2f}W, {synthetic_watts.max():.2f}W]")
+    Returns:
+        dict with 'zscore_min', 'zscore_max', 'zscore_mean', 'zscore_std'
+    """
+    csv_path = f'NILM-main/dataset_preprocess/created_data/UK_DALE/{appliance_name}_training_.csv'
     
-    return synthetic_watts
+    print(f"\n=== Calculating Real Data Statistics ===")
+    print(f"Loading from: {csv_path}")
+    
+    try:
+        df = pd.read_csv(csv_path, header=None)
+    except FileNotFoundError:
+        print(f"Warning: Real data not found at {csv_path}")
+        print(f"Falling back to theoretical Z-score range based on max_power_clip")
+        return None
+    
+    # Column 1 is appliance data (already in Z-score)
+    zscore_data = df.iloc[:, 1].values
+    
+    stats = {
+        'zscore_min': float(zscore_data.min()),
+        'zscore_max': float(zscore_data.max()),
+        'zscore_mean': float(zscore_data.mean()),
+        'zscore_std': float(zscore_data.std())
+    }
+    
+    print(f"Real data Z-score statistics:")
+    print(f"  Min:  {stats['zscore_min']:.4f}")
+    print(f"  Max:  {stats['zscore_max']:.4f}")
+    print(f"  Mean: {stats['zscore_mean']:.4f}")
+    print(f"  Std:  {stats['zscore_std']:.4f}")
+    
+    return stats
 
 
-def normalize_to_zscore(watts, appliance_name):
-    """Convert watts to Z-score normalization"""
-    specs = APPLIANCE_SPECS[appliance_name]
-    mean = specs['mean']
-    std = specs['std']
+def convert_synthetic_to_zscore(synthetic_minmax_01, appliance_name, real_stats=None):
+    """Convert synthetic data from [0,1] to Z-score matching real data distribution
     
-    # Z-score: (watts - mean) / std
-    normalized = (watts - mean) / std
-    print(f"Z-score normalized: [{normalized.min():.4f}, {normalized.max():.4f}]")
+    Args:
+        synthetic_minmax_01: Synthetic data in [0,1] format
+        appliance_name: Name of appliance
+        real_stats: Stats from get_real_data_stats() or None to use fallback
     
-    return normalized
+    Returns:
+        Synthetic data in Z-score format matching real data scale
+    """
+    print(f"\n=== Converting Synthetic [0,1] -> Z-score ===")
+    
+    if real_stats is not None:
+        # PREFERRED: Scale to match real data's Z-score range
+        print(f"Using real data statistics for conversion")
+        zscore_min = real_stats['zscore_min']
+        zscore_max = real_stats['zscore_max']
+        
+        # Map [0, 1] -> [zscore_min, zscore_max]
+        zscore_range = zscore_max - zscore_min
+        synthetic_zscore = synthetic_minmax_01 * zscore_range + zscore_min
+        
+        print(f"Mapped [0, 1] -> [{zscore_min:.4f}, {zscore_max:.4f}]")
+    else:
+        # FALLBACK: Use old method with max_power_clip
+        print(f"WARNING: Using fallback conversion (max_power_clip)")
+        print(f"This may cause scale mismatch with real data!")
+        
+        specs = APPLIANCE_SPECS[appliance_name]
+        mean = specs['mean']
+        std = specs['std']
+        max_power = specs['max_power']
+        
+        # [0, 1] -> [0, max_power] watts -> Z-score
+        synthetic_watts = synthetic_minmax_01 * max_power
+        synthetic_zscore = (synthetic_watts - mean) / std
+        
+        print(f"Converted via: [0,1] -> [0,{max_power}W] -> Z-score")
+    
+    print(f"Synthetic Z-score range: [{synthetic_zscore.min():.4f}, {synthetic_zscore.max():.4f}]")
+    print(f"Synthetic Z-score mean:  {synthetic_zscore.mean():.4f}")
+    print(f"Synthetic Z-score std:   {synthetic_zscore.std():.4f}")
+    
+    return synthetic_zscore
 
 
 def create_synthetic_aggregate(all_appliances_synthetic):
@@ -154,78 +213,114 @@ def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, output_s
     print(f"Real rows: {real_rows:,} | Synthetic rows: {synthetic_rows:,}")
     print(f"{'='*60}")
     
-    # 1. Load real data
-    real_data = load_real_data(appliance_name, custom_path=real_path)
-    real_aggregate = real_data.iloc[:real_rows, 0].values  # Column 0
-    real_appliance = real_data.iloc[:real_rows, 1].values  # Column 1
-    print(f"\nReal data selected: {len(real_aggregate):,} rows")
+    # 1. Load real data and calculate statistics (skip if real_rows=0)
+    if real_rows > 0:
+        real_data = load_real_data(appliance_name, custom_path=real_path)
+        real_aggregate = real_data.iloc[:real_rows, 0].values  # Column 0
+        real_appliance = real_data.iloc[:real_rows, 1].values  # Column 1
+        print(f"\nReal data selected: {len(real_aggregate):,} rows")
+        
+        # Calculate real data Z-score statistics for synthetic conversion
+        real_stats = get_real_data_stats(appliance_name)
+    else:
+        # No real data - create empty arrays
+        real_aggregate = np.array([])
+        real_appliance = np.array([])
+        real_stats = None  # Will use fallback conversion
+        print(f"\nNo real data (real_rows=0)")
+        print(f"Synthetic data will use fallback conversion (may not match train.csv scale)")
     
     # 2. Load ALL 5 appliances synthetic data from HARDCODED source
     # ALWAYS use OUTPUT/synthetic_data_for_mix_data for aggregate calculation
     SYNTHETIC_FOLDER = "OUTPUT/synthetic_data_for_mix_data"
     print("\n=== Loading ALL 5 Appliances ===")
     print(f"** Loading ALL appliances from: {SYNTHETIC_FOLDER} (HARDCODED) **")
-    all_synthetic = {}
+    
+    # Get real stats for ALL appliances (for aggregate calculation)
+    all_real_stats = {}
     for app_name in APPLIANCE_SPECS.keys():
-        syn_normalized = load_synthetic_data(app_name, custom_folder=SYNTHETIC_FOLDER)
-        syn_watts = denormalize_synthetic(syn_normalized, app_name)
-        all_synthetic[app_name] = syn_watts
+        app_stats = get_real_data_stats(app_name)
+        all_real_stats[app_name] = app_stats
     
-    # 3. Create synthetic aggregate
-    syn_aggregate_watts = create_synthetic_aggregate(all_synthetic)
+    # Load and convert all synthetic appliances to Z-score
+    all_synthetic_zscore = {}
+    for app_name in APPLIANCE_SPECS.keys():
+        syn_minmax = load_synthetic_data(app_name, custom_folder=SYNTHETIC_FOLDER)
+        syn_zscore = convert_synthetic_to_zscore(syn_minmax, app_name, all_real_stats[app_name])
+        all_synthetic_zscore[app_name] = syn_zscore
     
-    # 4. Get target appliance synthetic data
-    # CRITICAL: Must trim to same length as aggregate to ensure alignment!
-    # Aggregate was created from min_len = minimum across all 5 appliances
-    # So we MUST use the same indices for the target appliance
-    aggregate_len = len(syn_aggregate_watts)
-    syn_appliance_watts = all_synthetic[appliance_name][:aggregate_len]
+    # 3. Create synthetic aggregate from Z-score data
+    # NOTE: All synthetic appliances are now in Z-score format
+    print("\n=== Creating Synthetic Aggregate (Z-score) ===")
+    
+    # Find minimum length
+    min_len = min(len(data) for data in all_synthetic_zscore.values())
+    print(f"Using length: {min_len:,} (minimum across all appliances)")
+    
+    # Convert each appliance from Z-score back to Watts for summing
+    all_synthetic_watts_for_agg = {}
+    for app_name, zscore_data in all_synthetic_zscore.items():
+        specs = APPLIANCE_SPECS[app_name]
+        watts = zscore_data[:min_len] * specs['std'] + specs['mean']
+        all_synthetic_watts_for_agg[app_name] = watts
+        print(f"  {app_name}: mean={watts.mean():.2f}W")
+    
+    # Sum all appliances in watts
+    syn_aggregate_watts = np.zeros(min_len)
+    for app_name, watts in all_synthetic_watts_for_agg.items():
+        syn_aggregate_watts += watts
+    
+    print(f"Aggregate range: [{syn_aggregate_watts.min():.2f}W, {syn_aggregate_watts.max():.2f}W]")
+    print(f"Aggregate mean: {syn_aggregate_watts.mean():.2f}W")
+    
+    # Convert aggregate to Z-score
+    aggregate_mean = 522  # Fixed aggregate mean
+    aggregate_std = 814   # Fixed aggregate std
+    syn_aggregate_zscore = (syn_aggregate_watts - aggregate_mean) / aggregate_std
+    
+    # 4. Get target appliance synthetic data (already in Z-score)
+    syn_appliance_zscore = all_synthetic_zscore[appliance_name][:min_len]
     
     print(f"\nAlignment check:")
-    print(f"  Aggregate length: {len(syn_aggregate_watts):,}")
-    print(f"  Appliance length: {len(syn_appliance_watts):,}")
-    assert len(syn_aggregate_watts) == len(syn_appliance_watts), "Length mismatch!"
+    print(f"  Aggregate length: {len(syn_aggregate_zscore):,}")
+    print(f"  Appliance length: {len(syn_appliance_zscore):,}")
+    assert len(syn_aggregate_zscore) == len(syn_appliance_zscore), "Length mismatch!"
     
     # 5. Trim to requested size
-    min_syn_len = len(syn_aggregate_watts)  # They're now the same length
-    actual_syn_rows = min(synthetic_rows, min_syn_len)
+    actual_syn_rows = min(synthetic_rows, min_len)
     print(f"  Actual synthetic rows to use: {actual_syn_rows:,}")
     
-    syn_aggregate_watts = syn_aggregate_watts[:actual_syn_rows]
-    syn_appliance_watts = syn_appliance_watts[:actual_syn_rows]
+    syn_aggregate_zscore = syn_aggregate_zscore[:actual_syn_rows]
+    syn_appliance_zscore = syn_appliance_zscore[:actual_syn_rows]
     
-    # 6. Normalize synthetic data to Z-score (aggregate uses fixed params)
-    # For aggregate, use fixed normalization parameters (from ukdale_processing.py)
+    # 6. Synthetic data is now in Z-score (no further conversion needed)
     if actual_syn_rows > 0:
-        aggregate_mean = 522  # Fixed aggregate mean
-        aggregate_std = 814   # Fixed aggregate std
-        syn_aggregate_zscore = (syn_aggregate_watts - aggregate_mean) / aggregate_std
+        print(f"\n=== Synthetic Data Already in Z-score ===")
+        print(f"Aggregate Z-score: [{syn_aggregate_zscore.min():.4f}, {syn_aggregate_zscore.max():.4f}]")
+        print(f"Appliance Z-score: [{syn_appliance_zscore.min():.4f}, {syn_appliance_zscore.max():.4f}]")
         
-        # For appliance, use appliance-specific params
-        syn_appliance_zscore = normalize_to_zscore(syn_appliance_watts, appliance_name)
-        
-        # DIAGNOSTIC: Check if appliance ever exceeds aggregate (should NEVER happen)
-        print("\n=== DIAGNOSTIC: Checking Appliance vs Aggregate ===")
-        print(f"Checking in WATTS (before Z-score):")
-        violations_watts = np.sum(syn_appliance_watts > syn_aggregate_watts)
-        print(f"  Points where appliance > aggregate: {violations_watts} / {len(syn_appliance_watts)}")
-        if violations_watts > 0:
-            print(f"  [WARNING] This should be 0! Appliance cannot exceed aggregate!")
-            max_violation = np.max(syn_appliance_watts - syn_aggregate_watts)
-            print(f"  Maximum violation: appliance exceeds aggregate by {max_violation:.2f}W")
-        else:
-            print(f"  [PASS] All appliance values <= aggregate (in watts)")
-        
-        print(f"Checking in Z-SCORE (after normalization):")
-        violations_zscore = np.sum(syn_appliance_zscore > syn_aggregate_zscore)
-        print(f"  Points where appliance > aggregate: {violations_zscore} / {len(syn_appliance_zscore)}")
-        if violations_zscore > 0:
-            print(f"  [WARNING] {violations_zscore} points where appliance Z-score > aggregate Z-score")
-            print(f"  This CAN happen due to different normalization parameters")
-            print(f"  Aggregate Z-score range: [{syn_aggregate_zscore.min():.4f}, {syn_aggregate_zscore.max():.4f}]")
-            print(f"  Appliance Z-score range: [{syn_appliance_zscore.min():.4f}, {syn_appliance_zscore.max():.4f}]")
-        else:
-            print(f"  [PASS] All appliance Z-scores <= aggregate Z-scores")
+        # DIAGNOSTIC: Compare with real data scale if available
+        if real_stats is not None:
+            print("\n=== DIAGNOSTIC: Comparing Synthetic vs Real Z-score Scale ===")
+            print(f"Real data Z-score:")
+            print(f"  Range: [{real_stats['zscore_min']:.4f}, {real_stats['zscore_max']:.4f}]")
+            print(f"  Mean:  {real_stats['zscore_mean']:.4f}")
+            print(f"  Std:   {real_stats['zscore_std']:.4f}")
+            
+            print(f"\nSynthetic data Z-score:")
+            print(f"  Range: [{syn_appliance_zscore.min():.4f}, {syn_appliance_zscore.max():.4f}]")
+            print(f"  Mean:  {syn_appliance_zscore.mean():.4f}")
+            print(f"  Std:   {syn_appliance_zscore.std():.4f}")
+            
+            # Check if ranges match (within tolerance)
+            range_match = abs(syn_appliance_zscore.min() - real_stats['zscore_min']) < 0.1 and \
+                         abs(syn_appliance_zscore.max() - real_stats['zscore_max']) < 0.1
+            
+            if range_match:
+                print(f"\n  [PASS] Synthetic Z-score range matches real data!")
+            else:
+                print(f"\n  [WARNING] Synthetic Z-score range differs from real data")
+                print(f"  This may cause scale mismatch in mixed training data")
     else:
         # No synthetic data - create empty arrays
         syn_aggregate_zscore = np.array([])
