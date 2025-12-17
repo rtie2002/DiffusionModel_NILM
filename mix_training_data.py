@@ -14,44 +14,39 @@ from pathlib import Path
 
 # Appliance specifications from ukdale_processing.py
 APPLIANCE_SPECS = {
-    'kettle': {'mean': 700, 'std': 1000, 'max_power': 3996},
-    'microwave': {'mean': 500, 'std': 800, 'max_power': 2000},
-    'fridge': {'mean': 200, 'std': 400, 'max_power': 350}, 
+    'kettle': {'mean': 700, 'std': 1000, 'max_power': 3998},
+    'microwave': {'mean': 500, 'std': 800, 'max_power': 3969},
+    'fridge': {'mean': 200, 'std': 400, 'max_power': 350},
     'dishwasher': {'mean': 700, 'std': 1000, 'max_power': 3964},
-    'washingmachine': {'mean': 400, 'std': 700, 'max_power': 3999}
+    'washingmachine': {'mean': 400, 'std': 700, 'max_power': 2000}
 }
 
 
 
-
-def load_synthetic_data(appliance_name, custom_path=None):
-    """Load and prepare synthetic data from NPY file"""
+def load_synthetic_data(appliance_name, custom_folder=None):
+    """Load and prepare synthetic data from NPY file
+    
+    Args:
+        appliance_name: Name of the appliance
+        custom_folder: If provided, look for 'ddpm_fake_{appliance_name}.npy' in this folder
+                      Otherwise use default 'OUTPUT/{appliance_name}_512/' path
+    """
     print(f"\n=== Loading Synthetic Data for {appliance_name} ===")
     
-    # Logic to find the file if no custom path provided
-    if custom_path:
-        npy_path = custom_path
+    # Determine NPY path
+    if custom_folder:
+        # Load from custom folder with standard naming
+        npy_path = f'{custom_folder}/ddpm_fake_{appliance_name}.npy'
     else:
-        # SEARCH in the new default directory
-        default_dir = Path(r'OUTPUT/synthetic_data_for_mix_data')
-        
-        # Try to find a file matching the appliance name
-        # Pattern: ddpm_fake_{appliance}_*.npy
-        candidates = list(default_dir.glob(f'ddpm_fake_{appliance_name}_*.npy'))
-        
-        if len(candidates) > 0:
-            npy_path = str(candidates[0])
-            if len(candidates) > 1:
-                print(f"Warning: Multiple files found for {appliance_name}, using: {npy_path}")
-        else:
-            print(f"Error: No synthetic file found for {appliance_name} in {default_dir}")
-            raise FileNotFoundError(f"Synthetic data for {appliance_name} missing in {default_dir}")
+        # Default location
+        npy_path = f'OUTPUT/{appliance_name}_512/ddpm_fake_{appliance_name}_512.npy'
 
     print(f"Loading from: {npy_path}")
     try:
         synthetic = np.load(npy_path)
     except FileNotFoundError:
         print(f"Error: File not found: {npy_path}")
+        print(f"Expected filename: ddpm_fake_{appliance_name}.npy")
         raise
 
     print(f"Loaded synthetic NPY: {synthetic.shape}")
@@ -73,7 +68,7 @@ def load_real_data(appliance_name, custom_path=None):
     else:
         csv_path = f'NILM-main/dataset_preprocess/created_data/UK_DALE/{appliance_name}_training_.csv'
         
-    print(f"Loading from: {csv_path}")
+    print(f"Loading form: {csv_path}")
     try:
         real_data = pd.read_csv(csv_path, header=None)
     except FileNotFoundError:
@@ -93,7 +88,7 @@ def denormalize_synthetic(synthetic_normalized, appliance_name):
     
     # [0, 1] -> [0, max_power] watts
     synthetic_watts = synthetic_normalized * max_power
-    # print(f"Denormalized to watts: [{synthetic_watts.min():.2f}W, {synthetic_watts.max():.2f}W]")
+    print(f"Denormalized to watts: [{synthetic_watts.min():.2f}W, {synthetic_watts.max():.2f}W]")
     
     return synthetic_watts
 
@@ -106,7 +101,7 @@ def normalize_to_zscore(watts, appliance_name):
     
     # Z-score: (watts - mean) / std
     normalized = (watts - mean) / std
-    # print(f"Z-score normalized: [{normalized.min():.4f}, {normalized.max():.4f}]")
+    print(f"Z-score normalized: [{normalized.min():.4f}, {normalized.max():.4f}]")
     
     return normalized
 
@@ -121,7 +116,7 @@ def create_synthetic_aggregate(all_appliances_synthetic):
     Returns:
         aggregate power array (watts)
     """
-    print("\n=== Creating Synthetic Aggregate (Summing 5 Appliances) ===")
+    print("\n=== Creating Synthetic Aggregate ===")
     
     # Find minimum length
     min_len = min(len(data) for data in all_appliances_synthetic.values())
@@ -139,9 +134,20 @@ def create_synthetic_aggregate(all_appliances_synthetic):
     return aggregate
 
 
-def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, synthetic_path=None, output_suffix="mixed"):
+def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, output_suffix="mixed"):
     """
     Mix real and synthetic data
+    
+    Args:
+        appliance_name: Target appliance
+        real_rows: Number of real data rows to use
+        synthetic_rows: Number of synthetic data rows to use  
+        real_path: Optional custom path for real data
+        output_suffix: Suffix for output file
+    
+    Note:
+        Synthetic data is ALWAYS loaded from: OUTPUT/synthetic_data_for_mix_data/
+        This ensures aggregate power is calculated from a consistent source.
     """
     print(f"\n{'='*60}")
     print(f"Mixing Data: {appliance_name}")
@@ -154,46 +160,74 @@ def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, syntheti
     real_appliance = real_data.iloc[:real_rows, 1].values  # Column 1
     print(f"\nReal data selected: {len(real_aggregate):,} rows")
     
-    # 2. Load ALL 5 appliances synthetic data
-    print("\n=== Loading Synthetic Data for Aggregate Generation ===")
+    # 2. Load ALL 5 appliances synthetic data from HARDCODED source
+    # ALWAYS use OUTPUT/synthetic_data_for_mix_data for aggregate calculation
+    SYNTHETIC_FOLDER = "OUTPUT/synthetic_data_for_mix_data"
+    print("\n=== Loading ALL 5 Appliances ===")
+    print(f"** Loading ALL appliances from: {SYNTHETIC_FOLDER} (HARDCODED) **")
     all_synthetic = {}
     for app_name in APPLIANCE_SPECS.keys():
-        # Use custom path ONLY if this is the target appliance AND specifically provided
-        path_to_use = synthetic_path if (app_name == appliance_name) else None
-        
-        syn_normalized = load_synthetic_data(app_name, custom_path=path_to_use)
+        syn_normalized = load_synthetic_data(app_name, custom_folder=SYNTHETIC_FOLDER)
         syn_watts = denormalize_synthetic(syn_normalized, app_name)
         all_synthetic[app_name] = syn_watts
     
-    # 3. Create synthetic aggregate (Sum of Watts)
+    # 3. Create synthetic aggregate
     syn_aggregate_watts = create_synthetic_aggregate(all_synthetic)
     
-    # 4. Get target appliance synthetic data (Watts)
-    # Align lengths
+    # 4. Get target appliance synthetic data
+    # CRITICAL: Must trim to same length as aggregate to ensure alignment!
+    # Aggregate was created from min_len = minimum across all 5 appliances
+    # So we MUST use the same indices for the target appliance
     aggregate_len = len(syn_aggregate_watts)
     syn_appliance_watts = all_synthetic[appliance_name][:aggregate_len]
     
     print(f"\nAlignment check:")
     print(f"  Aggregate length: {len(syn_aggregate_watts):,}")
     print(f"  Appliance length: {len(syn_appliance_watts):,}")
+    assert len(syn_aggregate_watts) == len(syn_appliance_watts), "Length mismatch!"
     
     # 5. Trim to requested size
-    min_syn_len = len(syn_aggregate_watts)
+    min_syn_len = len(syn_aggregate_watts)  # They're now the same length
     actual_syn_rows = min(synthetic_rows, min_syn_len)
     print(f"  Actual synthetic rows to use: {actual_syn_rows:,}")
     
     syn_aggregate_watts = syn_aggregate_watts[:actual_syn_rows]
     syn_appliance_watts = syn_appliance_watts[:actual_syn_rows]
     
-    # 6. Normalize synthetic data to Z-score
+    # 6. Normalize synthetic data to Z-score (aggregate uses fixed params)
+    # For aggregate, use fixed normalization parameters (from ukdale_processing.py)
     if actual_syn_rows > 0:
-        aggregate_mean = 522  # Fixed aggregate mean from ukdale
-        aggregate_std = 814   # Fixed aggregate std from ukdale
+        aggregate_mean = 522  # Fixed aggregate mean
+        aggregate_std = 814   # Fixed aggregate std
         syn_aggregate_zscore = (syn_aggregate_watts - aggregate_mean) / aggregate_std
         
         # For appliance, use appliance-specific params
         syn_appliance_zscore = normalize_to_zscore(syn_appliance_watts, appliance_name)
+        
+        # DIAGNOSTIC: Check if appliance ever exceeds aggregate (should NEVER happen)
+        print("\n=== DIAGNOSTIC: Checking Appliance vs Aggregate ===")
+        print(f"Checking in WATTS (before Z-score):")
+        violations_watts = np.sum(syn_appliance_watts > syn_aggregate_watts)
+        print(f"  Points where appliance > aggregate: {violations_watts} / {len(syn_appliance_watts)}")
+        if violations_watts > 0:
+            print(f"  [WARNING] This should be 0! Appliance cannot exceed aggregate!")
+            max_violation = np.max(syn_appliance_watts - syn_aggregate_watts)
+            print(f"  Maximum violation: appliance exceeds aggregate by {max_violation:.2f}W")
+        else:
+            print(f"  [PASS] All appliance values <= aggregate (in watts)")
+        
+        print(f"Checking in Z-SCORE (after normalization):")
+        violations_zscore = np.sum(syn_appliance_zscore > syn_aggregate_zscore)
+        print(f"  Points where appliance > aggregate: {violations_zscore} / {len(syn_appliance_zscore)}")
+        if violations_zscore > 0:
+            print(f"  [WARNING] {violations_zscore} points where appliance Z-score > aggregate Z-score")
+            print(f"  This CAN happen due to different normalization parameters")
+            print(f"  Aggregate Z-score range: [{syn_aggregate_zscore.min():.4f}, {syn_aggregate_zscore.max():.4f}]")
+            print(f"  Appliance Z-score range: [{syn_appliance_zscore.min():.4f}, {syn_appliance_zscore.max():.4f}]")
+        else:
+            print(f"  [PASS] All appliance Z-scores <= aggregate Z-scores")
     else:
+        # No synthetic data - create empty arrays
         syn_aggregate_zscore = np.array([])
         syn_appliance_zscore = np.array([])
         print("\nNo synthetic data to normalize (synthetic_rows=0)")
@@ -219,9 +253,9 @@ def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, syntheti
     if real_remainder > 0:
         real_agg_windows.append(real_aggregate[-real_remainder:])
         real_app_windows.append(real_appliance[-real_remainder:])
-        # print(f"  + Real remainder: {real_remainder} points")
+        print(f"  + Real remainder: {real_remainder} points")
     
-    # Split synthetic data into windows
+    # Split synthetic data into windows (skip if no synthetic data)
     syn_agg_windows = []
     syn_app_windows = []
     if len(syn_aggregate_zscore) > 0:
@@ -234,7 +268,7 @@ def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, syntheti
         if syn_remainder > 0:
             syn_agg_windows.append(syn_aggregate_zscore[-syn_remainder:])
             syn_app_windows.append(syn_appliance_zscore[-syn_remainder:])
-            # print(f"  + Synthetic remainder: {syn_remainder} points")
+            print(f"  + Synthetic remainder: {syn_remainder} points")
     
     print(f"Real windows: {len(real_agg_windows)}")
     print(f"Synthetic windows: {len(syn_agg_windows)}")
@@ -278,8 +312,8 @@ def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, syntheti
     print(f"[SUCCESS]")
     print(f"Saved to: {output_file}")
     print(f"Total rows: {len(mixed_df):,}")
-    print(f"  - Real: {actual_real_rows:,} / {real_rows:,} requested")
-    print(f"  - Synthetic: {actual_syn_rows_used:,} / {synthetic_rows:,} requested")
+    print(f"  - Real: {actual_real_rows:,} / {real_rows:,} requested ({actual_real_rows/len(mixed_df)*100:.1f}%)")
+    print(f"  - Synthetic: {actual_syn_rows_used:,} / {synthetic_rows:,} requested ({actual_syn_rows_used/len(mixed_df)*100:.1f}%)")
     print(f"{'='*60}\n")
     
     return output_file
@@ -288,58 +322,50 @@ def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, syntheti
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Mix real and synthetic NILM data')
     parser.add_argument('--appliance', type=str, required=False,
-                        choices=list(APPLIANCE_SPECS.keys()), help='Target appliance')
-    parser.add_argument('--real_rows', type=int, default=200000, help='Number of real data rows')
-    parser.add_argument('--synthetic_rows', type=int, default=200000, help='Number of synthetic rows')
-    parser.add_argument('--real_path', type=str, default=None, help='Path to real data CSV')
-    parser.add_argument('--synthetic_path', type=str, default=None, help='Path to synthetic data NPY for target appliance')
-    parser.add_argument('--suffix', type=str, default=None, help='Output file suffix')
+                        choices=list(APPLIANCE_SPECS.keys()),
+                        help='Target appliance')
+    parser.add_argument('--real_rows', type=int, default=200000,
+                        help='Number of real data rows (default: 200000)')
+    parser.add_argument('--synthetic_rows', type=int, default=200000,
+                        help='Number of synthetic rows (default: 200000)')
+    parser.add_argument('--real_path', type=str, default=None,
+                        help='Path to real data CSV')
+
+    parser.add_argument('--suffix', type=str, default=None,
+                        help='Output file suffix (default: {real}k+{syn}k)')
     
     args = parser.parse_args()
     
-    # Interactive mode
+    # Interactive mode if no arguments provided (specifically appliance)
     if args.appliance is None:
-        print("\n" + "="*50)
-        print(" INTERACTIVE MIX DATA MODE")
-        print("="*50)
+        print("\n=== Interactive Data Mixing Mode ===")
         print("Available appliances:", ", ".join(list(APPLIANCE_SPECS.keys())))
         
         while True:
-            user_app = input("1. Enter target appliance name: ").strip().lower()
+            user_app = input("Enter target appliance name: ").strip().lower()
             if user_app in APPLIANCE_SPECS:
                 args.appliance = user_app
                 break
-            print("Invalid appliance. Try again.")
+            print(f"Invalid appliance. Please choose from: {list(APPLIANCE_SPECS.keys())}")
             
-        print("\n--- Real Data Configuration ---")
-        default_real_path = f'NILM-main/dataset_preprocess/created_data/UK_DALE/{args.appliance}_training_.csv'
-        user_real_path = input(f"2. Enter Real Data Path (Enter for default): ").strip()
-        if user_real_path:
-            args.real_path = user_real_path.strip('"').strip("'")
-        else:
-            print(f"   Using default: {default_real_path}")
-            
-        user_real = input(f"3. Enter number of Real Rows (default {args.real_rows}): ").strip()
+        user_real = input(f"Enter real rows (default {args.real_rows}): ").strip()
         if user_real.isdigit():
             args.real_rows = int(user_real)
             
-        print("\n--- Synthetic Data Configuration ---")
-        # Default now points to the new directory file for the target appliance
-        default_dir = Path(r'OUTPUT/synthetic_data_for_mix_data')
-        candidates = list(default_dir.glob(f'ddpm_fake_{args.appliance}_*.npy'))
-        default_syn_path = str(candidates[0]) if candidates else "None found"
-        
-        user_syn_path = input(f"4. Enter Synthetic Data Path for {args.appliance} (Enter for default): ").strip()
-        if user_syn_path:
-            args.synthetic_path = user_syn_path.strip('"').strip("'")
-        else:
-            print(f"   Using default from pool: {default_syn_path}")
-            
-        user_syn = input(f"5. Enter number of Synthetic Rows (default {args.synthetic_rows}): ").strip()
+        user_syn = input(f"Enter synthetic rows (default {args.synthetic_rows}): ").strip()
         if user_syn.isdigit():
             args.synthetic_rows = int(user_syn)
+            
+        # Interactive prompts for inputs
+        default_real_path = f'NILM-main/dataset_preprocess/created_data/UK_DALE/{args.appliance}_training_.csv'
+        print(f"\nReal data path (default: {default_real_path})")
+        user_real_path = input("Enter path or press Enter for default: ").strip()
+        if user_real_path:
+            args.real_path = user_real_path.strip('"').strip("'")
+            
+        print("\n[INFO] Synthetic data will be loaded from: OUTPUT/synthetic_data_for_mix_data (hardcoded)")
 
-    # Auto-generate suffix
+    # Auto-generate suffix if not provided
     if args.suffix is None:
         real_k = args.real_rows // 1000
         syn_k = args.synthetic_rows // 1000
@@ -351,11 +377,9 @@ if __name__ == '__main__':
         real_rows=args.real_rows,
         synthetic_rows=args.synthetic_rows,
         real_path=args.real_path,
-        synthetic_path=args.synthetic_path,
         output_suffix=args.suffix
     )
     
     print(f"\nNext step: Train NILM model with:")
     print(f"  python NILM-main/S2S_train.py --appliance_name {args.appliance}")
-    print(f"  Then manually change the training file path in code to: {output_file.name}")
-
+    print(f"  Then manually change the training file path to: {output_file.name}")
