@@ -10,6 +10,7 @@ Usage:
 import numpy as np
 import pandas as pd
 import argparse
+import yaml
 from pathlib import Path
 
 # Appliance specifications from ukdale_processing.py
@@ -119,44 +120,70 @@ def get_real_data_stats(appliance_name):
 
 
 def convert_synthetic_to_zscore(synthetic_minmax_01, appliance_name, real_stats=None):
-    """Convert synthetic data from [0,1] to Z-score matching real data distribution
+    """Convert synthetic data from [0,1] to Z-score
+    
+    Strategy:
+    - Clipped appliances (clip_power != real_max_power): Use clip_power for denormalization
+    - Non-clipped appliances (clip_power == real_max_power): Use linear transformation to real Z-score range
     
     Args:
         synthetic_minmax_01: Synthetic data in [0,1] format
         appliance_name: Name of appliance
-        real_stats: Stats from get_real_data_stats() or None to use fallback
+        real_stats: Stats from get_real_data_stats() or None
     
     Returns:
-        Synthetic data in Z-score format matching real data scale
+        Synthetic data in Z-score format
     """
     print(f"\n=== Converting Synthetic [0,1] -> Z-score ===")
     
-    if real_stats is not None:
-        # PREFERRED: Scale to match real data's Z-score range
-        print(f"Using real data statistics for conversion")
-        zscore_min = real_stats['zscore_min']
-        zscore_max = real_stats['zscore_max']
+    # Get appliance specs
+    specs = APPLIANCE_SPECS[appliance_name]
+    mean = specs['mean']
+    std = specs['std']
+    clip_power = specs['max_power']  # This is clip_power from APPLIANCE_SPECS
+    
+    # Load YAML to check if appliance was clipped
+    config_path = 'Config/applainces_configuration.yaml'
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        appliance_config = config[appliance_name]
+        real_max_power = appliance_config.get('real_max_power')
+        was_clipped = (clip_power != real_max_power)
+    except Exception as e:
+        print(f"Warning: Could not load YAML config: {e}")
+        was_clipped = False  # Assume not clipped if can't load config
+        real_max_power = clip_power
+    
+    if was_clipped:
+        # CLIPPED APPLIANCE: Use clip_power method
+        print(f"[CLIPPED] {appliance_name}: {clip_power}W clip < {real_max_power}W real_max")
+        print(f"  Using clip_power method: [0,1] → [0,{clip_power}W] → Z-score")
+        print(f"  Z-score params: mean={mean}W, std={std}W")
         
-        # Map [0, 1] -> [zscore_min, zscore_max]
-        zscore_range = zscore_max - zscore_min
-        synthetic_zscore = synthetic_minmax_01 * zscore_range + zscore_min
-        
-        print(f"Mapped [0, 1] -> [{zscore_min:.4f}, {zscore_max:.4f}]")
-    else:
-        # FALLBACK: Use old method with max_power_clip
-        print(f"WARNING: Using fallback conversion (max_power_clip)")
-        print(f"This may cause scale mismatch with real data!")
-        
-        specs = APPLIANCE_SPECS[appliance_name]
-        mean = specs['mean']
-        std = specs['std']
-        max_power = specs['max_power']
-        
-        # [0, 1] -> [0, max_power] watts -> Z-score
-        synthetic_watts = synthetic_minmax_01 * max_power
+        # [0,1] → [0, clip_power] watts → Z-score
+        synthetic_watts = synthetic_minmax_01 * clip_power
         synthetic_zscore = (synthetic_watts - mean) / std
         
-        print(f"Converted via: [0,1] -> [0,{max_power}W] -> Z-score")
+    else:
+        # NON-CLIPPED APPLIANCE: Use linear transformation to match real Z-score range
+        if real_stats is not None:
+            print(f"[NOT CLIPPED] {appliance_name}: {clip_power}W == {real_max_power}W")
+            print(f"  Using linear transformation to real Z-score range")
+            
+            zscore_min = real_stats['zscore_min']
+            zscore_max = real_stats['zscore_max']
+            zscore_range = zscore_max - zscore_min
+            
+            # Linear transformation: [0,1] → [zscore_min, zscore_max]
+            synthetic_zscore = synthetic_minmax_01 * zscore_range + zscore_min
+            
+            print(f"  Mapped [0,1] → Z-score range [{zscore_min:.4f}, {zscore_max:.4f}]")
+        else:
+            # Fallback: use clip_power method
+            print(f"[NOT CLIPPED] {appliance_name}: No real_stats, using clip_power method")
+            synthetic_watts = synthetic_minmax_01 * clip_power
+            synthetic_zscore = (synthetic_watts - mean) / std
     
     print(f"Synthetic Z-score range: [{synthetic_zscore.min():.4f}, {synthetic_zscore.max():.4f}]")
     print(f"Synthetic Z-score mean:  {synthetic_zscore.mean():.4f}")
