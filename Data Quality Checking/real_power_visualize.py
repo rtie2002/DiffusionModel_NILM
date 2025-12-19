@@ -371,11 +371,25 @@ def interactive_viewer(file_path, max_windows=100, denormalize=True):
     
     # Create figure with adjusted margins for cleaner layout
     fig, ax = plt.subplots(figsize=(14, 8))
-    plt.subplots_adjust(bottom=0.15, left=0.08, right=0.95, top=0.95)
+    plt.subplots_adjust(bottom=0.20, left=0.08, right=0.95, top=0.95)
     
     # Initial setup
     current_window = 0
     lines = {}
+    
+    # Selection state
+    selection_state = {
+        'active': False,
+        'start_x': None,
+        'start_y': None,
+        'rect': None,
+        'x_min': None,
+        'x_max': None,
+        'y_min': None,
+        'y_max': None,
+        'saved_xlim': None,
+        'saved_ylim': None
+    }
     
     # Color cycle
     colors = ['blue', 'orange', 'green', 'red', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
@@ -405,20 +419,25 @@ def interactive_viewer(file_path, max_windows=100, denormalize=True):
     ax.grid(True, alpha=0.3)
     
     # Controls - sliders at bottom
-    ax_slider = plt.axes([0.08, 0.08, 0.59, 0.03])
+    ax_slider = plt.axes([0.08, 0.13, 0.59, 0.03])
     window_slider = Slider(ax_slider, 'Window', 0, num_windows - 1, valinit=current_window, valstep=1, valfmt='%d')
     
-    ax_scale = plt.axes([0.08, 0.03, 0.59, 0.03])
+    ax_scale = plt.axes([0.08, 0.08, 0.59, 0.03])
     scale_slider = Slider(ax_scale, 'Y-Scale', 0.1, 5.0, valinit=1.0, valfmt='%.2f')
     
-    # Buttons - positioned at bottom right
-    ax_prev = plt.axes([0.70, 0.08, 0.08, 0.04])
-    ax_next = plt.axes([0.79, 0.08, 0.08, 0.04])
-    ax_reset = plt.axes([0.88, 0.08, 0.10, 0.04])
+    # Buttons - positioned at bottom right (two rows)
+    ax_prev = plt.axes([0.70, 0.13, 0.08, 0.04])
+    ax_next = plt.axes([0.79, 0.13, 0.08, 0.04])
+    ax_reset = plt.axes([0.88, 0.13, 0.10, 0.04])
+    
+    ax_zoom_sel = plt.axes([0.70, 0.08, 0.13, 0.04])
+    ax_clear_sel = plt.axes([0.84, 0.08, 0.14, 0.04])
     
     btn_prev = Button(ax_prev, '◀ Prev')
     btn_next = Button(ax_next, 'Next ▶')
     btn_reset = Button(ax_reset, 'Auto-Fit Y')
+    btn_zoom_sel = Button(ax_zoom_sel, 'Zoom to Sel')
+    btn_clear_sel = Button(ax_clear_sel, 'Clear Selection')
     
     # State tracking
     def update_view_range():
@@ -525,20 +544,182 @@ def interactive_viewer(file_path, max_windows=100, denormalize=True):
         update_view_range()
         fig.canvas.draw_idle()
     
+    def on_mouse_press(event):
+        """Handle mouse button press for selection"""
+        if event.inaxes != ax or event.button != 1:  # Left click only
+            return
+        
+        # Start selection
+        selection_state['active'] = True
+        selection_state['start_x'] = event.xdata
+        selection_state['start_y'] = event.ydata
+        
+        # Remove old rectangle if exists
+        if selection_state['rect'] is not None:
+            selection_state['rect'].remove()
+            selection_state['rect'] = None
+    
+    def on_mouse_move(event):
+        """Handle mouse move for selection rectangle"""
+        if not selection_state['active'] or event.inaxes != ax:
+            return
+        
+        # Update rectangle
+        if selection_state['rect'] is not None:
+            selection_state['rect'].remove()
+        
+        x0, y0 = selection_state['start_x'], selection_state['start_y']
+        x1, y1 = event.xdata, event.ydata
+        
+        width = x1 - x0
+        height = y1 - y0
+        
+        # Draw selection rectangle
+        selection_state['rect'] = plt.Rectangle(
+            (x0, y0), width, height,
+            fill=False, edgecolor='red', linewidth=2, linestyle='--', alpha=0.7
+        )
+        ax.add_patch(selection_state['rect'])
+        fig.canvas.draw_idle()
+    
+    def on_mouse_release(event):
+        """Handle mouse button release to finalize selection"""
+        if not selection_state['active'] or event.button != 1:
+            return
+        
+        selection_state['active'] = False
+        
+        if event.inaxes != ax or selection_state['start_x'] is None:
+            return
+        
+        # Calculate selection bounds
+        x0, y0 = selection_state['start_x'], selection_state['start_y']
+        x1, y1 = event.xdata, event.ydata
+        
+        # Ensure x_min < x_max and y_min < y_max
+        selection_state['x_min'] = min(x0, x1)
+        selection_state['x_max'] = max(x0, x1)
+        selection_state['y_min'] = min(y0, y1)
+        selection_state['y_max'] = max(y0, y1)
+        
+        # Display selection statistics
+        print_selection_stats()
+    
+    def print_selection_stats():
+        """Print statistics for the selected region"""
+        if selection_state['x_min'] is None:
+            return
+        
+        x_min, x_max = selection_state['x_min'], selection_state['x_max']
+        y_min, y_max = selection_state['y_min'], selection_state['y_max']
+        
+        print("\n" + "="*60)
+        print("SELECTION STATISTICS")
+        print("="*60)
+        print(f"X Range: [{x_min:.1f}, {x_max:.1f}] (Width: {x_max-x_min:.1f} steps)")
+        print(f"Y Range: [{y_min:.2f}, {y_max:.2f}]")
+        
+        # Calculate statistics for each visible line in selection
+        for col_name, line in lines.items():
+            if not line.get_visible():
+                continue
+            
+            # Get data within selection
+            x_data = line.get_xdata()
+            y_data = line.get_ydata()
+            
+            # Find indices within x range
+            mask = (x_data >= x_min) & (x_data <= x_max)
+            selected_y = y_data[mask]
+            
+            if len(selected_y) == 0:
+                continue
+            
+            # Further filter by y range
+            y_mask = (selected_y >= y_min) & (selected_y <= y_max)
+            selected_y_filtered = selected_y[y_mask]
+            
+            print(f"\n{col_name}:")
+            print(f"  Points in selection: {len(selected_y)}")
+            print(f"  Points in Y range: {len(selected_y_filtered)}")
+            print(f"  Mean: {selected_y.mean():.2f}")
+            print(f"  Std: {selected_y.std():.2f}")
+            print(f"  Min: {selected_y.min():.2f}")
+            print(f"  Max: {selected_y.max():.2f}")
+        
+        print("="*60)
+        print("Tip: Click 'Zoom to Sel' to zoom into this region")
+        print("="*60 + "\n")
+    
+    def zoom_to_selection(event):
+        """Zoom to the selected region"""
+        if selection_state['x_min'] is None:
+            print("No selection made. Click and drag on the plot to select a region.")
+            return
+        
+        # Save current view
+        selection_state['saved_xlim'] = ax.get_xlim()
+        selection_state['saved_ylim'] = ax.get_ylim()
+        
+        # Zoom to selection
+        x_min, x_max = selection_state['x_min'], selection_state['x_max']
+        y_min, y_max = selection_state['y_min'], selection_state['y_max']
+        
+        # Add small padding
+        x_pad = (x_max - x_min) * 0.05
+        y_pad = (y_max - y_min) * 0.05
+        
+        ax.set_xlim(x_min - x_pad, x_max + x_pad)
+        ax.set_ylim(y_min - y_pad, y_max + y_pad)
+        
+        print(f"\nZoomed to selection: X=[{x_min:.1f}, {x_max:.1f}], Y=[{y_min:.2f}, {y_max:.2f}]")
+        fig.canvas.draw_idle()
+    
+    def clear_selection(event):
+        """Clear the current selection and restore view"""
+        # Remove rectangle
+        if selection_state['rect'] is not None:
+            selection_state['rect'].remove()
+            selection_state['rect'] = None
+        
+        # Restore saved view if exists
+        if selection_state['saved_xlim'] is not None:
+            ax.set_xlim(selection_state['saved_xlim'])
+            ax.set_ylim(selection_state['saved_ylim'])
+        
+        # Reset selection state
+        selection_state['x_min'] = None
+        selection_state['x_max'] = None
+        selection_state['y_min'] = None
+        selection_state['y_max'] = None
+        selection_state['saved_xlim'] = None
+        selection_state['saved_ylim'] = None
+        
+        print("\nSelection cleared and view restored.")
+        fig.canvas.draw_idle()
+    
     # Connect events
     window_slider.on_changed(update_window)
     scale_slider.on_changed(update_scale)
     fig.canvas.mpl_connect('pick_event', on_pick)  # Connect legend click handler
+    fig.canvas.mpl_connect('button_press_event', on_mouse_press)
+    fig.canvas.mpl_connect('motion_notify_event', on_mouse_move)
+    fig.canvas.mpl_connect('button_release_event', on_mouse_release)
     btn_prev.on_clicked(prev_window)
     btn_next.on_clicked(next_window)
     btn_reset.on_clicked(auto_fit_y)
+    btn_zoom_sel.on_clicked(zoom_to_selection)
+    btn_clear_sel.on_clicked(clear_selection)
     
     # Initial View Update
     update_view_range()
     
     print("\n" + "=" * 60)
     print("INTERACTIVE VIEWER OPENED")
-    print("=" * 60)
+    print("==" * 60)
+    print("• Click and Drag to select a region (red rectangle)")
+    print("• Click 'Zoom to Sel' to zoom into selected region")
+    print("• Click 'Clear Selection' to reset view")
     print("• Click on Legend items to Show/Hide lines")
     print("• Use Slider to scroll through windows")
     print("• Use Y-Scale to zoom vertically")
