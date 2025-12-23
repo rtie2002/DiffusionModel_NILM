@@ -220,7 +220,7 @@ def create_synthetic_aggregate(all_appliances_synthetic):
     return aggregate
 
 
-def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, output_suffix="mixed"):
+def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, output_suffix="mixed", shuffle=True):
     """
     Mix real and synthetic data
     
@@ -230,6 +230,7 @@ def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, output_s
         synthetic_rows: Number of synthetic data rows to use  
         real_path: Optional custom path for real data
         output_suffix: Suffix for output file
+        shuffle: Whether to shuffle windows (default: True)
     
     Note:
         Synthetic data is ALWAYS loaded from: OUTPUT/synthetic_data_for_mix_data/
@@ -360,7 +361,7 @@ def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, output_s
     print(f"Synthetic shape: {syn_aggregate_zscore.shape}")
     
     # 8. Shuffle by windows (preserves temporal continuity)
-    window_size = 600  # NILM standard window length
+    window_size = 6000  # NILM standard window length
     print(f"\n=== Shuffling by Windows (size={window_size}) ===")
     
     # Split real data into windows
@@ -400,18 +401,24 @@ def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, output_s
     all_app_windows = real_app_windows + syn_app_windows
     total_windows = len(all_agg_windows)
     
-    # Shuffle windows (not points!)
-    window_indices = np.arange(total_windows)
-    np.random.shuffle(window_indices)
-    
-    shuffled_agg_windows = [all_agg_windows[i] for i in window_indices]
-    shuffled_app_windows = [all_app_windows[i] for i in window_indices]
+    # Shuffle windows (not points!) - optional
+    if shuffle:
+        print(f"\n==> Shuffling {total_windows} windows...")
+        window_indices = np.arange(total_windows)
+        np.random.shuffle(window_indices)
+        
+        shuffled_agg_windows = [all_agg_windows[i] for i in window_indices]
+        shuffled_app_windows = [all_app_windows[i] for i in window_indices]
+    else:
+        print(f"\n==> Keeping {total_windows} windows in sequential order (no shuffling)")
+        shuffled_agg_windows = all_agg_windows
+        shuffled_app_windows = all_app_windows
     
     # Flatten back to 1D arrays
     mixed_aggregate = np.concatenate(shuffled_agg_windows)
     mixed_appliance = np.concatenate(shuffled_app_windows)
     
-    print(f"Total windows shuffled: {total_windows}")
+    print(f"Total windows: {total_windows}")
     print(f"Final mixed shape: {mixed_aggregate.shape}")
     print("==> Temporal continuity preserved within each window!")
     
@@ -455,6 +462,8 @@ if __name__ == '__main__':
 
     parser.add_argument('--suffix', type=str, default=None,
                         help='Output file suffix (default: {real}k+{syn}k)')
+    parser.add_argument('--no-shuffle', action='store_true',
+                        help='Disable window shuffling (keep sequential order)')
     
     args = parser.parse_args()
     
@@ -486,6 +495,18 @@ if __name__ == '__main__':
             args.real_path = user_real_path.strip('"').strip("'")
             
         print("\n[INFO] Synthetic data will be loaded from: OUTPUT/synthetic_data_for_mix_data (hardcoded)")
+        
+        # Ask about shuffling
+        print("\n=== Window Shuffling ===")
+        print("Shuffling mixes real and synthetic windows randomly.")
+        print("No shuffling keeps windows in sequential order (real first, then synthetic).")
+        user_shuffle = input("Shuffle windows? (y/n, default=y): ").strip().lower()
+        if user_shuffle in ['n', 'no']:
+            args.no_shuffle = True
+            print("  -> Windows will be kept in sequential order")
+        else:
+            args.no_shuffle = False
+            print("  -> Windows will be shuffled randomly")
 
     # Auto-generate suffix if not provided
     if args.suffix is None:
@@ -499,7 +520,8 @@ if __name__ == '__main__':
         real_rows=args.real_rows,
         synthetic_rows=args.synthetic_rows,
         real_path=args.real_path,
-        output_suffix=args.suffix
+        output_suffix=args.suffix,
+        shuffle=not args.no_shuffle  # Shuffle by default, disable if --no-shuffle is set
     )
     
     print(f"\nNext step: Train NILM model with:")
