@@ -1,0 +1,490 @@
+"""
+Algorithm 1: Data Cleaning and Selection for Multivariate Appliance Power Data
+Based on the paper: "A diffusion model-based framework to enhance the robustness 
+of non-intrusive load disaggregation"
+
+This script implements Algorithm 1 to select effective parts of appliance data
+and prepare it for multivariate diffusion model training.
+
+IMPORTANT: According to the paper (Section 4.1), Algorithm 1 is applied ONLY to 
+TRAINING data: "When synthesizing data, we execute Algorithm 1 on the training data, 
+send it to the diffusion model for synthetic data training..."
+
+- Training data: Apply Algorithm 1 → Used for diffusion model training
+- Validation/Test data: NOT processed by Algorithm 1 → Used for NILM model evaluation
+
+Input: Multivariate CSV file (format: aggregate, appliance, minute, hour, day, month)
+Output: CSV with 5 columns (appliance, minute, hour, day, month) - MinMax normalized appliance power, temporal features preserved
+
+Usage:
+    # Process training file
+    python algorithm1_v2_multivariate.py --appliance_name fridge
+    
+Workflow:
+    1. Read multivariate CSV (aggregate, appliance, minute, hour, day, month)
+    2. Extract appliance power column
+    3. Apply Algorithm 1 (select effective parts based on threshold and window)
+    4. Apply MinMaxScaler normalization to appliance power only
+    5. Keep temporal features unchanged
+    6. Save to output CSV (appliance + temporal features, no aggregate)
+"""
+
+import pandas as pd
+import numpy as np
+import argparse
+import os
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler
+
+# Appliance parameters from Table 1 in the paper
+APPLIANCE_PARAMS = {
+    'kettle': {
+        'on_power_threshold': 200,
+        'mean': 700,
+        'std': 1000,
+    },
+    'microwave': {
+        'on_power_threshold': 200,
+        'mean': 500,
+        'std': 800,
+    },
+    'fridge': {
+        'on_power_threshold': 50,
+        'mean': 200,
+        'std': 400,
+    },
+    'dishwasher': {
+        'on_power_threshold': 10,
+        'mean': 700,
+        'std': 1000,
+    },
+    'washingmachine': {
+        'on_power_threshold': 20,
+        'mean': 400,
+        'std': 700,
+    }
+}
+
+def remove_isolated_spikes(power_sequence, window_size=5, spike_threshold=3.0, 
+                          background_threshold=50):
+    """
+    Remove isolated spikes that suddenly appear when surrounding data is near zero.
+    
+    A spike is detected when:
+    1. Current value is significantly higher than surrounding median
+    2. Surrounding values are mostly near zero (below background_threshold)
+    
+    Args:
+        power_sequence: 1D array of power values (in Watts)
+        window_size: Size of window for median calculation (default: 5)
+        spike_threshold: How many times larger than median to consider a spike (default: 3.0)
+        background_threshold: Threshold to consider surrounding as "near zero" (default: 50W)
+    
+    Returns:
+        power_sequence with isolated spikes removed (set to 0)
+        num_spikes_removed: Number of spikes detected and removed
+    """
+    power_sequence = power_sequence.copy()
+    n = len(power_sequence)
+    num_spikes = 0
+    
+    # Pad array for edge handling
+    half_window = window_size // 2
+    padded = np.pad(power_sequence, half_window, mode='edge')
+    
+    for i in range(n):
+        current_value = power_sequence[i]
+        
+        # Skip if current value is already low
+        if current_value < background_threshold:
+            continue
+        
+        # Get surrounding values (excluding center point)
+        window_start = i
+        window_end = i + window_size
+        window = padded[window_start:window_end]
+        
+        # Calculate median of surrounding values (excluding center)
+        surrounding = np.concatenate([window[:half_window], window[half_window+1:]])
+        median_surrounding = np.median(surrounding)
+        
+        # Check if surrounding is mostly near zero
+        low_values_count = np.sum(surrounding < background_threshold)
+        is_background_low = low_values_count >= (len(surrounding) * 0.6)  # 60% threshold
+        
+        # Detect spike: current value is much higher than surrounding AND surrounding is low
+        if is_background_low and current_value > spike_threshold * median_surrounding:
+            # Additional check: current value should be significantly above background
+            if current_value > background_threshold * 2:
+                # Isolated spike detected - remove it
+                power_sequence[i] = 0
+                num_spikes += 1
+    
+    return power_sequence, num_spikes
+
+
+def algorithm1_data_cleaning_multivariate(df, appliance_col, x_threshold, l_window=100, x_noise=0,
+                                          remove_spikes=True, spike_window=5, spike_threshold=3.0,
+                                          background_threshold=50, clip_max=None):
+    """
+    Algorithm 1: Data Cleaning and Selection for Multivariate Appliance Power Data
+    
+    Input:
+        df: DataFrame with columns [aggregate, appliance, minute, hour, day, month]
+        appliance_col: name of the appliance power column
+        x_threshold: appliance start threshold (Watts)
+        l_window: window length (default: 100, from paper Table 2)
+        x_noise: power noise threshold (default: 0)
+        remove_spikes: whether to remove isolated spikes (default: True)
+        spike_window: window size for spike detection (default: 5)
+        spike_threshold: threshold multiplier for spike detection (default: 3.0)
+        background_threshold: threshold to consider background as "low" (default: 50W)
+        clip_max: optional maximum value to clip outliers (default: None)
+    
+    Output:
+        filtered DataFrame with all columns preserved, power columns normalized
+        selected indices
+    """
+    power_sequence = df[appliance_col].values.copy()
+    
+    # Step 0: Remove isolated spikes (optional preprocessing)
+    if remove_spikes:
+        power_sequence, num_spikes = remove_isolated_spikes(
+            power_sequence, 
+            window_size=spike_window,
+            spike_threshold=spike_threshold,
+            background_threshold=background_threshold
+        )
+        print(f"  Spike removal: {num_spikes} isolated spikes detected and removed")
+    
+    # Step 1: Initialize T_selected as an empty list
+    T_selected = []
+    
+    # Step 2: x[x < x_noise] = 0
+    power_sequence[power_sequence < x_noise] = 0
+    
+    # Step 3: T_start = where(x >= x_threshold)
+    T_start = np.where(power_sequence >= x_threshold)[0]
+    
+    # Step 4-8: For each index in T_start, select window before and after
+    for index in T_start:
+        T_start_window = max(0, index - l_window)
+        T_end_window = min(len(power_sequence), index + l_window + 1)
+        T_selected.extend(range(T_start_window, T_end_window))
+    
+    # Step 9: T_selected = sorted(set(T_selected))
+    T_selected = sorted(set(T_selected))
+    
+    # Step 10: Select rows based on T_selected indices
+    df_selected = df.iloc[T_selected].copy()
+    
+    # Step 10.5: Clip outliers if specified (only for appliance power)
+    if clip_max is not None:
+        num_clipped = np.sum(df_selected[appliance_col] > clip_max)
+        df_selected[appliance_col] = np.clip(df_selected[appliance_col], 0, clip_max)
+        if num_clipped > 0:
+            print(f"  Clipped {num_clipped} values in '{appliance_col}' above {clip_max}W ({num_clipped/len(df_selected)*100:.2f}%)")
+    
+    # Step 11-12: Apply MinMaxScaler to appliance power only
+    scaler_app = MinMaxScaler()
+    df_selected[appliance_col] = scaler_app.fit_transform(df_selected[[appliance_col]])
+    
+    # Select only appliance power and temporal features (no aggregate)
+    df_output = df_selected[[appliance_col, 'minute', 'hour', 'day', 'month']].copy()
+    
+    # Temporal features remain unchanged
+    
+    return df_output, T_selected, scaler_app
+
+def plot_data_processing(power_data_original, x_cleaned, 
+                        x_threshold, appliance_name, output_dir, max_samples=None):
+    """
+    Plot three informative graphs showing Algorithm 1's effect:
+    1. Original data with threshold and selected regions highlighted
+    2. Zoomed view of a startup event
+    3. Final selected and normalized data
+    
+    Args:
+        max_samples: Maximum number of samples to plot for overview. If None, plot all data.
+    """
+    # Create figure with 3 subplots
+    fig = plt.figure(figsize=(18, 10))
+    gs = fig.add_gridspec(3, 2, hspace=0.3, wspace=0.3)
+    
+    fig.suptitle(f'Algorithm 1 Data Processing: {appliance_name.upper()}', 
+                 fontsize=16, fontweight='bold')
+    
+    # Find startup events for highlighting
+    startup_indices = np.where(power_data_original >= x_threshold)[0]
+    
+    # ============ Plot 1: Full original data with highlighted regions ============
+    ax1 = fig.add_subplot(gs[0, :])
+    
+    # Determine sample size for overview
+    if max_samples is None:
+        sample_size = len(power_data_original)
+    else:
+        sample_size = min(max_samples, len(power_data_original))
+    
+    indices = np.arange(sample_size)
+    
+    # Plot original data
+    ax1.plot(indices, power_data_original[:sample_size], 'b-', linewidth=0.5, alpha=0.6, label='Original data')
+    
+    # Highlight startup regions
+    if len(startup_indices) > 0:
+        startup_in_range = startup_indices[startup_indices < sample_size]
+        if len(startup_in_range) > 0:
+            ax1.scatter(startup_in_range, power_data_original[startup_in_range], 
+                       c='red', s=1, alpha=0.5, label='Startup events (≥ threshold)')
+    
+    # Threshold line
+    ax1.axhline(y=x_threshold, color='r', linestyle='--', linewidth=2, 
+                label=f'Threshold: {x_threshold} W')
+    
+    ax1.set_title(f'Step 1: Original Data (Z-score denormalized to Watts)', 
+                  fontweight='bold', fontsize=12)
+    ax1.set_xlabel('Sample Index')
+    ax1.set_ylabel('Power (Watts)')
+    ax1.legend(loc='upper right')
+    ax1.grid(True, alpha=0.3)
+    
+    # Statistics box
+    on_percentage = (len(startup_indices) / len(power_data_original)) * 100
+    stats_text = f'Total samples: {len(power_data_original):,}\n'
+    stats_text += f'Range: [{power_data_original.min():.0f}, {power_data_original.max():.0f}] W\n'
+    stats_text += f'Startup events: {len(startup_indices):,} ({on_percentage:.2f}%)'
+    ax1.text(0.02, 0.98, stats_text,
+             transform=ax1.transAxes, verticalalignment='top',
+             bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.7))
+    
+    # ============ Plot 2: Zoomed view of a startup event ============
+    ax2 = fig.add_subplot(gs[1, 0])
+    
+    if len(startup_indices) > 0:
+        # Find a good startup event to zoom into (middle of the data)
+        mid_idx = len(startup_indices) // 2
+        center = startup_indices[mid_idx]
+        window = 500  # Show ±500 samples around startup
+        
+        start_idx = max(0, center - window)
+        end_idx = min(len(power_data_original), center + window)
+        
+        zoom_indices = np.arange(start_idx, end_idx)
+        zoom_data = power_data_original[start_idx:end_idx]
+        
+        ax2.plot(zoom_indices, zoom_data, 'b-', linewidth=1, label='Power')
+        ax2.axhline(y=x_threshold, color='r', linestyle='--', linewidth=2, 
+                   label=f'Threshold: {x_threshold} W')
+        
+        # Highlight the startup event
+        startup_in_zoom = startup_indices[(startup_indices >= start_idx) & (startup_indices < end_idx)]
+        if len(startup_in_zoom) > 0:
+            ax2.scatter(startup_in_zoom, power_data_original[startup_in_zoom], 
+                       c='red', s=20, alpha=0.7, label='Startup', zorder=5)
+        
+        ax2.set_title(f'Step 2: Zoomed View of Startup Event', fontweight='bold', fontsize=12)
+        ax2.set_xlabel('Sample Index')
+        ax2.set_ylabel('Power (Watts)')
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+        
+        zoom_text = f'Window: ±{window} samples\nCenter: index {center}'
+        ax2.text(0.02, 0.98, zoom_text,
+                transform=ax2.transAxes, verticalalignment='top',
+                bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.7))
+    else:
+        ax2.text(0.5, 0.5, 'No startup events found\n(all data below threshold)',
+                ha='center', va='center', fontsize=12, color='red')
+        ax2.set_title('Step 2: Zoomed View (No Events)', fontweight='bold', fontsize=12)
+    
+    # ============ Plot 3: Distribution comparison ============
+    ax3 = fig.add_subplot(gs[1, 1])
+    
+    # Create histograms
+    ax3.hist(power_data_original, bins=50, alpha=0.5, label='Original', color='blue', density=True)
+    
+    # For cleaned data, we need to denormalize it back to see the distribution
+    # But we don't have the scaler, so we'll just show it's focused on high power
+    ax3.axvline(x=x_threshold, color='r', linestyle='--', linewidth=2, label=f'Threshold: {x_threshold} W')
+    
+    ax3.set_title('Step 3: Power Distribution', fontweight='bold', fontsize=12)
+    ax3.set_xlabel('Power (Watts)')
+    ax3.set_ylabel('Density')
+    ax3.legend()
+    ax3.grid(True, alpha=0.3)
+    
+    dist_text = f'Original: mostly OFF state\nAlgorithm 1: keeps ON state'
+    ax3.text(0.98, 0.98, dist_text,
+            transform=ax3.transAxes, verticalalignment='top', horizontalalignment='right',
+            bbox=dict(boxstyle='round', facecolor='lightcyan', alpha=0.7))
+    
+    # ============ Plot 4: Final selected data (MinMax normalized) ============
+    ax4 = fig.add_subplot(gs[2, :])
+    
+    # Show first N samples of cleaned data
+    sample_size_cleaned = min(5000, len(x_cleaned))
+    indices_cleaned = np.arange(sample_size_cleaned)
+    
+    ax4.plot(indices_cleaned, x_cleaned[:sample_size_cleaned], 
+            'g-', linewidth=0.5, alpha=0.7)
+    ax4.set_title(f'Step 4: Final Output - Selected & MinMax Normalized [0,1] (First {sample_size_cleaned:,} samples)', 
+                  fontweight='bold', fontsize=12)
+    ax4.set_xlabel('Sample Index')
+    ax4.set_ylabel('Power (Normalized 0-1)')
+    ax4.grid(True, alpha=0.3)
+    
+    retention_rate = len(x_cleaned) / len(power_data_original) * 100
+    removed_samples = len(power_data_original) - len(x_cleaned)
+    
+    final_text = f'Selected samples: {len(x_cleaned):,}\n'
+    final_text += f'Removed samples: {removed_samples:,}\n'
+    final_text += f'Retention rate: {retention_rate:.2f}%\n'
+    final_text += f'Range: [{x_cleaned.min():.4f}, {x_cleaned.max():.4f}]'
+    
+    ax4.text(0.02, 0.98, final_text,
+             transform=ax4.transAxes, verticalalignment='top',
+             bbox=dict(boxstyle='round', facecolor='lightgreen', alpha=0.7))
+    
+    # Show plot
+    plt.show()
+
+def main():
+    """
+    Apply Algorithm 1 to multivariate TRAINING data (as per paper requirement).
+    
+    According to the paper (Section 4.1): 
+    "When synthesizing data, we execute Algorithm 1 on the training data, 
+    send it to the diffusion model for synthetic data training..."
+    """
+    parser = argparse.ArgumentParser(
+        description='Apply Algorithm 1 to multivariate TRAINING data for diffusion model')
+    parser.add_argument('--appliance_name', type=str, required=True,
+                        help='Appliance name: microwave, fridge, dishwasher, washingmachine, kettle')
+    parser.add_argument('--input_file', type=str, 
+                        default=None,
+                        help='Input CSV file path (if not provided, uses training file from multivariate preprocessing)')
+    parser.add_argument('--output_dir', type=str,
+                        default='Data/datasets',
+                        help='Output directory for processed CSV files')
+    parser.add_argument('--window', type=int, default=100,
+                        help='Window length for Algorithm 1 (default: 100, from paper)')
+    parser.add_argument('--remove_spikes', action='store_true', default=True,
+                        help='Remove isolated spikes (default: True)')
+    parser.add_argument('--no_remove_spikes', action='store_false', dest='remove_spikes',
+                        help='Disable spike removal')
+    parser.add_argument('--spike_window', type=int, default=5,
+                        help='Window size for spike detection (default: 5)')
+    parser.add_argument('--spike_threshold', type=float, default=3.0,
+                        help='Spike threshold multiplier (default: 3.0)')
+    parser.add_argument('--background_threshold', type=float, default=50,
+                        help='Background threshold in Watts (default: 50W)')
+    parser.add_argument('--clip_max', type=float, default=None,
+                        help='Optional: Clip values above this maximum (in Watts)')
+    
+    args = parser.parse_args()
+    
+    appliance_name = args.appliance_name.lower()
+    
+    if appliance_name not in APPLIANCE_PARAMS:
+        raise ValueError(f"Unknown appliance: {appliance_name}. Must be one of: {list(APPLIANCE_PARAMS.keys())}")
+    
+    # Get appliance parameters
+    params = APPLIANCE_PARAMS[appliance_name]
+    x_threshold = params['on_power_threshold']
+    
+    # Determine input file (multivariate CSV)
+    if args.input_file is None:
+        # Default: use training file from multivariate preprocessing
+        input_file = f'created_data/UK_DALE/{appliance_name}_training_.csv'
+    else:
+        input_file = args.input_file
+    
+    if not os.path.exists(input_file):
+        raise FileNotFoundError(f"Training file not found: {input_file}")
+    
+    # Create output directory
+    os.makedirs(args.output_dir, exist_ok=True)
+    output_file = os.path.join(args.output_dir, f'{appliance_name}_multivariate.csv')
+    
+    # Process training data
+    print(f"\n{'='*60}")
+    print(f"Applying Algorithm 1 to multivariate TRAINING data: {appliance_name}")
+    print(f"{'='*60}")
+    print(f"Reading: {input_file}")
+    print(f"  Expected format: CSV with columns (aggregate, appliance, minute, hour, day, month)")
+    
+    # Read multivariate CSV
+    df = pd.read_csv(input_file, header=None,
+                     names=['aggregate', appliance_name, 'minute', 'hour', 'day', 'month'])
+    
+    print(f"  CSV columns: {df.columns.tolist()}")
+    print(f"  CSV shape: {df.shape}")
+    print(f"  Original data length: {len(df):,}")
+    
+    # Show data ranges
+    print(f"\n  Data ranges (normalized):")
+    print(f"    Aggregate: [{df['aggregate'].min():.4f}, {df['aggregate'].max():.4f}]")
+    print(f"    {appliance_name.capitalize()}: [{df[appliance_name].min():.4f}, {df[appliance_name].max():.4f}]")
+    print(f"    Minute: [{df['minute'].min():.0f}, {df['minute'].max():.0f}]")
+    print(f"    Hour: [{df['hour'].min():.0f}, {df['hour'].max():.0f}]")
+    print(f"    Day: [{df['day'].min():.0f}, {df['day'].max():.0f}]")
+    print(f"    Month: [{df['month'].min():.0f}, {df['month'].max():.0f}]")
+    
+    # Denormalize appliance power for Algorithm 1
+    mean = params['mean']
+    std = params['std']
+    print(f"\nDenormalizing appliance power (Z-score inverse):")
+    print(f"  Mean: {mean} W, Std: {std} W")
+    
+    df_denorm = df.copy()
+    df_denorm[appliance_name] = df[appliance_name] * std + mean
+    df_denorm['aggregate'] = df['aggregate'] * AGG_STD + AGG_MEAN  # Use aggregate mean/std
+    
+    print(f"  Denormalized {appliance_name} range: [{df_denorm[appliance_name].min():.2f}, {df_denorm[appliance_name].max():.2f}] W")
+    
+    # Apply Algorithm 1
+    print(f"\nApplying Algorithm 1:")
+    print(f"  Threshold: {x_threshold} W")
+    print(f"  Window length: {args.window}")
+    print(f"  Spike removal: {'Enabled' if args.remove_spikes else 'Disabled'}")
+    
+    df_filtered, T_selected, scaler_app = algorithm1_data_cleaning_multivariate(
+        df_denorm,
+        appliance_col=appliance_name,
+        x_threshold=x_threshold,
+        l_window=args.window,
+        remove_spikes=args.remove_spikes,
+        spike_window=args.spike_window,
+        spike_threshold=args.spike_threshold,
+        background_threshold=args.background_threshold,
+        clip_max=args.clip_max
+    )
+    
+    print(f"\n  Selected data length: {len(df_filtered):,}")
+    print(f"  Reduction: {len(df) - len(df_filtered):,} samples removed")
+    print(f"  Retention rate: {len(df_filtered)/len(df)*100:.2f}%")
+    
+    # Show filtered data ranges
+    print(f"\n  Filtered data ranges:")
+    print(f"    {appliance_name.capitalize()} (MinMax): [{df_filtered[appliance_name].min():.4f}, {df_filtered[appliance_name].max():.4f}]")
+    print(f"    Minute (unchanged): [{df_filtered['minute'].min():.0f}, {df_filtered['minute'].max():.0f}]")
+    print(f"    Hour (unchanged): [{df_filtered['hour'].min():.0f}, {df_filtered['hour'].max():.0f}]")
+    print(f"    Day (unchanged): [{df_filtered['day'].min():.0f}, {df_filtered['day'].max():.0f}]")
+    print(f"    Month (unchanged): [{df_filtered['month'].min():.0f}, {df_filtered['month'].max():.0f}]")
+    
+    # Save multivariate CSV (5 columns: appliance, minute, hour, day, month)
+    df_filtered.to_csv(output_file, index=False, header=False)
+    
+    print(f"\n{'='*60}")
+    print(f"SUCCESS: Algorithm 1 processing complete!")
+    print(f"{'='*60}")
+    print(f"  Saved: {output_file}")
+    print(f"  Rows: {len(df_filtered):,}")
+    print(f"  Format: 5 columns ({appliance_name}, minute, hour, day, month)")
+    print(f"  Appliance power: MinMax normalized [0,1]")
+    print(f"  Temporal columns: Original values preserved")
+    print(f"\n  Note: Only TRAINING data processed (as per paper requirement)")
+
+if __name__ == '__main__':
+    main()
