@@ -395,7 +395,7 @@ def main():
     
     # Determine input file (multivariate CSV)
     if args.input_file is None:
-        # Default: use training file from multivariate preprocessing
+        # Default: use training file from created_data directory
         input_file = f'created_data/UK_DALE/{appliance_name}_training_.csv'
     else:
         input_file = args.input_file
@@ -439,7 +439,7 @@ def main():
     
     df_denorm = df.copy()
     df_denorm[appliance_name] = df[appliance_name] * std + mean
-    df_denorm['aggregate'] = df['aggregate'] * AGG_STD + AGG_MEAN  # Use aggregate mean/std
+    # Note: aggregate column is not denormalized as it will be removed in output
     
     print(f"  Denormalized {appliance_name} range: [{df_denorm[appliance_name].min():.2f}, {df_denorm[appliance_name].max():.2f}] W")
     

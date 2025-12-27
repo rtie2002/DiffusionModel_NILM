@@ -315,17 +315,39 @@ def interactive_viewer(file_path, max_windows=100, denormalize=True):
             col_str = str(col_name)
             
             # Determine column type and parameters
+            # Support both 2-column (aggregate, appliance) and 5-column (appliance, minute, hour, day, month) formats
             if col_str == '0':
-                # Column 0 = aggregate
-                mean, std = AGG_MEAN, AGG_STD
-                max_power = None  # Aggregate doesn't use max_power
-                label = "Aggregate"
+                # Check if this is aggregate (2-column format) or appliance (5-column format)
+                # If max value is close to 1, it's likely appliance power (MinMax normalized)
+                # If it has negative values, it's likely aggregate (Z-score)
+                col_data = data_dict[col_name].reshape(-1)
+                if col_data.min() < -0.1:
+                    # Column 0 = aggregate (2-column format)
+                    mean, std = AGG_MEAN, AGG_STD
+                    max_power = None
+                    label = "Aggregate"
+                else:
+                    # Column 0 = appliance (5-column format)
+                    mean = APPLIANCE_PARAMS[appliance_name]['mean']
+                    std = APPLIANCE_PARAMS[appliance_name]['std']
+                    max_power = APPLIANCE_PARAMS[appliance_name]['max_power']
+                    label = appliance_name.capitalize()
             elif col_str == '1':
-                # Column 1 = appliance
-                mean = APPLIANCE_PARAMS[appliance_name]['mean']
-                std = APPLIANCE_PARAMS[appliance_name]['std']
-                max_power = APPLIANCE_PARAMS[appliance_name]['max_power']
-                label = appliance_name.capitalize()
+                # Column 1 = appliance (2-column format) or minute (5-column format)
+                col_data = data_dict[col_name].reshape(-1)
+                if col_data.max() <= 60:
+                    # Likely minute (0-59), skip denormalization
+                    continue
+                else:
+                    # Column 1 = appliance power
+                    mean = APPLIANCE_PARAMS[appliance_name]['mean']
+                    std = APPLIANCE_PARAMS[appliance_name]['std']
+                    max_power = APPLIANCE_PARAMS[appliance_name]['max_power']
+                    label = appliance_name.capitalize()
+            elif col_str in ['2', '3', '4']:
+                # Columns 2-4 in 5-column format are temporal features (hour, day, month)
+                # Skip denormalization for temporal features
+                continue
             elif col_str.lower() in ['data', 'power']:
                 # NPY or single-column CSV
                 mean = APPLIANCE_PARAMS[appliance_name]['mean']

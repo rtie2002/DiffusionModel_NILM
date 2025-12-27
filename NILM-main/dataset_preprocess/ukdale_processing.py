@@ -128,12 +128,12 @@ def aggregate_app(df):
 def main():
 
     start_time = time.time()
-    sample_seconds = 6
+    sample_seconds = 60
     training_building_percent = 0
     validation_percent = 20
     testing_percent = 20
     nrows = None
-    debug = True
+    debug = False  # Disabled plotting for faster execution
 
     train = pd.DataFrame(columns=['aggregate', appliance_name])
 

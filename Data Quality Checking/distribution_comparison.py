@@ -39,21 +39,69 @@ class DistributionComparator:
         """Load real and synthetic data"""
         # Load real data
         print(f"\nLoading real data: {self.real_path}")
-        self.df_real = pd.read_csv(
-            self.real_path,
-            header=None,
-            names=['aggregate', 'appliance', 'minute', 'hour', 'day', 'month']
-        )
+        
+        # Auto-detect number of columns
+        df_temp = pd.read_csv(self.real_path, header=None, nrows=1)
+        num_cols = len(df_temp.columns)
+        
+        if num_cols == 5:
+            # 5-column format: appliance, minute, hour, day, month
+            self.df_real = pd.read_csv(
+                self.real_path,
+                header=None,
+                names=['appliance', 'minute', 'hour', 'day', 'month']
+            )
+            print(f"✓ Detected 5-column format (appliance, minute, hour, day, month)")
+        elif num_cols == 6:
+            # 6-column format: aggregate, appliance, minute, hour, day, month
+            self.df_real = pd.read_csv(
+                self.real_path,
+                header=None,
+                names=['aggregate', 'appliance', 'minute', 'hour', 'day', 'month']
+            )
+            print(f"✓ Detected 6-column format (aggregate, appliance, minute, hour, day, month)")
+        else:
+            raise ValueError(f"Unexpected number of columns: {num_cols}. Expected 5 or 6.")
+        
+        # Drop rows with NaN values
+        before_len = len(self.df_real)
+        self.df_real = self.df_real.dropna()
+        after_len = len(self.df_real)
+        if before_len != after_len:
+            print(f"⚠ Dropped {before_len - after_len} rows with NaN values")
+        
         print(f"✓ Real data: {len(self.df_real):,} rows")
         
         # Load synthetic data if provided
         if self.synthetic_path:
             print(f"\nLoading synthetic data: {self.synthetic_path}")
-            self.df_synthetic = pd.read_csv(
-                self.synthetic_path,
-                header=None,
-                names=['aggregate', 'appliance', 'minute', 'hour', 'day', 'month']
-            )
+            
+            # Auto-detect for synthetic too
+            df_temp = pd.read_csv(self.synthetic_path, header=None, nrows=1)
+            num_cols = len(df_temp.columns)
+            
+            if num_cols == 5:
+                self.df_synthetic = pd.read_csv(
+                    self.synthetic_path,
+                    header=None,
+                    names=['appliance', 'minute', 'hour', 'day', 'month']
+                )
+            elif num_cols == 6:
+                self.df_synthetic = pd.read_csv(
+                    self.synthetic_path,
+                    header=None,
+                    names=['aggregate', 'appliance', 'minute', 'hour', 'day', 'month']
+                )
+            else:
+                raise ValueError(f"Unexpected number of columns: {num_cols}. Expected 5 or 6.")
+            
+            # Drop NaN
+            before_len = len(self.df_synthetic)
+            self.df_synthetic = self.df_synthetic.dropna()
+            after_len = len(self.df_synthetic)
+            if before_len != after_len:
+                print(f"⚠ Dropped {before_len - after_len} rows with NaN values")
+            
             print(f"✓ Synthetic data: {len(self.df_synthetic):,} rows")
     
     def kolmogorov_smirnov_test(self, real_data, synthetic_data, feature_name):
@@ -188,7 +236,9 @@ class DistributionComparator:
         print("SINGLE DISTRIBUTION ANALYSIS")
         print("="*80)
         
-        features = ['aggregate', 'appliance', 'minute', 'hour', 'day', 'month']
+        # Only analyze columns that exist
+        features = [col for col in ['aggregate', 'appliance', 'minute', 'hour', 'day', 'month'] 
+                   if col in self.df_real.columns]
         
         for feature in features:
             print(f"\n{feature.upper()}:")
@@ -274,11 +324,18 @@ class DistributionComparator:
     
     def visualize_single_distribution(self):
         """Visualize single dataset distribution"""
-        features = ['aggregate', 'appliance', 'minute', 'hour', 'day', 'month']
+        # Only plot columns that exist
+        features = [col for col in ['aggregate', 'appliance', 'minute', 'hour', 'day', 'month'] 
+                   if col in self.df_real.columns]
         
-        fig, axes = plt.subplots(3, 2, figsize=(14, 12))
+        num_features = len(features)
+        rows = (num_features + 1) // 2  # Ceiling division
+        
+        fig, axes = plt.subplots(rows, 2, figsize=(14, 4*rows))
         fig.suptitle('Data Distribution Analysis', fontsize=14, fontweight='bold')
         
+        if rows == 1:
+            axes = axes.reshape(1, -1)
         axes = axes.flatten()
         
         for idx, feature in enumerate(features):
@@ -303,6 +360,10 @@ class DistributionComparator:
             std = np.std(data)
             ax.axvline(mean, color='red', linestyle='--', linewidth=2, label=f'Mean={mean:.2f}')
             ax.legend()
+        
+        # Hide unused subplots
+        for idx in range(num_features, len(axes)):
+            axes[idx].set_visible(False)
         
         plt.tight_layout()
         plt.savefig('distribution_analysis.png', dpi=150, bbox_inches='tight')
