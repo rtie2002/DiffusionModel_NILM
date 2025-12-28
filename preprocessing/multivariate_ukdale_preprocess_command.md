@@ -29,11 +29,10 @@ graph TD
     A[Raw UK-DALE .dat files] --> B[Load & Resample 60s]
     B --> C[Align Timestamps]
     C --> D[Extract Temporal Features]
-    D --> E[Z-score Normalization]
-    E --> F[Split Train/Val/Test]
-    F --> G[6-Column CSV Output]
-    G --> H[Algorithm 1 Filtering]
-    H --> I[5-Column CSV Output]
+    D --> E[Sin/Cos Time Encoding]
+    E --> F[Z-score Normalization]
+    F --> G[Split Train/Val/Test]
+    G --> H[10-Column CSV Output with Headers]
 ```
 
 ### Step-by-Step Process
@@ -72,22 +71,67 @@ df_align = mains_df.join(app_df, how='outer').\
 - Standard sampling rate for NILM research
 - Balances temporal resolution and computational efficiency
 
-#### Step 3: Extract Temporal Features
+#### Step 3: Extract Temporal Features & Sin/Cos Encoding
 
-**Code Location**: Lines 197-207
+**Code Location**: Lines 172-203
+
+**Following NILMFormer Method**:
 
 ```python
 # Extract temporal features from timestamp
-df_align['minute'] = df_align['time'].dt.minute  # 0-59
-df_align['hour'] = df_align['time'].dt.hour      # 0-23
-df_align['day'] = df_align['time'].dt.day        # 1-31
-df_align['month'] = df_align['time'].dt.month    # 1-12
+minute = df_align['time'].dt.minute      # 0-59
+hour = df_align['time'].dt.hour          # 0-23
+dayofweek = df_align['time'].dt.dayofweek  # 0-6 (0=Monday, 6=Sunday)
+month = df_align['time'].dt.month        # 1-12
 
-# Select columns (remove timestamp)
-df_align = df_align[['aggregate', appliance_name, 'minute', 'hour', 'day', 'month']]
+# Sin/Cos encoding for cyclical features
+# This preserves the cyclical nature of time (e.g., 23:00 is close to 00:00)
+df_align['minute_sin'] = np.sin(2 * np.pi * minute / 60.0)
+df_align['minute_cos'] = np.cos(2 * np.pi * minute / 60.0)
+df_align['hour_sin'] = np.sin(2 * np.pi * hour / 24.0)
+df_align['hour_cos'] = np.cos(2 * np.pi * hour / 24.0)
+df_align['dow_sin'] = np.sin(2 * np.pi * dayofweek / 7.0)
+df_align['dow_cos'] = np.cos(2 * np.pi * dayofweek / 7.0)
+df_align['month_sin'] = np.sin(2 * np.pi * month / 12.0)
+df_align['month_cos'] = np.cos(2 * np.pi * month / 12.0)
+
+# Select columns (remove timestamp, use sin/cos encoded time features)
+df_align = df_align[['aggregate', appliance_name,
+                     'minute_sin', 'minute_cos',
+                     'hour_sin', 'hour_cos', 
+                     'dow_sin', 'dow_cos',
+                     'month_sin', 'month_cos']]
 ```
 
-**Purpose**: Provide temporal context for multivariate diffusion models
+**Why Sin/Cos Encoding?**
+
+1. **Preserves Cyclical Nature**: 
+   - 23:00 and 00:00 are mathematically close (distance ≈ 0.26)
+   - Without encoding: |23 - 0| = 23 (very far)
+   - With encoding: √[(sin(23)-sin(0))² + (cos(23)-cos(0))²] ≈ 0.26 (close!)
+
+2. **Mathematical Property**:
+   - sin²(θ) + cos²(θ) = 1 (always true)
+   - This validates encoding correctness
+
+3. **Unique Mapping**:
+   - Each time point has unique (sin, cos) coordinates
+   - No ambiguity (unlike using only sin or only cos)
+
+4. **Matches NILMFormer**:
+   - Based on NILMFormer config: `list_exo_variables = [minute, hour, dow, month]`
+   - Uses same encoding formulas
+
+**Time Feature Formulas**:
+
+| Feature | Range | Period | Sin Formula | Cos Formula |
+|---------|-------|--------|-------------|-------------|
+| Minute | 0-59 | 60 | `sin(2π × minute / 60)` | `cos(2π × minute / 60)` |
+| Hour | 0-23 | 24 | `sin(2π × hour / 24)` | `cos(2π × hour / 24)` |
+| DOW | 0-6 | 7 | `sin(2π × dow / 7)` | `cos(2π × dow / 7)` |
+| Month | 1-12 | 12 | `sin(2π × month / 12)` | `cos(2π × month / 12)` |
+
+**Purpose**: Provide temporal context for multivariate diffusion models with proper cyclical encoding
 
 #### Step 4: Z-score Normalization
 
@@ -131,34 +175,45 @@ val = train.tail(val_len)
 
 ### Output Format
 
-#### 6-Column CSV (from multivariate_ukdale_preprocess.py)
+#### 10-Column CSV (from multivariate_ukdale_preprocess.py)
+
+**New Format with Headers** ✅
 
 | Column | Type | Range | Description |
 |--------|------|-------|-------------|
 | aggregate | float | Z-score | Normalized total power |
 | appliance | float | Z-score | Normalized appliance power |
-| minute | int | 0-59 | Minute of hour |
-| hour | int | 0-23 | Hour of day |
-| day | int | 1-31 | Day of month |
-| month | int | 1-12 | Month of year |
+| minute_sin | float | [-1, 1] | Minute sin encoding |
+| minute_cos | float | [-1, 1] | Minute cos encoding |
+| hour_sin | float | [-1, 1] | Hour sin encoding |
+| hour_cos | float | [-1, 1] | Hour cos encoding |
+| dow_sin | float | [-1, 1] | Day of week sin encoding |
+| dow_cos | float | [-1, 1] | Day of week cos encoding |
+| month_sin | float | [-1, 1] | Month sin encoding |
+| month_cos | float | [-1, 1] | Month cos encoding |
 
-**Example**:
+**Example CSV**:
 ```csv
--0.234,0.567,15,14,28,6
--0.189,0.432,16,14,28,6
+aggregate,appliance,minute_sin,minute_cos,hour_sin,hour_cos,dow_sin,dow_cos,month_sin,month_cos
+-0.4182,-0.5714,0.8660,0.5000,-0.5000,-0.8660,0.0,1.0,-0.8660,-0.5
+-0.4187,-0.5714,0.9135,0.4067,-0.5000,-0.8660,0.0,1.0,-0.8660,-0.5
+-0.4022,-0.5714,0.9511,0.3090,-0.5000,-0.8660,0.0,1.0,-0.8660,-0.5
 ```
 
-#### 5-Column CSV (after algorithm1_v2_multivariate.py)
+**Key Features**:
+- ✅ **Headers included**: Column names in first row
+- ✅ **10 columns**: 2 power + 8 time features (4 × 2 sin/cos)
+- ✅ **Sin/Cos encoding**: Preserves cyclical nature of time
+- ✅ **NILMFormer compatible**: Matches NILMFormer time feature configuration
 
-| Column | Type | Range | Description |
-|--------|------|-------|-------------|
-| appliance | float | [0,1] | MinMax normalized appliance power |
-| minute | int | 0-59 | Minute of hour |
-| hour | int | 0-23 | Hour of day |
-| day | int | 1-31 | Day of month |
-| month | int | 1-12 | Month of year |
-
-**Note**: Aggregate column is removed, appliance power is re-normalized using MinMax [0,1]
+**Validation**:
+```python
+# Verify sin² + cos² = 1
+df['minute_sin']**2 + df['minute_cos']**2  # Should equal 1.0
+df['hour_sin']**2 + df['hour_cos']**2      # Should equal 1.0
+df['dow_sin']**2 + df['dow_cos']**2        # Should equal 1.0
+df['month_sin']**2 + df['month_cos']**2    # Should equal 1.0
+```
 
 ## 🔧 Normalization Parameters
 
@@ -258,10 +313,21 @@ This will output recommended mean/std values based on your actual UK-DALE data.
 生成的文件位于 `created_data/UK_DALE/`:
 
 ```
-fridge_training_.csv      # 训练集 (6列: aggregate, appliance, minute, hour, day, month)
-fridge_validation_.csv    # 验证集
-fridge_test_.csv          # 测试集
+washingmachine_training_.csv      # 训练集 (10列 with headers)
+washingmachine_validation_.csv    # 验证集 (10列 with headers)
+washingmachine_test_.csv          # 测试集 (10列 with headers)
 ```
+
+**CSV Format**:
+```csv
+aggregate,appliance,minute_sin,minute_cos,hour_sin,hour_cos,dow_sin,dow_cos,month_sin,month_cos
+-0.4182,-0.5714,0.8660,0.5000,-0.5000,-0.8660,0.0,1.0,-0.8660,-0.5
+...
+```
+
+**Columns**:
+- 2 power features (Z-score normalized)
+- 8 time features (sin/cos encoded, range [-1, 1])
 
 ## Apply Algorithm 1 应用Algorithm 1
 

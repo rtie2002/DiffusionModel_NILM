@@ -13,20 +13,20 @@ send it to the diffusion model for synthetic data training..."
 - Training data: Apply Algorithm 1 → Used for diffusion model training
 - Validation/Test data: NOT processed by Algorithm 1 → Used for NILM model evaluation
 
-Input: Multivariate CSV file (format: aggregate, appliance, minute, hour, day, month)
-Output: CSV with 5 columns (appliance, minute, hour, day, month) - MinMax normalized appliance power, temporal features preserved
+Input: Multivariate CSV file (format: aggregate, appliance, minute_sin, minute_cos, hour_sin, hour_cos, dow_sin, dow_cos, month_sin, month_cos)
+Output: CSV with 9 columns (appliance + 8 sin/cos time features) - MinMax normalized appliance power, temporal features preserved
 
 Usage:
     # Process training file
     python algorithm1_v2_multivariate.py --appliance_name fridge
     
 Workflow:
-    1. Read multivariate CSV (aggregate, appliance, minute, hour, day, month)
+    1. Read multivariate CSV (10 columns with headers)
     2. Extract appliance power column
     3. Apply Algorithm 1 (select effective parts based on threshold and window)
     4. Apply MinMaxScaler normalization to appliance power only
-    5. Keep temporal features unchanged
-    6. Save to output CSV (appliance + temporal features, no aggregate)
+    5. Keep sin/cos temporal features unchanged
+    6. Save to output CSV (appliance + 8 time features, no aggregate)
 """
 
 import pandas as pd
@@ -130,7 +130,7 @@ def algorithm1_data_cleaning_multivariate(df, appliance_col, x_threshold, l_wind
     Algorithm 1: Data Cleaning and Selection for Multivariate Appliance Power Data
     
     Input:
-        df: DataFrame with columns [aggregate, appliance, minute, hour, day, month]
+        df: DataFrame with columns [aggregate, appliance, minute_sin, minute_cos, hour_sin, hour_cos, dow_sin, dow_cos, month_sin, month_cos]
         appliance_col: name of the appliance power column
         x_threshold: appliance start threshold (Watts)
         l_window: window length (default: 100, from paper Table 2)
@@ -189,10 +189,12 @@ def algorithm1_data_cleaning_multivariate(df, appliance_col, x_threshold, l_wind
     scaler_app = MinMaxScaler()
     df_selected[appliance_col] = scaler_app.fit_transform(df_selected[[appliance_col]])
     
-    # Select only appliance power and temporal features (no aggregate)
-    df_output = df_selected[[appliance_col, 'minute', 'hour', 'day', 'month']].copy()
+    # Select only appliance power and sin/cos temporal features (no aggregate)
+    time_cols = ['minute_sin', 'minute_cos', 'hour_sin', 'hour_cos', 
+                 'dow_sin', 'dow_cos', 'month_sin', 'month_cos']
+    df_output = df_selected[[appliance_col] + time_cols].copy()
     
-    # Temporal features remain unchanged
+    # Sin/Cos temporal features remain unchanged
     
     return df_output, T_selected, scaler_app
 
@@ -412,24 +414,30 @@ def main():
     print(f"Applying Algorithm 1 to multivariate TRAINING data: {appliance_name}")
     print(f"{'='*60}")
     print(f"Reading: {input_file}")
-    print(f"  Expected format: CSV with columns (aggregate, appliance, minute, hour, day, month)")
+    print(f"  Expected format: CSV with 10 columns (aggregate, appliance, 8 sin/cos time features)")
     
-    # Read multivariate CSV
-    df = pd.read_csv(input_file, header=None,
-                     names=['aggregate', appliance_name, 'minute', 'hour', 'day', 'month'])
+    # Read multivariate CSV with headers
+    df = pd.read_csv(input_file)
     
     print(f"  CSV columns: {df.columns.tolist()}")
     print(f"  CSV shape: {df.shape}")
     print(f"  Original data length: {len(df):,}")
     
+    # Verify expected columns
+    expected_cols = ['aggregate', appliance_name, 'minute_sin', 'minute_cos',
+                     'hour_sin', 'hour_cos', 'dow_sin', 'dow_cos', 'month_sin', 'month_cos']
+    if list(df.columns) != expected_cols:
+        print(f"\n  WARNING: Column names don't match expected format!")
+        print(f"  Expected: {expected_cols}")
+        print(f"  Got: {list(df.columns)}")
+    
     # Show data ranges
-    print(f"\n  Data ranges (normalized):")
-    print(f"    Aggregate: [{df['aggregate'].min():.4f}, {df['aggregate'].max():.4f}]")
-    print(f"    {appliance_name.capitalize()}: [{df[appliance_name].min():.4f}, {df[appliance_name].max():.4f}]")
-    print(f"    Minute: [{df['minute'].min():.0f}, {df['minute'].max():.0f}]")
-    print(f"    Hour: [{df['hour'].min():.0f}, {df['hour'].max():.0f}]")
-    print(f"    Day: [{df['day'].min():.0f}, {df['day'].max():.0f}]")
-    print(f"    Month: [{df['month'].min():.0f}, {df['month'].max():.0f}]")
+    print(f"\n  Data ranges:")
+    print(f"    Aggregate (Z-score): [{df['aggregate'].min():.4f}, {df['aggregate'].max():.4f}]")
+    print(f"    {appliance_name.capitalize()} (Z-score): [{df[appliance_name].min():.4f}, {df[appliance_name].max():.4f}]")
+    print(f"    Time features (sin/cos, [-1,1]):")
+    for col in ['minute_sin', 'hour_sin', 'dow_sin', 'month_sin']:
+        print(f"      {col}: [{df[col].min():.4f}, {df[col].max():.4f}]")
     
     # Denormalize appliance power for Algorithm 1
     mean = params['mean']
@@ -468,22 +476,21 @@ def main():
     # Show filtered data ranges
     print(f"\n  Filtered data ranges:")
     print(f"    {appliance_name.capitalize()} (MinMax): [{df_filtered[appliance_name].min():.4f}, {df_filtered[appliance_name].max():.4f}]")
-    print(f"    Minute (unchanged): [{df_filtered['minute'].min():.0f}, {df_filtered['minute'].max():.0f}]")
-    print(f"    Hour (unchanged): [{df_filtered['hour'].min():.0f}, {df_filtered['hour'].max():.0f}]")
-    print(f"    Day (unchanged): [{df_filtered['day'].min():.0f}, {df_filtered['day'].max():.0f}]")
-    print(f"    Month (unchanged): [{df_filtered['month'].min():.0f}, {df_filtered['month'].max():.0f}]")
+    print(f"    Time features (sin/cos, unchanged):")
+    for col in ['minute_sin', 'hour_sin', 'dow_sin', 'month_sin']:
+        print(f"      {col}: [{df_filtered[col].min():.4f}, {df_filtered[col].max():.4f}]")
     
-    # Save multivariate CSV (5 columns: appliance, minute, hour, day, month)
-    df_filtered.to_csv(output_file, index=False, header=False)
+    # Save multivariate CSV (9 columns: appliance + 8 sin/cos time features) with headers
+    df_filtered.to_csv(output_file, index=False, header=True)
     
     print(f"\n{'='*60}")
     print(f"SUCCESS: Algorithm 1 processing complete!")
     print(f"{'='*60}")
     print(f"  Saved: {output_file}")
     print(f"  Rows: {len(df_filtered):,}")
-    print(f"  Format: 5 columns ({appliance_name}, minute, hour, day, month)")
+    print(f"  Format: 9 columns ({appliance_name} + 8 sin/cos time features) with headers")
     print(f"  Appliance power: MinMax normalized [0,1]")
-    print(f"  Temporal columns: Original values preserved")
+    print(f"  Time features: Sin/Cos encoded, preserved from input")
     print(f"\n  Note: Only TRAINING data processed (as per paper requirement)")
 
 if __name__ == '__main__':

@@ -108,7 +108,12 @@ def main():
     nrows = None
     debug = False  # Disabled plotting for faster execution
 
-    train = pd.DataFrame(columns=['aggregate', appliance_name, 'minute', 'hour', 'day', 'month'])
+    # NILMFormer paper config: minute, hour, dow, month (4 features × 2 = 8 dimensions)
+    train = pd.DataFrame(columns=['aggregate', appliance_name,
+                                  'minute_sin', 'minute_cos',
+                                  'hour_sin', 'hour_cos', 
+                                  'dow_sin', 'dow_cos',
+                                  'month_sin', 'month_cos'])
 
     for h in params_appliance[appliance_name]['houses']:
         print('    ' + args.data_dir + 'house_' + str(h) + '/'
@@ -167,17 +172,36 @@ def main():
 
         df_align.reset_index(inplace=True)
         
-        # Extract temporal features from timestamp
-        df_align['minute'] = df_align['time'].dt.minute
-        df_align['hour'] = df_align['time'].dt.hour
-        df_align['day'] = df_align['time'].dt.day
-        df_align['month'] = df_align['time'].dt.month
+        # Extract temporal features from timestamp and apply sin/cos encoding
+        # This preserves the cyclical nature of time (e.g., 23:00 is close to 00:00)
+        # Based on NILMFormer README: "minutes, hours, days, months"
+        # Note: Code uses hour/dow/month, but paper mentions minute
+        minute = df_align['time'].dt.minute
+        hour = df_align['time'].dt.hour
+        dayofweek = df_align['time'].dt.dayofweek  # 0=Monday, 6=Sunday
+        month = df_align['time'].dt.month
+        
+        # Sin/Cos encoding for cyclical features (matching NILMFormer approach)
+        # 4 features × 2 (sin/cos) = 8 time dimensions
+        df_align['minute_sin'] = np.sin(2 * np.pi * minute / 60.0)
+        df_align['minute_cos'] = np.cos(2 * np.pi * minute / 60.0)
+        df_align['hour_sin'] = np.sin(2 * np.pi * hour / 24.0)
+        df_align['hour_cos'] = np.cos(2 * np.pi * hour / 24.0)
+        df_align['dow_sin'] = np.sin(2 * np.pi * dayofweek / 7.0)
+        df_align['dow_cos'] = np.cos(2 * np.pi * dayofweek / 7.0)
+        df_align['month_sin'] = np.sin(2 * np.pi * month / 12.0)
+        df_align['month_cos'] = np.cos(2 * np.pi * month / 12.0)
         
         if appliance_name == 'fridge':
             df_align[appliance_name] = df_align.apply(aggregate_app,axis=1)
 
-        # Select only needed columns (no timestamp)
-        df_align = df_align[['aggregate', appliance_name, 'minute', 'hour', 'day', 'month']]
+        # Select only needed columns (no timestamp, using sin/cos encoded time features)
+        # NILMFormer paper: minute, hour, dow, month (8 time dimensions)
+        df_align = df_align[['aggregate', appliance_name,
+                             'minute_sin', 'minute_cos',
+                             'hour_sin', 'hour_cos', 
+                             'dow_sin', 'dow_cos',
+                             'month_sin', 'month_cos']]
         
         # Delete intermediate dataframes
         del mains_df, app_df
@@ -188,11 +212,15 @@ def main():
             print("df_align with temporal features:")
             print(df_align.head())
             print(df_align.tail())
-            print(f"\nTemporal feature ranges:")
-            print(f"  Minute: {df_align['minute'].min()} - {df_align['minute'].max()}")
-            print(f"  Hour: {df_align['hour'].min()} - {df_align['hour'].max()}")
-            print(f"  Day: {df_align['day'].min()} - {df_align['day'].max()}")
-            print(f"  Month: {df_align['month'].min()} - {df_align['month'].max()}")
+            print(f"\nTemporal feature ranges (sin/cos encoded):")
+            print(f"  Minute sin: {df_align['minute_sin'].min():.3f} - {df_align['minute_sin'].max():.3f}")
+            print(f"  Minute cos: {df_align['minute_cos'].min():.3f} - {df_align['minute_cos'].max():.3f}")
+            print(f"  Hour sin: {df_align['hour_sin'].min():.3f} - {df_align['hour_sin'].max():.3f}")
+            print(f"  Hour cos: {df_align['hour_cos'].min():.3f} - {df_align['hour_cos'].max():.3f}")
+            print(f"  DOW sin: {df_align['dow_sin'].min():.3f} - {df_align['dow_sin'].max():.3f}")
+            print(f"  DOW cos: {df_align['dow_cos'].min():.3f} - {df_align['dow_cos'].max():.3f}")
+            print(f"  Month sin: {df_align['month_sin'].min():.3f} - {df_align['month_sin'].max():.3f}")
+            print(f"  Month cos: {df_align['month_cos'].min():.3f} - {df_align['month_cos'].max():.3f}")
             # plt.plot(df_align['aggregate'].values)
             # plt.plot(df_align[appliance_name].values)
             # plt.savefig('{}.png'.format(appliance_name))
@@ -259,7 +287,7 @@ def main():
 
     test.reset_index(drop=True, inplace=True)
     train.drop(train.index[-test_len:], inplace=True)
-    test.to_csv(args.save_path + appliance_name + '_test_.csv', mode='w', index=False, header=False)
+    test.to_csv(args.save_path + appliance_name + '_test_.csv', mode='w', index=False, header=True)
 
 
     # Validation CSV
@@ -267,10 +295,10 @@ def main():
     val.reset_index(drop=True, inplace=True)
     train.drop(train.index[-val_len:], inplace=True)
     # Validation CSV
-    val.to_csv(args.save_path + appliance_name + '_validation_' + '.csv', mode='w', index=False, header=False)
+    val.to_csv(args.save_path + appliance_name + '_validation_' + '.csv', mode='w', index=False, header=True)
 
     # Training CSV
-    train.to_csv(args.save_path + appliance_name + '_training_.csv', mode='w', index=False, header=False)
+    train.to_csv(args.save_path + appliance_name + '_training_.csv', mode='w', index=False, header=True)
 
     print("    Size of total training set is {:.4f} M rows.".format(len(train) / 10 ** 6))
     print("    Size of total validation set is {:.4f} M rows.".format(len(val) / 10 ** 6))
