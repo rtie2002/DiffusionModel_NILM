@@ -369,7 +369,7 @@ def main():
     parser.add_argument('--output_dir', type=str,
                         default='Data/datasets',
                         help='Output directory for processed CSV files')
-    parser.add_argument('--window', type=int, default=100,
+    parser.add_argument('--window', type=int, default=10,
                         help='Window length for Algorithm 1 (default: 100, from paper)')
     parser.add_argument('--remove_spikes', action='store_true', default=True,
                         help='Remove isolated spikes (default: True)')

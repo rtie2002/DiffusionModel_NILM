@@ -46,20 +46,20 @@ def get_arguments():
 # Houses: 1, 2, 5 (same as Transformer project)
 params_appliance = {
     'kettle': {
-        'mean': 100,  # Transformer value (vs original 700)
-        'std': 500,   # Transformer value (vs original 1000)
+        'mean': 700,  # Transformer value (vs original 700)
+        'std': 1000,   # Transformer value (vs original 1000)
         'houses': [1],
         'channels': [10],  # House 1: ch10
     },
     'microwave': {
-        'mean': 60,   # Transformer value (vs original 500)
-        'std': 300,   # Transformer value (vs original 800)
+        'mean': 500,   # Transformer value (vs original 500)
+        'std': 800,   # Transformer value (vs original 800)
         'houses': [1],
         'channels': [13],  # House 1: ch13
     },
     'fridge': {
-        'mean': 50,   # Transformer value (almost perfect match to actual 47W!)
-        'std': 50,    # Transformer value (perfect match to actual 50W!)
+        'mean': 200,   # Transformer value (almost perfect match to actual 47W!)
+        'std': 400,    # Transformer value (perfect match to actual 50W!)
         'houses': [1],
         'channels': [12],  # House 1: ch12
     },
