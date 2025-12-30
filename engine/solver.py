@@ -123,7 +123,7 @@ class Trainer(object):
         if self.logger is not None:
             self.logger.log_info('Training done, time: {:.2f}'.format(time.time() - tic))
 
-    def sample(self, num, size_every, shape=None):
+    def sample(self, num, size_every, shape=None, dataset=None):
         if self.logger is not None:
             tic = time.time()
             self.logger.log_info('Begin to sample...')
@@ -134,13 +134,57 @@ class Trainer(object):
         print(f"Generating {num} windows in {num_cycle} batches (batch_size={size_every})")
         print(f"{'='*70}\n")
 
+        # NEW: Check if conditional generation is supported
+        use_conditional = hasattr(self.ema.ema_model, 'generate_with_conditions') and dataset is not None and shape[1] == 9
+        
+        if use_conditional:
+            print("✓ Using CONDITIONAL generation with time features from dataset")
+            # Sample conditions from dataset
+            dataset_size = len(dataset.samples)
+            print(f"  Dataset size: {dataset_size} windows")
+        else:
+            print("✓ Using UNCONDITIONAL generation")
+
         for batch_idx in range(num_cycle):
             windows_completed = batch_idx * size_every
             windows_this_batch = min(size_every, num - windows_completed)
             
             print(f"Batch {batch_idx + 1}/{num_cycle} | Windows completed: {windows_completed}/{num} | Generating {windows_this_batch} windows...")
             
-            sample = self.ema.ema_model.generate_mts(batch_size=size_every)
+            if use_conditional:
+                # NEW: Proportional sampling to maintain time distribution
+                # Instead of pure random, sample proportionally from dataset
+                
+                if windows_this_batch >= dataset_size:
+                    # If generating more than dataset size, sample with replacement
+                    indices = np.random.choice(dataset_size, size=size_every, replace=True)
+                else:
+                    # Sample without replacement to maintain distribution
+                    # Calculate how many samples to take from each part of dataset
+                    sample_ratio = size_every / dataset_size
+                    
+                    if sample_ratio <= 1.0:
+                        # Take proportional samples from entire dataset
+                        indices = np.random.choice(dataset_size, size=size_every, replace=False)
+                    else:
+                        # Need more samples than dataset, use replacement
+                        indices = np.random.choice(dataset_size, size=size_every, replace=True)
+                
+                # Extract time features (columns 1-8) from dataset
+                conditions = []
+                for idx in indices:
+                    window_data = dataset.samples[idx]  # (512, 9)
+                    time_features = window_data[:, 1:9]  # (512, 8)
+                    conditions.append(time_features)
+                
+                conditions = torch.FloatTensor(np.stack(conditions)).to(self.device)  # (batch, 512, 8)
+                
+                # Generate with conditions
+                sample = self.ema.ema_model.generate_with_conditions(conditions)
+            else:
+                # Unconditional generation
+                sample = self.ema.ema_model.generate_mts(batch_size=size_every)
+            
             samples = np.row_stack([samples, sample.detach().cpu().numpy()])
             torch.cuda.empty_cache()
             
@@ -149,6 +193,8 @@ class Trainer(object):
 
         print(f"{'='*70}")
         print(f"✓ All {num} windows generated successfully!")
+        if use_conditional:
+            print(f"✓ Generated data includes time features (9 columns)")
         print(f"{'='*70}\n")
         
         if self.logger is not None:

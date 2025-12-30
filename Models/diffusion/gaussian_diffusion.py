@@ -315,18 +315,19 @@ class Diffusion(nn.Module):
         return train_loss.mean()
 
     def forward(self, x, condition=None, **kwargs):
-        # NEW: Support conditional input
-        # x: (B, seq_length, feature_size) - power only
-        # condition: (B, seq_length, condition_dim) - time features
+        # x can be either:
+        # - (B, seq_length, 9) from dataloader (power + time features)
+        # - (B, seq_length, 1) + condition (B, seq_length, 8) for manual conditioning
         
         if condition is not None:
-            # Concatenate power and conditions
-            x = torch.cat([x, condition], dim=-1)  # (B, seq_length, feature_size + condition_dim)
+            # Manual conditioning: concatenate power and conditions
+            x = torch.cat([x, condition], dim=-1)  # (B, seq_length, 9)
         
         b, c, n, device = *x.shape, x.device
-        # NEW: Accept both feature_size (unconditional) and feature_size + condition_dim (conditional)
+        # Accept both 1 (unconditional) and 9 (conditional)
         assert n == self.feature_size or n == self.feature_size + self.condition_dim, \
-            f'number of features must be {self.feature_size} (unconditional) or {self.feature_size + self.condition_dim} (conditional)'
+            f'number of features must be {self.feature_size} (unconditional) or {self.feature_size + self.condition_dim} (conditional), got {n}'
+        
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
         return self._train_loss(x_start=x, t=t, **kwargs)
 

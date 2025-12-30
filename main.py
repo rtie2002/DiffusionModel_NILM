@@ -104,7 +104,7 @@ def main():
             num_samples = len(dataset)
             print(f"Generating default number of samples: {num_samples} (dataset size)")
         
-        samples = trainer.sample(num=num_samples, size_every=400, shape=[dataset.window, dataset.var_num])
+        samples = trainer.sample(num=num_samples, size_every=400, shape=[dataset.window, dataset.var_num], dataset=dataset)
         if dataset.auto_norm:
             samples = unnormalize_to_zero_to_one(samples)
             print(f"Generated data shape: {samples.shape}")

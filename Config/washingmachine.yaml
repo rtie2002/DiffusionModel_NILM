@@ -21,7 +21,7 @@ model:
 solver:
   base_lr: 1.0e-6
   max_epochs: 20000
-  results_folder: .Checkpoints/Checkpoints_washingmachine
+  results_folder: .Checkpoints/Checkpoints_washingmachine_multivariate
   gradient_accumulate_every: 2
   save_cycle: 2000
   ema:
