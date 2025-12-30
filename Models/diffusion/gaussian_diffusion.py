@@ -36,6 +36,7 @@ class Diffusion(nn.Module):
             self,
             seq_length,
             feature_size,
+            condition_dim=8,  # NEW: Number of conditional features (time features)
             n_layer_enc=3,
             n_layer_dec=6,
             d_model=None,
@@ -59,9 +60,11 @@ class Diffusion(nn.Module):
         self.eta, self.use_ff = eta, use_ff
         self.seq_length = seq_length
         self.feature_size = feature_size
+        self.condition_dim = condition_dim  # NEW: Store condition dimension
         self.ff_weight = default(reg_weight, math.sqrt(self.seq_length) / 5)
 
-        self.model = Transformer(n_feat=feature_size, n_channel=seq_length, n_layer_enc=n_layer_enc, n_layer_dec=n_layer_dec,
+        # NEW: Transformer now accepts feature_size + condition_dim dimensions
+        self.model = Transformer(n_feat=feature_size + condition_dim, n_channel=seq_length, n_layer_enc=n_layer_enc, n_layer_dec=n_layer_dec,
                                  n_heads=n_heads, attn_pdrop=attn_pd, resid_pdrop=resid_pd, mlp_hidden_times=mlp_hidden_times,
                                  max_len=seq_length, n_embd=d_model, conv_params=[kernel_size, padding_size], **kwargs)
 
@@ -219,6 +222,40 @@ class Diffusion(nn.Module):
         sample_fn = self.fast_sample if self.fast_sampling else self.sample
         return sample_fn((batch_size, seq_length, feature_size))
 
+    @torch.no_grad()
+    def generate_with_conditions(self, condition, batch_size=None):
+        """
+        Generate data with time features preserved (outputs 9 dimensions)
+        
+        Args:
+            condition: (B, seq_length, condition_dim) - Time features to condition on
+            batch_size: Optional, inferred from condition if not provided
+        
+        Returns:
+            (B, seq_length, feature_size + condition_dim) - Generated power + time features
+        """
+        if condition is not None:
+            batch_size = condition.shape[0]
+            seq_length = condition.shape[1]
+        else:
+            seq_length = self.seq_length
+            if batch_size is None:
+                raise ValueError("Either condition or batch_size must be provided")
+        
+        # Initialize noise for full dimensions (power + time features)
+        img = torch.randn(batch_size, seq_length, self.feature_size + self.condition_dim).to(condition.device)
+        
+        # Replace time feature part with actual conditions
+        img[:, :, self.feature_size:] = condition
+        
+        # Reverse diffusion process
+        for t in reversed(range(0, self.num_timesteps)):
+            img, _ = self.p_sample(img, t)
+            # Force time features to stay as conditions (prevent drift)
+            img[:, :, self.feature_size:] = condition
+        
+        return img  # (B, seq_length, feature_size + condition_dim)
+
 
 
     @property
@@ -240,18 +277,33 @@ class Diffusion(nn.Module):
         )
 
     def _train_loss(self, x_start, t, target=None, noise=None, padding_masks=None):
-        noise = default(noise, lambda: torch.randn_like(x_start))
+        # NEW: Separate power and conditions
+        # x_start shape: (B, seq_length, feature_size + condition_dim)
+        x_power = x_start[:, :, :self.feature_size]  # Extract power (B, seq_length, 1)
+        x_condition = x_start[:, :, self.feature_size:]  # Extract conditions (B, seq_length, 8)
+        
+        # Only noise the power part
+        noise = default(noise, lambda: torch.randn_like(x_power))
         if target is None:
-            target = x_start
+            target = x_power
 
-        x = self.q_sample(x_start=x_start, t=t, noise=noise)  # noise sample
+        # Noise sample (only power)
+        x_power_noisy = self.q_sample(x_start=x_power, t=t, noise=noise)
+        
+        # NEW: Concatenate noisy power with clean conditions
+        x = torch.cat([x_power_noisy, x_condition], dim=-1)  # (B, seq_length, 9)
+        
         model_out = self.output(x, t, padding_masks)
+        
+        # NEW: Only compute loss on power part
+        model_out_power = model_out[:, :, :self.feature_size]
 
-        train_loss = self.loss_fn(model_out, target, reduction='none')
+        train_loss = self.loss_fn(model_out_power, target, reduction='none')
 
         fourier_loss = torch.tensor([0.])
         if self.use_ff:
-            fft1 = torch.fft.fft(model_out.transpose(1, 2), norm='forward')
+            # NEW: Use only power part for Fourier loss
+            fft1 = torch.fft.fft(model_out_power.transpose(1, 2), norm='forward')
             fft2 = torch.fft.fft(target.transpose(1, 2), norm='forward')
             fft1, fft2 = fft1.transpose(1, 2), fft2.transpose(1, 2)
             fourier_loss = self.loss_fn(torch.real(fft1), torch.real(fft2), reduction='none')\
@@ -262,9 +314,19 @@ class Diffusion(nn.Module):
         train_loss = train_loss * extract(self.loss_weight, t, train_loss.shape)
         return train_loss.mean()
 
-    def forward(self, x, **kwargs):
-        b, c, n, device, feature_size, = *x.shape, x.device, self.feature_size
-        assert n == feature_size, f'number of variable must be {feature_size}'
+    def forward(self, x, condition=None, **kwargs):
+        # NEW: Support conditional input
+        # x: (B, seq_length, feature_size) - power only
+        # condition: (B, seq_length, condition_dim) - time features
+        
+        if condition is not None:
+            # Concatenate power and conditions
+            x = torch.cat([x, condition], dim=-1)  # (B, seq_length, feature_size + condition_dim)
+        
+        b, c, n, device = *x.shape, x.device
+        # NEW: Accept both feature_size (unconditional) and feature_size + condition_dim (conditional)
+        assert n == self.feature_size or n == self.feature_size + self.condition_dim, \
+            f'number of features must be {self.feature_size} (unconditional) or {self.feature_size + self.condition_dim} (conditional)'
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
         return self._train_loss(x_start=x, t=t, **kwargs)
 
