@@ -173,7 +173,16 @@ class Diffusion(nn.Module):
         batched_times = torch.full((x.shape[0],), t, device=x.device, dtype=torch.long)
         model_mean, _, model_log_variance, x_start = \
             self.p_mean_variance(x=x, t=batched_times, clip_denoised=clip_denoised)
-        noise = torch.randn_like(x) if t > 0 else 0.  # no noise if t == 0
+        
+        # CRITICAL FIX: Only add noise to power dimension, not time features!
+        if t > 0:
+            noise = torch.randn_like(x)
+            # Zero out noise for time features (columns 1-8)
+            if x.shape[-1] == self.feature_size + self.condition_dim:  # 9 dimensions
+                noise[:, :, self.feature_size:] = 0  # No noise for time features!
+        else:
+            noise = 0.
+        
         pred_img = model_mean + (0.5 * model_log_variance).exp() * noise
         return pred_img, x_start
 
