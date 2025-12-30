@@ -86,7 +86,7 @@ class Trainer(object):
                 total_loss = 0.
                 for _ in range(self.gradient_accumulate_every):
                     data = next(self.dl).to(device)
-                    loss = self.model(data, target=data)
+                    loss = self.model(data)
                     loss = loss / self.gradient_accumulate_every
                     loss.backward()
                     total_loss += loss.item()
