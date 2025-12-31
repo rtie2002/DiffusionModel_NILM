@@ -45,7 +45,21 @@ def parse_args():
     )
 
     args = parser.parse_args()
-    args.save_dir = os.path.join(args.output, f'{args.name}')
+    
+    # Get the directory where main.py is located (project root)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # If output is a relative path, make it relative to script_dir
+    if not os.path.isabs(args.output):
+        output_dir = os.path.join(script_dir, args.output)
+    else:
+        output_dir = args.output
+    
+    # Create full save directory path
+    args.save_dir = os.path.join(output_dir, f'{args.name}')
+    
+    # Create directory if it doesn't exist
+    os.makedirs(args.save_dir, exist_ok=True)
 
     return args
 
