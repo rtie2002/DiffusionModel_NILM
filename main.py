@@ -106,7 +106,17 @@ def main():
         
         samples = trainer.sample(num=num_samples, size_every=400, shape=[dataset.window, dataset.var_num], dataset=dataset)
         if dataset.auto_norm:
-            samples = unnormalize_to_zero_to_one(samples)
+            # CRITICAL: Only normalize power column, preserve time features in [-1, 1]
+            if dataset.var_num == 9:  # Conditional case (1 power + 8 time features)
+                # Power column (index 0): [-1, 1] -> [0, 1]
+                samples[:, :, 0:1] = unnormalize_to_zero_to_one(samples[:, :, 0:1])
+                # Time features (indices 1-8): Keep in [-1, 1] for proper Sin/Cos representation
+                print("Applied selective normalization:")
+                print(f"  - Power (col 0): normalized to [0, 1]")
+                print(f"  - Time features (cols 1-8): preserved in [-1, 1]")
+            else:  # Unconditional case (1 power only)
+                samples = unnormalize_to_zero_to_one(samples)
+            
             print(f"Generated data shape: {samples.shape}")
             print(f"Total data points: {samples.size:,}")
             np.save(os.path.join(args.save_dir, f'ddpm_fake_{args.name}.npy'), samples)
