@@ -51,11 +51,14 @@ def detect_data_type(data):
     mean_val = np.mean(data)
     std_val = np.std(data)
     
-    # Check for MinMax [0, 1]
-    if 0.0 <= min_val < 0.05 and 0.8 < max_val <= 1.05:
+    # Check for MinMax [0, 1] - MUST check before Z-score!
+    # Lowered max threshold from 0.8 to 0.1 to catch low-power appliances like fridge (max~0.38)
+    # Key indicators: min near 0, max < 1, no negative values
+    if 0.0 <= min_val < 0.05 and 0.1 < max_val <= 1.05 and min_val >= 0:
         return 'minmax_0_1'
     
-    # Check for Z-score (mean ~0, reasonable std)
+    # Check for Z-score (mean ~0, reasonable std, HAS negative values)
+    # MUST have negative values to be Z-score, otherwise it's likely MinMax
     elif -2 < mean_val < 2 and 0.2 < std_val < 3.0 and min_val < 0:
         return 'zscore'
     
@@ -63,7 +66,9 @@ def detect_data_type(data):
     elif min_val >= 0 and max_val > 100:
         return 'raw'
     
-    # Default to Z-score if uncertain
+    # Default: if min >= 0 and max <= 1, assume MinMax, otherwise Z-score
+    if min_val >= 0 and max_val <= 1:
+        return 'minmax_0_1'
     return 'zscore'
 
 def denormalize_zscore_to_watts(zscore_data, mean, std):

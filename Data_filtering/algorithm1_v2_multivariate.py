@@ -42,26 +42,31 @@ APPLIANCE_PARAMS = {
         'on_power_threshold': 200,
         'mean': 700,
         'std': 1000,
+        'max_power': 3998,
     },
     'microwave': {
         'on_power_threshold': 200,
         'mean': 500,
         'std': 800,
+        'max_power': 2000,
     },
     'fridge': {
         'on_power_threshold': 50,
         'mean': 200,
         'std': 400,
+        'max_power': 350,
     },
     'dishwasher': {
         'on_power_threshold': 10,
         'mean': 700,
         'std': 1000,
+        'max_power': 3964,
     },
     'washingmachine': {
         'on_power_threshold': 20,
         'mean': 400,
         'std': 700,
+        'max_power': 3999,
     }
 }
 
@@ -125,7 +130,7 @@ def remove_isolated_spikes(power_sequence, window_size=5, spike_threshold=3.0,
 
 def algorithm1_data_cleaning_multivariate(df, appliance_col, x_threshold, l_window=100, x_noise=0,
                                           remove_spikes=True, spike_window=5, spike_threshold=3.0,
-                                          background_threshold=50, clip_max=None):
+                                          background_threshold=50, clip_max=None, max_power=None):
     """
     Algorithm 1: Data Cleaning and Selection for Multivariate Appliance Power Data
     
@@ -185,9 +190,22 @@ def algorithm1_data_cleaning_multivariate(df, appliance_col, x_threshold, l_wind
         if num_clipped > 0:
             print(f"  Clipped {num_clipped} values in '{appliance_col}' above {clip_max}W ({num_clipped/len(df_selected)*100:.2f}%)")
     
-    # Step 11-12: Apply MinMaxScaler to appliance power only
-    scaler_app = MinMaxScaler()
-    df_selected[appliance_col] = scaler_app.fit_transform(df_selected[[appliance_col]])
+    # Step 11-12: Apply MinMax normalization using fixed max_power
+    # Use fixed max power from params to ensure 1.0 = Max Power (e.g., 2000W)
+    # This matches the denormalization logic in real_power_visualize.py
+    
+    if max_power is None:
+        # Fallback to dynamic if not provided (though should be provided)
+        print("  WARNING: max_power not provided, using dynamic max")
+        max_power = df_selected[appliance_col].max()
+
+    print(f"  Normalizing using fixed max_power: {max_power} W")
+    
+    # Clip values to max_power to ensure range [0, 1]
+    df_selected[appliance_col] = df_selected[appliance_col].clip(upper=max_power)
+    
+    # Normalize: value / max_power
+    df_selected[appliance_col] = df_selected[appliance_col] / max_power
     
     # Select only appliance power and sin/cos temporal features (no aggregate)
     time_cols = ['minute_sin', 'minute_cos', 'hour_sin', 'hour_cos', 
@@ -196,7 +214,8 @@ def algorithm1_data_cleaning_multivariate(df, appliance_col, x_threshold, l_wind
     
     # Sin/Cos temporal features remain unchanged
     
-    return df_output, T_selected, scaler_app
+    # Return None for scaler since we are using fixed max_power
+    return df_output, T_selected, None
 
 def plot_data_processing(power_data_original, x_cleaned, 
                         x_threshold, appliance_name, output_dir, max_samples=None):
@@ -466,7 +485,8 @@ def main():
         spike_window=args.spike_window,
         spike_threshold=args.spike_threshold,
         background_threshold=args.background_threshold,
-        clip_max=args.clip_max
+        clip_max=args.clip_max,
+        max_power=params['max_power']
     )
     
     print(f"\n  Selected data length: {len(df_filtered):,}")
