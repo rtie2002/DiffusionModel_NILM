@@ -27,12 +27,24 @@ APPLIANCE_SPECS = {
 
 TIME_COLS = ['minute_sin', 'minute_cos', 'hour_sin', 'hour_cos', 'dow_sin', 'dow_cos', 'month_sin', 'month_cos']
 
-def load_synthetic_data(appliance_name, custom_folder=None):
-    """Load and prepare synthetic data from NPY file"""
+def load_synthetic_data(appliance_name, custom_folder=None, return_full=False):
+    """Load and prepare synthetic data from NPY file
+    
+    Args:
+        appliance_name: Name of the appliance
+        custom_folder: Custom folder path for synthetic data
+        return_full: If True, return full multivariate data (N, 512, 9)
+                     If False, return only appliance power column flattened
+    
+    Returns:
+        If return_full=False: 1D array of appliance power values
+        If return_full=True: 3D array (N, 512, 9) with power + time features
+    """
     print(f"\n=== Loading Synthetic Data for {appliance_name} ===")
     
     if custom_folder:
-        npy_path = f'{custom_folder}/ddpm_fake_{appliance_name}.npy'
+        # Use filename pattern for files in synthetic_data_multivariate
+        npy_path = f'{custom_folder}/ddpm_fake_{appliance_name}_multivariate.npy'
     else:
         npy_path = f'OUTPUT/{appliance_name}_512/ddpm_fake_{appliance_name}_512.npy'
 
@@ -43,9 +55,25 @@ def load_synthetic_data(appliance_name, custom_folder=None):
         print(f"Error: File not found: {npy_path}")
         raise
 
-    synthetic_flat = synthetic.reshape(-1)
-    print(f"Loaded synthetic NPY shape: {synthetic.shape} -> flattened: {synthetic_flat.shape}")
-    return synthetic_flat
+    print(f"Loaded synthetic NPY shape: {synthetic.shape}")
+    
+    if return_full:
+        # Return full multivariate data (N, 512, 9)
+        print(f"Returning full multivariate data: {synthetic.shape}")
+        return synthetic
+    else:
+        # Extract only appliance power column (first column, index 0)
+        # Shape: (N, 512, 9) -> (N, 512, 1) -> flatten to (N*512,)
+        if len(synthetic.shape) == 3 and synthetic.shape[2] >= 1:
+            synthetic_power = synthetic[:, :, 0]  # Extract first column (power)
+            synthetic_flat = synthetic_power.reshape(-1)
+            print(f"Extracted power column and flattened: {synthetic_flat.shape}")
+        else:
+            # Fallback for old format (already just power)
+            synthetic_flat = synthetic.reshape(-1)
+            print(f"Flattened (old format): {synthetic_flat.shape}")
+        
+        return synthetic_flat
 
 
 def load_real_data_multivariate(appliance_name, custom_path=None):
@@ -77,6 +105,7 @@ def load_real_data_multivariate(appliance_name, custom_path=None):
     return df
 
 
+
 def get_real_data_stats(df, appliance_col_idx=1):
     """Calculate actual Z-score statistics from real data dataframe"""
     print(f"\n=== Calculating Real Data Statistics ===")
@@ -97,23 +126,111 @@ def get_real_data_stats(df, appliance_col_idx=1):
     return stats
 
 
-def convert_synthetic_to_zscore(synthetic_minmax_01, appliance_name, real_stats=None):
-    """Convert synthetic data from [0,1] to Z-score using clip/linear logic"""
-    print(f"\n=== Converting Synthetic {appliance_name} [0,1] -> Z-score ===")
+def get_all_appliances_stats():
+    """Get real data statistics for all appliances
     
+    Returns:
+        dict: {appliance_name: stats_dict} for all appliances
+    """
+    print(f"\n=== Loading Real Data Stats for All Appliances ===")
+    
+    all_stats = {}
+    for app_name in APPLIANCE_SPECS.keys():
+        csv_path = f'created_data/UK_DALE/{app_name}_training_.csv'
+        
+        try:
+            df = pd.read_csv(csv_path)
+            # Column 1 is appliance data (already in Z-score)
+            zscore_data = df.iloc[:, 1].values
+            
+            stats = {
+                'zscore_min': float(zscore_data.min()),
+                'zscore_max': float(zscore_data.max()),
+                'zscore_mean': float(zscore_data.mean()),
+                'zscore_std': float(zscore_data.std())
+            }
+            
+            all_stats[app_name] = stats
+            print(f"  {app_name}: [{stats['zscore_min']:.4f}, {stats['zscore_max']:.4f}]")
+            
+        except FileNotFoundError:
+            print(f"  {app_name}: WARNING - File not found, will use fallback conversion")
+            all_stats[app_name] = None
+    
+    return all_stats
+
+
+
+def convert_synthetic_to_zscore(synthetic_minmax_01, appliance_name, real_stats=None):
+    """Convert synthetic data from [0,1] to Z-score
+    
+    Strategy:
+    - Clipped appliances (clip_power != real_max_power): Use clip_power for denormalization
+    - Non-clipped appliances (clip_power == real_max_power): Use linear transformation to real Z-score range
+    
+    Args:
+        synthetic_minmax_01: Synthetic data in [0,1] format
+        appliance_name: Name of appliance
+        real_stats: Stats from get_real_data_stats() or None
+    
+    Returns:
+        Synthetic data in Z-score format
+    """
+    print(f"\n=== Converting Synthetic [0,1] -> Z-score ===")
+    
+    # Get appliance specs
     specs = APPLIANCE_SPECS[appliance_name]
     mean = specs['mean']
     std = specs['std']
-    clip_power = specs['max_power']
+    clip_power = specs['max_power']  # This is clip_power from APPLIANCE_SPECS
     
-    # Basic logic: treat as clipped for now (same as before) or use stats if available
-    # For now ensuring basic conversion works
+    # Load YAML to check if appliance was clipped
+    config_path = 'Config/applainces_configuration.yaml'
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        appliance_config = config[appliance_name]
+        real_max_power = appliance_config.get('real_max_power')
+        was_clipped = (clip_power != real_max_power)
+    except Exception as e:
+        print(f"Warning: Could not load YAML config: {e}")
+        was_clipped = False  # Assume not clipped if can't load config
+        real_max_power = clip_power
     
-    # Using simple denorm -> zscore
-    synthetic_watts = synthetic_minmax_01 * clip_power
-    synthetic_zscore = (synthetic_watts - mean) / std
+    if was_clipped:
+        # CLIPPED APPLIANCE: Use clip_power method
+        print(f"[CLIPPED] {appliance_name}: {clip_power}W clip < {real_max_power}W real_max")
+        print(f"  Using clip_power method: [0,1] -> [0,{clip_power}W] -> Z-score")
+        print(f"  Z-score params: mean={mean}W, std={std}W")
+        
+        # [0,1] -> [0, clip_power] watts -> Z-score
+        synthetic_watts = synthetic_minmax_01 * clip_power
+        synthetic_zscore = (synthetic_watts - mean) / std
+        
+    else:
+        # NON-CLIPPED APPLIANCE: Use linear transformation to match real Z-score range
+        if real_stats is not None:
+            print(f"[NOT CLIPPED] {appliance_name}: {clip_power}W == {real_max_power}W")
+            print(f"  Using linear transformation to real Z-score range")
+            
+            zscore_min = real_stats['zscore_min']
+            zscore_max = real_stats['zscore_max']
+            zscore_range = zscore_max - zscore_min
+            
+            # Linear transformation: [0,1] -> [zscore_min, zscore_max]
+            synthetic_zscore = synthetic_minmax_01 * zscore_range + zscore_min
+            
+            print(f"  Mapped [0,1] -> Z-score range [{zscore_min:.4f}, {zscore_max:.4f}]")
+        else:
+            # Fallback: use clip_power method
+            print(f"[NOT CLIPPED] {appliance_name}: No real_stats, using clip_power method")
+            synthetic_watts = synthetic_minmax_01 * clip_power
+            synthetic_zscore = (synthetic_watts - mean) / std
     
     print(f"Synthetic Z-score range: [{synthetic_zscore.min():.4f}, {synthetic_zscore.max():.4f}]")
+    print(f"Synthetic Z-score mean:  {synthetic_zscore.mean():.4f}")
+    print(f"Synthetic Z-score std:   {synthetic_zscore.std():.4f}")
+    
     return synthetic_zscore
 
 
@@ -161,20 +278,40 @@ def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, output_s
         raise ValueError("Must have some real rows to provide Time Features for multivariate format!")
 
     # 2. Load Synthetic Data (All 5 appliances for aggregate)
-    SYNTHETIC_FOLDER = "OUTPUT/synthetic_data_for_mix_data"
+    SYNTHETIC_FOLDER = "synthetic_data_multivariate"
     print("\n=== Loading Synthetic Appliances ===")
     
-    # Helper to load and prepare one synthetic appliance
+    # Get real stats for ALL appliances (for proper conversion)
+    all_real_stats = get_all_appliances_stats()
+    
+    # Helper to load and prepare one synthetic appliance (power only)
     def get_syn_zscore(name):
-        data = load_synthetic_data(name, custom_folder=SYNTHETIC_FOLDER)
-        return convert_synthetic_to_zscore(data, name)
+        data = load_synthetic_data(name, custom_folder=SYNTHETIC_FOLDER, return_full=False)
+        # Pass the real stats for this appliance
+        return convert_synthetic_to_zscore(data, name, all_real_stats[name])
 
-    # Load all 5 in Z-score
+    # Load all 5 appliances in Z-score (power only for aggregate calculation)
     all_syn_zscore = {name: get_syn_zscore(name) for name in APPLIANCE_SPECS.keys()}
+    
+    # Load FULL multivariate data for the TARGET appliance (to get time features)
+    print(f"\n=== Loading Full Multivariate Data for Target Appliance: {appliance_name} ===")
+    target_syn_full = load_synthetic_data(appliance_name, custom_folder=SYNTHETIC_FOLDER, return_full=True)
+    print(f"Target appliance full shape: {target_syn_full.shape}")
+    
+    # Extract time features from synthetic data (columns 1-8, assuming column 0 is power)
+    # Shape: (N, 512, 9) -> extract columns 1-8 -> flatten to (N*512, 8)
+    syn_time_features_3d = target_syn_full[:, :, 1:]  # Columns 1-8 are time features
+    syn_time_features_flat = syn_time_features_3d.reshape(-1, 8)
+    print(f"Extracted synthetic time features shape: {syn_time_features_flat.shape}")
     
     # Min length check
     min_len = min(len(d) for d in all_syn_zscore.values())
-    print(f"\nMinimum synthetic length: {min_len:,}")
+    print(f"\nMinimum synthetic power length: {min_len:,}")
+    print(f"Synthetic time features length: {len(syn_time_features_flat):,}")
+    
+    # Use the minimum of power data and time features
+    min_len = min(min_len, len(syn_time_features_flat))
+    print(f"Final minimum length: {min_len:,}")
     
     # 3. Create Synthetic Aggregate
     print("Creating Synthetic Aggregate...")
@@ -198,22 +335,9 @@ def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, output_s
         syn_agg_cut = syn_agg_zscore[:actual_syn_rows]
         syn_app_cut = all_syn_zscore[appliance_name][:actual_syn_rows]
         
-        # Reuse time features for synthetic part
-        # If we have enough unused real time features, use them. Else loop.
-        # Simple approach: concatenate real time features from row 0
-        
-        # Note: Ideally synthetic data should have its own time, but generator doesn't output it.
-        # We reuse real time features to maintain valid sin/cos sequences.
-        # We can take time features from the *end* of the real data file (unused part) 
-        # or just repeat.
-        
-        # Let's take time features immediately following the real_rows selection
-        available_time_len = len(full_time_features)
-        start_idx = real_rows % available_time_len
-        
-        # Create indices for time features
-        time_indices = np.arange(start_idx, start_idx + actual_syn_rows) % available_time_len
-        syn_time_features = full_time_features[time_indices]
+        # Time features: Use the synthetic data's own time features
+        syn_time_features = syn_time_features_flat[:actual_syn_rows]
+        print(f"Using synthetic time features: {syn_time_features.shape}")
         
         # Construct Synthetic DataFrame
         syn_data_dict = {
@@ -235,7 +359,7 @@ def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, output_s
     print("\n=== Mixing and Shuffling ===")
     
     # Window-based shuffling
-    window_size = 6000 # 6000 points ~ 1.5h roughly, standard chunk
+    window_size = 600 # 6000 points ~ 1.5h roughly, standard chunk
     
     # We will simply concatenate then output.
     # But wait, original script did window shuffling.
@@ -285,18 +409,76 @@ def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, output_s
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Mix real and synthetic NILM data (Multivariate)')
-    parser.add_argument('--appliance', type=str, required=True, choices=list(APPLIANCE_SPECS.keys()))
-    parser.add_argument('--real_rows', type=int, default=200000)
-    parser.add_argument('--synthetic_rows', type=int, default=200000)
-    parser.add_argument('--real_path', type=str, default=None)
-    parser.add_argument('--suffix', type=str, default=None)
+    parser.add_argument('--appliance', type=str, required=False,
+                        choices=list(APPLIANCE_SPECS.keys()),
+                        help='Target appliance')
+    parser.add_argument('--real_rows', type=int, default=200000,
+                        help='Number of real data rows (default: 200000)')
+    parser.add_argument('--synthetic_rows', type=int, default=200000,
+                        help='Number of synthetic rows (default: 200000)')
+    parser.add_argument('--real_path', type=str, default=None,
+                        help='Path to real data CSV')
+    parser.add_argument('--suffix', type=str, default=None,
+                        help='Output file suffix (default: {real}k+{syn}k)')
+    parser.add_argument('--no-shuffle', action='store_true',
+                        help='Disable window shuffling (keep sequential order)')
     
     args = parser.parse_args()
     
+    # Interactive mode if no arguments provided (specifically appliance)
+    if args.appliance is None:
+        print("\n=== Interactive Multivariate Data Mixing Mode ===")
+        print("Available appliances:", ", ".join(list(APPLIANCE_SPECS.keys())))
+        
+        while True:
+            user_app = input("Enter target appliance name: ").strip().lower()
+            if user_app in APPLIANCE_SPECS:
+                args.appliance = user_app
+                break
+            print(f"Invalid appliance. Please choose from: {list(APPLIANCE_SPECS.keys())}")
+            
+        user_real = input(f"Enter real rows (default {args.real_rows}): ").strip()
+        if user_real.isdigit():
+            args.real_rows = int(user_real)
+            
+        user_syn = input(f"Enter synthetic rows (default {args.synthetic_rows}): ").strip()
+        if user_syn.isdigit():
+            args.synthetic_rows = int(user_syn)
+            
+        # Interactive prompts for inputs
+        default_real_path = f'created_data/UK_DALE/{args.appliance}_training_.csv'
+        print(f"\nReal data path (default: {default_real_path})")
+        user_real_path = input("Enter path or press Enter for default: ").strip()
+        if user_real_path:
+            args.real_path = user_real_path.strip('"').strip("'")
+            
+        print("\n[INFO] Synthetic data will be loaded from: synthetic_data_multivariate (hardcoded)")
+        
+        # Ask about shuffling
+        print("\n=== Window Shuffling ===")
+        print("Shuffling mixes real and synthetic windows randomly.")
+        print("No shuffling keeps windows in sequential order (real first, then synthetic).")
+        user_shuffle = input("Shuffle windows? (y/n, default=y): ").strip().lower()
+        if user_shuffle in ['n', 'no']:
+            args.no_shuffle = True
+            print("  -> Windows will be kept in sequential order")
+        else:
+            args.no_shuffle = False
+            print("  -> Windows will be shuffled randomly")
+    
+    # Auto-generate suffix if not provided
     if args.suffix is None:
         real_k = args.real_rows // 1000
         syn_k = args.synthetic_rows // 1000
         args.suffix = f'{real_k}k+{syn_k}k'
-
-    mix_data(args.appliance, args.real_rows, args.synthetic_rows, args.real_path, args.suffix)
+    
+    # Mix data
+    mix_data(
+        appliance_name=args.appliance,
+        real_rows=args.real_rows,
+        synthetic_rows=args.synthetic_rows,
+        real_path=args.real_path,
+        output_suffix=args.suffix,
+        shuffle=not args.no_shuffle  # Shuffle by default, disable if --no-shuffle is set
+    )
 
