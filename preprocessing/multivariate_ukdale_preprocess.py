@@ -46,34 +46,34 @@ def get_arguments():
 # Houses: 1, 2, 5 (same as Transformer project)
 params_appliance = {
     'kettle': {
-        'mean': 700,  # Transformer value (vs original 700)
-        'std': 1000,   # Transformer value (vs original 1000)
-        'houses': [1],
-        'channels': [10],  # House 1: ch10
+        'mean': 700, 
+        'std': 1000,   
+        'houses': [1, 3, 5],
+        'channels': [10, 2, 18],
     },
     'microwave': {
-        'mean': 500,   # Transformer value (vs original 500)
-        'std': 800,   # Transformer value (vs original 800)
-        'houses': [1],
-        'channels': [13],  # House 1: ch13
+        'mean': 500,   
+        'std': 800,   
+        'houses': [1, 5],
+        'channels': [13, 23],
     },
     'fridge': {
-        'mean': 200,   # Transformer value (almost perfect match to actual 47W!)
-        'std': 400,    # Transformer value (perfect match to actual 50W!)
-        'houses': [1],
-        'channels': [12],  # House 1: ch12
+        'mean': 200,   
+        'std': 400,   
+        'houses': [1, 5],
+        'channels': [12, 19],
     },
     'dishwasher': {
-        'mean': 700,  # Transformer value (same as original)
-        'std': 1000,  # Transformer value (same as original)
-        'houses': [1],
-        'channels': [6],  # House 1: ch6
+        'mean': 700,  
+        'std': 1000,  
+        'houses': [1, 5],
+        'channels': [6, 22],
     },
     'washingmachine': {
-        'mean': 400,  # Transformer value (same as original)
-        'std': 700,   # Transformer value (same as original)
-        'houses': [1],
-        'channels': [5],  # House 1: ch5
+        'mean': 400, 
+        'std': 700,   
+        'houses': [1, 5],
+        'channels': [5, 24],
     }
 }
 def load_dataframe(directory, building, channel, col_names=['time', 'data'], nrows=None):
@@ -104,7 +104,7 @@ def main():
     sample_seconds = 60
     training_building_percent = 0
     validation_percent = 20
-    testing_percent = 20
+    testing_percent = 0
     nrows = None
     debug = False  # Disabled plotting for faster execution
 
@@ -276,24 +276,31 @@ def main():
         del df_align
 
     # Crop dataset
-    if training_building_percent is not 0:
+    if training_building_percent != 0:
         train.drop(train.index[-int((len(train)/100)*training_building_percent):], inplace=True)
 
     test_len = int((len(train)/100)*testing_percent)
     val_len = int((len(train)/100)*validation_percent)
 
     #Testing CSV
-    test = train.tail(test_len)
+    if test_len > 0:
+        test = train.tail(test_len)
+        test.reset_index(drop=True, inplace=True)
+        train.drop(train.index[-test_len:], inplace=True)
+    else:
+        test = pd.DataFrame(columns=train.columns)
 
-    test.reset_index(drop=True, inplace=True)
-    train.drop(train.index[-test_len:], inplace=True)
     test.to_csv(args.save_path + appliance_name + '_test_.csv', mode='w', index=False, header=True)
 
 
     # Validation CSV
-    val = train.tail(val_len)
-    val.reset_index(drop=True, inplace=True)
-    train.drop(train.index[-val_len:], inplace=True)
+    if val_len > 0:
+        val = train.tail(val_len)
+        val.reset_index(drop=True, inplace=True)
+        train.drop(train.index[-val_len:], inplace=True)
+    else:
+        val = pd.DataFrame(columns=train.columns)
+        
     # Validation CSV
     val.to_csv(args.save_path + appliance_name + '_validation_' + '.csv', mode='w', index=False, header=True)
 

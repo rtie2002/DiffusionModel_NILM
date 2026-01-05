@@ -494,7 +494,7 @@ if __name__ == '__main__':
     if args.suffix is None:
         real_k = args.real_rows // 1000
         syn_k = args.synthetic_rows // 1000
-        args.suffix = f'{real_k}k+{syn_k}k'
+        args.suffix = f'{real_k}k+{syn_k}k_realPower'
     
     # Mix data
     mix_data(
