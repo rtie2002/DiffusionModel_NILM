@@ -46,34 +46,34 @@ def get_arguments():
 # Houses: 1, 2, 5 (same as Transformer project)
 params_appliance = {
     'kettle': {
-        'mean': 700, 
-        'std': 1000,   
-        'houses': [1, 3, 5],
-        'channels': [10, 2, 18],
+        'mean': 700,  # Transformer value (vs original 700)
+        'std': 1000,   # Transformer value (vs original 1000)
+        'houses': [2],
+        'channels': [8],
     },
     'microwave': {
-        'mean': 500,   
-        'std': 800,   
-        'houses': [1, 5],
-        'channels': [13, 23],
+        'mean': 500,   # Transformer value (vs original 500)
+        'std': 800,   # Transformer value (vs original 800)
+        'houses': [2],
+        'channels': [15],
     },
     'fridge': {
-        'mean': 200,   
-        'std': 400,   
-        'houses': [1, 5],
-        'channels': [12, 19],
+        'mean': 200,   # Transformer value (almost perfect match to actual 47W!)
+        'std': 400,    # Transformer value (perfect match to actual 50W!)
+        'houses': [2],
+        'channels': [14],
     },
     'dishwasher': {
-        'mean': 700,  
-        'std': 1000,  
-        'houses': [1, 5],
-        'channels': [6, 22],
+        'mean': 700,  # Transformer value (same as original)
+        'std': 1000,  # Transformer value (same as original)
+        'houses': [2],
+        'channels': [13],
     },
     'washingmachine': {
-        'mean': 400, 
-        'std': 700,   
-        'houses': [1, 5],
-        'channels': [5, 24],
+        'mean': 400,  # Transformer value (same as original)
+        'std': 700,   # Transformer value (same as original)
+        'houses': [2],
+        'channels': [12],
     }
 }
 def load_dataframe(directory, building, channel, col_names=['time', 'data'], nrows=None):
