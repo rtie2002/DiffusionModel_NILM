@@ -103,7 +103,7 @@ def main():
     start_time = time.time()
     sample_seconds = 60
     training_building_percent = 0
-    validation_percent = 0
+    validation_percent = 20
     testing_percent = 0
     nrows = None
     debug = False  # Disabled plotting for faster execution
