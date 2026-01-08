@@ -290,7 +290,8 @@ def main():
     else:
         test = pd.DataFrame(columns=train.columns)
 
-    test.to_csv(args.save_path + appliance_name + '_test_.csv', mode='w', index=False, header=True)
+    if len(test) > 0:
+        test.to_csv(args.save_path + appliance_name + '_test_.csv', mode='w', index=False, header=True)
 
 
     # Validation CSV
@@ -302,10 +303,12 @@ def main():
         val = pd.DataFrame(columns=train.columns)
         
     # Validation CSV
-    val.to_csv(args.save_path + appliance_name + '_validation_' + '.csv', mode='w', index=False, header=True)
+    if len(val) > 0:
+        val.to_csv(args.save_path + appliance_name + '_validation_' + '.csv', mode='w', index=False, header=True)
 
     # Training CSV
-    train.to_csv(args.save_path + appliance_name + '_training_.csv', mode='w', index=False, header=True)
+    if len(train) > 0:
+        train.to_csv(args.save_path + appliance_name + '_training_.csv', mode='w', index=False, header=True)
 
     print("    Size of total training set is {:.4f} M rows.".format(len(train) / 10 ** 6))
     print("    Size of total validation set is {:.4f} M rows.".format(len(val) / 10 ** 6))
