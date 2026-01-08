@@ -42,7 +42,7 @@ function Run-Pipeline {
     $milestone = Get-MaxMilestone -CheckpointDir $chkptDir
     
     if ($milestone -gt 0) {
-        Write-Host "Found max milestone for $ApplianceName: $milestone"
+        Write-Host "Found max milestone for ${ApplianceName}: $milestone"
         
         # 3. Calculate Sample Number (Total Data Points / 512)
         $dataPath = "Data/datasets/${runName}.csv"
