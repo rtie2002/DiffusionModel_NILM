@@ -5,19 +5,19 @@
 
 ```bash
 # Fridge (冰箱)
-python preprocessing/multivariate_ukdale_preprocess_testing.py --appliance_name fridge --data_dir "NILM-main/dataset_preprocess/UK_DALE/"
+python preprocess_NILMformer\multivariate_ukdale_preprocess_testing.py --appliance_name fridge --data_dir "NILM-main/dataset_preprocess/UK_DALE/"
 
 # Microwave (微波炉)
-python preprocessing/multivariate_ukdale_preprocess_testing.py --appliance_name microwave --data_dir "NILM-main/dataset_preprocess/UK_DALE/"
+python preprocess_NILMformer\multivariate_ukdale_preprocess_testing.py --appliance_name microwave --data_dir "NILM-main/dataset_preprocess/UK_DALE/"
 
 # Kettle (水壶)
-python preprocessing/multivariate_ukdale_preprocess_testing.py --appliance_name kettle --data_dir "NILM-main/dataset_preprocess/UK_DALE/"
+python preprocess_NILMformer\multivariate_ukdale_preprocess_testing.py --appliance_name kettle --data_dir "NILM-main/dataset_preprocess/UK_DALE/"
 
 # Dishwasher (洗碗机)
-python preprocessing/multivariate_ukdale_preprocess_testing.py --appliance_name dishwasher --data_dir "NILM-main/dataset_preprocess/UK_DALE/"
+python preprocess_NILMformer\multivariate_ukdale_preprocess_testing.py --appliance_name dishwasher --data_dir "NILM-main/dataset_preprocess/UK_DALE/"
 
 # Washing Machine (洗衣机)
-python preprocessing/multivariate_ukdale_preprocess_testing.py --appliance_name washingmachine --data_dir "NILM-main/dataset_preprocess/UK_DALE/"
+python preprocess_NILMformer\multivariate_ukdale_preprocess_testing.py --appliance_name washingmachine --data_dir "NILM-main/dataset_preprocess/UK_DALE/"
 ```
 
 ## 📊 Data Processing Pipeline
