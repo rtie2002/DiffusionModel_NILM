@@ -35,7 +35,8 @@ class Trainer(object):
         self.logger = logger
 
         self.results_folder = Path(config['solver']['results_folder'] + f'_{model.seq_length}')
-        os.makedirs(self.results_folder, exist_ok=True)
+        if not os.path.exists(self.results_folder):
+            os.makedirs(self.results_folder, exist_ok=True)
 
         start_lr = config['solver'].get('base_lr', 1.0e-4)
         ema_decay = config['solver']['ema']['decay']
