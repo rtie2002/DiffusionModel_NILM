@@ -1,5 +1,5 @@
 # Set working directory to project root to ensure python script relative paths work
-$ProjectRoot = "C:\Users\Raymond Tie\Desktop\DiffusionModel_NILM"
+$ProjectRoot = $PSScriptRoot
 Set-Location -Path $ProjectRoot
 
 $DataDir = Join-Path $ProjectRoot "created_data\UK_DALE"

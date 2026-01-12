@@ -1,4 +1,4 @@
-python Data_filtering/algorithm1_v2_multivariate.py --appliance_name fridge --clip_max 250
+python Data_filtering/algorithm1_v2_multivariate.py --appliance_name fridge
 
 # Microwave
 python Data_filtering/algorithm1_v2_multivariate.py --appliance_name microwave
