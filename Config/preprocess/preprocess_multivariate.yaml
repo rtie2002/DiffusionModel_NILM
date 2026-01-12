@@ -9,6 +9,7 @@
 paths:
   data_dir: "UK_DALE/"
   save_path: "created_data/UK_DALE/"
+  synthetic_dir: "synthetic_data_multivariate"
 
 normalization:
   aggregate_mean: 522      # Mean for cleaning/normalizing aggregate (mains) channel
@@ -133,6 +134,14 @@ algorithm1:
 # Purpose: Controls how the processed data sequences are chopped and shuffled for training.
 
 mixing:
-  seq_length: 480        # Sequence length (Window size) for mode inputs. 480 mins = 8 hours.
-  window_step: 480       # Stride for sliding window. If equal to seq_length, windows are non-overlapping.
+  window_size: 100      # Sequence length / Window size for shuffling. Matches mix_training_data_multivariate.py
   shuffle: true          # Randomly shuffle the order of windows before saving to CSV?
+  time_cols:             # Time features to include/preserve
+    - 'minute_sin'
+    - 'minute_cos'
+    - 'hour_sin'
+    - 'hour_cos'
+    - 'dow_sin'
+    - 'dow_cos'
+    - 'month_sin'
+    - 'month_cos'

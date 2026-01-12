@@ -16,16 +16,50 @@ import argparse
 import yaml
 from pathlib import Path
 
-# Appliance specifications from ukdale_processing.py
-APPLIANCE_SPECS = {
-    'kettle': {'mean': 700, 'std': 1000, 'max_power': 3998},
-    'microwave': {'mean': 500, 'std': 800, 'max_power': 2000},
-    'fridge': {'mean': 200, 'std': 400, 'max_power': 350},
-    'dishwasher': {'mean': 700, 'std': 1000, 'max_power': 3964},
-    'washingmachine': {'mean': 400, 'std': 700, 'max_power': 3999}
-}
+# Load configuration
+CONFIG_PATH = 'Config/preprocess/preprocess_multivariate.yaml'
 
-TIME_COLS = ['minute_sin', 'minute_cos', 'hour_sin', 'hour_cos', 'dow_sin', 'dow_cos', 'month_sin', 'month_cos']
+def load_config():
+    try:
+        with open(CONFIG_PATH, 'r') as f:
+            config = yaml.safe_load(f)
+        print(f"Loaded config from {CONFIG_PATH}")
+        return config
+    except FileNotFoundError:
+        print(f"Error: Config file not found at {CONFIG_PATH}")
+        return None
+
+CONFIG = load_config()
+
+# Extract global specs from config
+if CONFIG:
+    APPLIANCE_SPECS = {}
+    for app_name, app_data in CONFIG['appliances'].items():
+        APPLIANCE_SPECS[app_name] = {
+            'mean': app_data['mean'],
+            'std': app_data['std'],
+            'max_power': app_data['max_power']
+        }
+    
+    TIME_COLS = CONFIG['mixing'].get('time_cols', [])
+    if not TIME_COLS:
+        print("WARNING: 'time_cols' not found in config, using defaults.")
+        TIME_COLS = ['minute_sin', 'minute_cos', 'hour_sin', 'hour_cos', 'dow_sin', 'dow_cos', 'month_sin', 'month_cos']
+        
+    SYNTHETIC_DIR = CONFIG['paths'].get('synthetic_dir', 'synthetic_data_multivariate')
+    
+else:
+    # Fallback to hardcoded defaults if config fails
+    print("WARNING: Using hardcoded defaults.")
+    APPLIANCE_SPECS = {
+        'kettle': {'mean': 700, 'std': 1000, 'max_power': 3998},
+        'microwave': {'mean': 500, 'std': 800, 'max_power': 3969},
+        'fridge': {'mean': 200, 'std': 400, 'max_power': 350},
+        'dishwasher': {'mean': 700, 'std': 1000, 'max_power': 3964},
+        'washingmachine': {'mean': 400, 'std': 700, 'max_power': 3999}
+    }
+    TIME_COLS = ['minute_sin', 'minute_cos', 'hour_sin', 'hour_cos', 'dow_sin', 'dow_cos', 'month_sin', 'month_cos']
+    SYNTHETIC_DIR = 'synthetic_data_multivariate'
 
 def load_synthetic_data(appliance_name, custom_folder=None, return_full=False):
     """Load and prepare synthetic data from NPY file
@@ -278,15 +312,15 @@ def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, output_s
         raise ValueError("Must have some real rows to provide Time Features for multivariate format!")
 
     # 2. Load Synthetic Data (All 5 appliances for aggregate)
-    SYNTHETIC_FOLDER = "synthetic_data_multivariate"
-    print("\n=== Loading Synthetic Appliances ===")
+    # Use global SYNTHETIC_DIR loaded from config
+    print(f"\n=== Loading Synthetic Appliances from {SYNTHETIC_DIR} ===")
     
     # Get real stats for ALL appliances (for proper conversion)
     all_real_stats = get_all_appliances_stats()
     
     # Helper to load and prepare one synthetic appliance (power only)
     def get_syn_zscore(name):
-        data = load_synthetic_data(name, custom_folder=SYNTHETIC_FOLDER, return_full=False)
+        data = load_synthetic_data(name, custom_folder=SYNTHETIC_DIR, return_full=False)
         # Pass the real stats for this appliance
         return convert_synthetic_to_zscore(data, name, all_real_stats[name])
 
@@ -295,7 +329,7 @@ def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, output_s
     
     # Load FULL multivariate data for the TARGET appliance (to get time features)
     print(f"\n=== Loading Full Multivariate Data for Target Appliance: {appliance_name} ===")
-    target_syn_full = load_synthetic_data(appliance_name, custom_folder=SYNTHETIC_FOLDER, return_full=True)
+    target_syn_full = load_synthetic_data(appliance_name, custom_folder=SYNTHETIC_DIR, return_full=True)
     print(f"Target appliance full shape: {target_syn_full.shape}")
     
     # Extract time features from synthetic data (columns 1-8, assuming column 0 is power)
@@ -324,8 +358,14 @@ def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, output_s
         syn_agg_watts += watts
         
     # Watts -> Z-score (Aggregate)
-    AGG_MEAN = 522
-    AGG_STD = 814
+    # Watts -> Z-score (Aggregate)
+    if CONFIG:
+        AGG_MEAN = CONFIG['normalization']['aggregate_mean']
+        AGG_STD = CONFIG['normalization']['aggregate_std']
+    else:
+        AGG_MEAN = 522
+        AGG_STD = 814
+        
     syn_agg_zscore = (syn_agg_watts - AGG_MEAN) / AGG_STD
     
     # 4. Prepare Synthetic Dataframe Part
@@ -359,7 +399,11 @@ def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, output_s
     print("\n=== Mixing and Shuffling ===")
     
     # Window-based shuffling
-    window_size = 600 # 6000 points ~ 1.5h roughly, standard chunk
+    # Window-based shuffling
+    if CONFIG:
+        window_size = CONFIG['mixing'].get('window_size', 600)
+    else:
+        window_size = 600 # 6000 points ~ 1.5h roughly, standard chunk
     
     # We will simply concatenate then output.
     # But wait, original script did window shuffling.
@@ -452,7 +496,7 @@ if __name__ == '__main__':
         if user_real_path:
             args.real_path = user_real_path.strip('"').strip("'")
             
-        print("\n[INFO] Synthetic data will be loaded from: synthetic_data_multivariate (hardcoded)")
+        print(f"\n[INFO] Synthetic data will be loaded from: {SYNTHETIC_DIR}")
         
         # Ask about shuffling
         print("\n=== Window Shuffling ===")
