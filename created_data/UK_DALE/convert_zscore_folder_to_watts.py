@@ -17,15 +17,16 @@ import glob
 from pathlib import Path
 
 # Constants used in GENERATION (multivariate_ukdale_preprocess.py)
-AGG_MEAN = 400
-AGG_STD = 500
+# Constants matched with real_power_visualize.py / ukdale_processing.py
+AGG_MEAN = 522
+AGG_STD = 814
 
 APPLIANCE_SPECS = {
-    'kettle': {'mean': 700, 'std': 1000},
-    'microwave': {'mean': 500, 'std': 800},
-    'fridge': {'mean': 200, 'std': 400},
-    'dishwasher': {'mean': 700, 'std': 1000},
-    'washingmachine': {'mean': 400, 'std': 700}
+    'kettle': {'mean': 700, 'std': 1000, 'max_power': 3998},
+    'microwave': {'mean': 500, 'std': 800, 'max_power': 2000},
+    'fridge': {'mean': 200, 'std': 400, 'max_power': 350},
+    'dishwasher': {'mean': 700, 'std': 1000, 'max_power': 3964},
+    'washingmachine': {'mean': 400, 'std': 700, 'max_power': 3999}
 }
 
 INPUT_DIR = 'created_data/UK_DALE'
@@ -33,29 +34,54 @@ INPUT_DIR = 'created_data/UK_DALE'
 def convert_to_watts(df, appliance_name):
     """Convert Z-score dataframe to Watts in place"""
     
-    # Check if this is a multivariate file (>= 10 cols)
-    if len(df.columns) < 2:
-        print("  [Skipping] Too few columns")
+    # Check for empty or invalid dataframe
+    if df.empty:
         return None
         
     print(f"  Converting {appliance_name}...")
     
-    # 1. Convert Aggregate (Col 0)
-    # z = (x - mean) / std  =>  x = z * std + mean
-    df.iloc[:, 0] = df.iloc[:, 0] * AGG_STD + AGG_MEAN
+    # Identify columns based on names or indices
+    cols = df.columns
     
-    # 2. Convert Appliance (Col 1)
-    if appliance_name in APPLIANCE_SPECS:
+    # 1. Convert Aggregate
+    # Try logical names first, then fall back to index 0
+    agg_col = None
+    if 'aggregate' in cols:
+        agg_col = 'aggregate'
+    elif '0' in cols: # String '0' from CSV read
+        agg_col = '0'
+    elif len(cols) > 0:
+        agg_col = cols[0] # Assume first column is aggregate
+        
+    if agg_col:
+        print(f"    - Aggregate column: {agg_col}")
+        # z = (x - mean) / std  =>  x = z * std + mean
+        df[agg_col] = df[agg_col] * AGG_STD + AGG_MEAN
+        df[agg_col] = df[agg_col].clip(lower=0)
+    
+    # 2. Convert Appliance
+    # Try logical names first, then fall back to index 1
+    app_col = None
+    if appliance_name in cols:
+        app_col = appliance_name
+    elif 'appliance' in cols:
+        app_col = 'appliance'
+    elif '1' in cols:
+        app_col = '1'
+    elif len(cols) > 1:
+        app_col = cols[1] # Assume second column is appliance
+        
+    if app_col and appliance_name in APPLIANCE_SPECS:
+        print(f"    - Appliance column: {app_col}")
         specs = APPLIANCE_SPECS[appliance_name]
         mean = specs['mean']
         std = specs['std']
-        df.iloc[:, 1] = df.iloc[:, 1] * std + mean
+        df[app_col] = df[app_col] * std + mean
+        df[app_col] = df[app_col].clip(lower=0)
     else:
-        print(f"  [Warning] Unknown appliance '{appliance_name}', skipping appliance column conversion")
-        
-    # 3. Clip negative values (Logic from mixing script)
-    df.iloc[:, 0] = df.iloc[:, 0].clip(lower=0)
-    df.iloc[:, 1] = df.iloc[:, 1].clip(lower=0)
+        print(f"  [Warning] Unknown appliance column or specs for '{appliance_name}', skipping appliance conversion")
+
+    # Time features (columns 2-9 usually) are left as is (sin/cos encoding)
     
     return df
 

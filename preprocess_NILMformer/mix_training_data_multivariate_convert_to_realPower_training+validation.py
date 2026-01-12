@@ -297,6 +297,20 @@ def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, output_s
         real_df_subset.iloc[:, 1] = real_df_subset.iloc[:, 1].clip(lower=0)
         print(f"Appliance converted to Watts: [{real_df_subset.iloc[:, 1].min():.2f}, {real_df_subset.iloc[:, 1].max():.2f}]")
         
+        # CRITICAL: Ensure appliance power never exceeds aggregate power
+        print(f"\n=== Validating Real Data: Appliance vs Aggregate Power ===")
+        real_agg_vals = real_df_subset.iloc[:, 0].values
+        real_app_vals = real_df_subset.iloc[:, 1].values
+        violations = np.sum(real_app_vals > real_agg_vals)
+        if violations > 0:
+            print(f"WARNING: Found {violations:,} points where appliance > aggregate ({violations/len(real_app_vals)*100:.2f}%)")
+            print(f"  Max violation: {(real_app_vals - real_agg_vals).max():.2f}W")
+            print(f"  Clipping appliance power to aggregate power...")
+            real_df_subset.iloc[:, 1] = np.minimum(real_app_vals, real_agg_vals)
+            print(f"  ✓ All violations fixed")
+        else:
+            print(f"✓ No violations found - all appliance values <= aggregate")
+        
         # Capture time features to reuse for synthetic data
         # We need time features for the synthetic part too. 
         # Strategy: Reuse real time features from the *beginning* of the file or loop them if not enough
@@ -356,6 +370,19 @@ def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, output_s
     if actual_syn_rows > 0:
         syn_agg_cut = syn_agg_watts[:actual_syn_rows]  # Already in Watts
         syn_app_cut = all_syn_watts[appliance_name][:actual_syn_rows]  # Already in Watts
+        
+        # CRITICAL: Ensure appliance power never exceeds aggregate power
+        # This is physically impossible in real NILM data
+        print(f"\n=== Validating Appliance vs Aggregate Power ===")
+        violations_before = np.sum(syn_app_cut > syn_agg_cut)
+        if violations_before > 0:
+            print(f"WARNING: Found {violations_before:,} points where appliance > aggregate ({violations_before/len(syn_app_cut)*100:.2f}%)")
+            print(f"  Max violation: {(syn_app_cut - syn_agg_cut).max():.2f}W")
+            print(f"  Clipping appliance power to aggregate power...")
+            syn_app_cut = np.minimum(syn_app_cut, syn_agg_cut)
+            print(f"  ✓ All violations fixed")
+        else:
+            print(f"✓ No violations found - all appliance values <= aggregate")
         
         # Time features: Use the synthetic data's own time features
         syn_time_features = syn_time_features_flat[:actual_syn_rows]

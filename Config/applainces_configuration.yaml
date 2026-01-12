@@ -36,7 +36,7 @@ microwave:
   # Power thresholds and limits
   on_power_threshold: 200      # Minimum power to consider appliance "ON" (Watts)
   real_max_power: 3969         # Real maximum power observed in dataset (Watts)
-  max_power_clip: 2000          # Clipped maximum for filtering algorithms (Watts)
+  max_power_clip: 3969          # Clipped maximum for filtering algorithms (Watts)
 
 fridge:
   # Normalization parameters for Z-score normalization
@@ -46,7 +46,7 @@ fridge:
   # Power thresholds and limits
   on_power_threshold: 50       # Minimum power to consider appliance "ON" (Watts)
   real_max_power: 3323         # Real maximum power observed in dataset (Watts)
-  max_power_clip: 350          # Clipped maximum for filtering algorithms (Watts)
+  max_power_clip: 240         # Clipped maximum for filtering algorithms (Watts)
 
 dishwasher:
   # Normalization parameters for Z-score normalization
