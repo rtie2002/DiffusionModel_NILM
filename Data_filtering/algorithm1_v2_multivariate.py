@@ -36,39 +36,30 @@ import os
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 
-# Appliance parameters from Table 1 in the paper
-APPLIANCE_PARAMS = {
-    'kettle': {
-        'on_power_threshold': 200,
-        'mean': 700,
-        'std': 1000,
-        'max_power': 3998,
-    },
-    'microwave': {
-        'on_power_threshold': 200,
-        'mean': 500,
-        'std': 800,
-        'max_power': 2000,
-    },
-    'fridge': {
-        'on_power_threshold': 50,
-        'mean': 200,
-        'std': 400,
-        'max_power': 350,
-    },
-    'dishwasher': {
-        'on_power_threshold': 10,
-        'mean': 700,
-        'std': 1000,
-        'max_power': 3964,
-    },
-    'washingmachine': {
-        'on_power_threshold': 20,
-        'mean': 400,
-        'std': 700,
-        'max_power': 3999,
+import yaml
+
+# Helper to load config with relative path
+script_dir = os.path.dirname(os.path.abspath(__file__))
+# Move up one level: Data_filtering -> DiffusionModel_NILM
+project_root = os.path.dirname(script_dir) 
+CONFIG_PATH = os.path.join(project_root, 'Config', 'preprocess', 'preprocess_multivariate.yaml')
+
+def load_config():
+    with open(CONFIG_PATH, 'r') as f:
+        return yaml.safe_load(f)
+
+CONFIG = load_config()
+
+# Helper to map config appliance structure to script expectation
+APPLIANCE_PARAMS = {}
+for app_name, app_conf in CONFIG['appliances'].items():
+    APPLIANCE_PARAMS[app_name] = {
+        'on_power_threshold': app_conf['on_power_threshold'],
+        'mean': app_conf['mean'],
+        'std': app_conf['std'],
+        'max_power': app_conf['max_power'],
+        'max_power_clip': app_conf.get('max_power_clip'),
     }
-}
 
 def remove_isolated_spikes(power_sequence, window_size=5, spike_threshold=3.0, 
                           background_threshold=50):
@@ -388,23 +379,23 @@ def main():
     parser.add_argument('--output_dir', type=str,
                         default='Data/datasets',
                         help='Output directory for processed CSV files')
-    parser.add_argument('--window', type=int, default=10,
-                        help='Window length for Algorithm 1 (default: 100, from paper)')
-    parser.add_argument('--remove_spikes', action='store_true', default=True,
-                        help='Remove isolated spikes (default: True)')
+    parser.add_argument('--window', type=int, default=CONFIG['algorithm1']['window_length'],
+                        help=f"Window length (default: {CONFIG['algorithm1']['window_length']})")
+    parser.add_argument('--remove_spikes', action='store_true', default=CONFIG['algorithm1']['remove_spikes'],
+                        help=f"Remove isolated spikes (default: {CONFIG['algorithm1']['remove_spikes']})")
     parser.add_argument('--no_remove_spikes', action='store_false', dest='remove_spikes',
                         help='Disable spike removal')
-    parser.add_argument('--spike_window', type=int, default=5,
-                        help='Window size for spike detection (default: 5)')
-    parser.add_argument('--spike_threshold', type=float, default=3.0,
-                        help='Spike threshold multiplier (default: 3.0)')
-    parser.add_argument('--background_threshold', type=float, default=50,
-                        help='Background threshold in Watts (default: 50W)')
+    parser.add_argument('--spike_window', type=int, default=CONFIG['algorithm1']['spike_window'],
+                        help=f"Window size for spike detection (default: {CONFIG['algorithm1']['spike_window']})")
+    parser.add_argument('--spike_threshold', type=float, default=CONFIG['algorithm1']['spike_threshold'],
+                        help=f"Spike threshold multiplier (default: {CONFIG['algorithm1']['spike_threshold']})")
+    parser.add_argument('--background_threshold', type=float, default=CONFIG['algorithm1']['background_threshold'],
+                        help=f"Background threshold in Watts (default: {CONFIG['algorithm1']['background_threshold']}W)")
     parser.add_argument('--clip_max', type=float, default=None,
-                        help='Optional: Clip values above this maximum (in Watts)')
+                        help=f"Optional: Clip values above this maximum (default: {CONFIG['algorithm1']['clip_max']})")
     
     args = parser.parse_args()
-    
+
     appliance_name = args.appliance_name.lower()
     
     if appliance_name not in APPLIANCE_PARAMS:
@@ -412,6 +403,29 @@ def main():
     
     # Get appliance parameters
     params = APPLIANCE_PARAMS[appliance_name]
+
+    # Determine clip_max: prioritize command line > appliance config > global config (args default)
+    # Since args.clip_max defaults to global config, we need to check if we should prefer appliance specific.
+    # Logic: If appliance specific clip exists, use it. But what if user explicitly passed --clip_max?
+    # Ideally, specific appliance config should override default, but explicit input overrides everything.
+    # Simplifying: If args.clip_max == CONFIG['algorithm1']['clip_max'] AND appliance has specific clip, use appliance logic.
+    
+    # Better logic: Use appliance specific clip if it exists, otherwise fallback to global.
+    # Argparse default makes this tricky. We'll set default to None in argparse for clip_max 
+    # and handle the defaulting logic here.
+    
+    clip_max = args.clip_max
+    if clip_max is None:
+        # Check appliance specific first
+        clip_max = params.get('max_power_clip')
+        
+        # If still None, check global config
+        if clip_max is None:
+             clip_max = CONFIG['algorithm1']['clip_max']
+
+    if clip_max is not None:
+        print(f"  Configuration: using clip_max = {clip_max} W")
+
     x_threshold = params['on_power_threshold']
     
     # Determine input file (multivariate CSV)
@@ -485,7 +499,7 @@ def main():
         spike_window=args.spike_window,
         spike_threshold=args.spike_threshold,
         background_threshold=args.background_threshold,
-        clip_max=args.clip_max,
+        clip_max=clip_max,
         max_power=params['max_power']
     )
     
