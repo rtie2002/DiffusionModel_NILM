@@ -5,12 +5,20 @@ import argparse
 # from functions import load_dataframe
 import numpy as np
 import os
+import yaml
 
-DATA_DIRECTORY = 'UK_DALE/'
-SAVE_PATH = 'created_data/UK_DALE/'
-# Using Transformer project parameters (more accurate)
-AGG_MEAN = 400
-AGG_STD = 500
+CONFIG_PATH = r'C:\Users\Raymond Tie\Desktop\DiffusionModel_NILM\Config\preprocess\preprocess_multivariate.yaml'
+
+def load_config():
+    with open(CONFIG_PATH, 'r') as f:
+        return yaml.safe_load(f)
+
+CONFIG = load_config()
+
+DATA_DIRECTORY = CONFIG['paths']['data_dir']
+SAVE_PATH = CONFIG['paths']['save_path']
+AGG_MEAN = CONFIG['normalization']['aggregate_mean']
+AGG_STD = CONFIG['normalization']['aggregate_std']
 
 if not os.path.exists(SAVE_PATH):
     os.makedirs(SAVE_PATH)
@@ -42,40 +50,15 @@ def get_arguments():
     
     return args
 
-# Using Transformer project parameters (based on actual UK-DALE data)
-# Houses: 1, 2, 5 (same as Transformer project)
-params_appliance = {
-    'kettle': {
-        'mean': 700, 
-        'std': 1000,   
-        'houses': [2],
-        'channels': [8],
-    },
-    'microwave': {
-        'mean': 500,   
-        'std': 800,   
-        'houses': [2],
-        'channels': [15],
-    },
-    'fridge': {
-        'mean': 200,   
-        'std': 400,   
-        'houses': [2],
-        'channels': [14],
-    },
-    'dishwasher': {
-        'mean': 700,  
-        'std': 1000,  
-        'houses': [2],
-        'channels': [13],
-    },
-    'washingmachine': {
-        'mean': 400, 
-        'std': 700,   
-        'houses': [2],
-        'channels': [12],
+# Helper to map config appliance structure to script expectation
+params_appliance = {}
+for app_name, app_conf in CONFIG['appliances'].items():
+    params_appliance[app_name] = {
+        'mean': app_conf['mean'],
+        'std': app_conf['std'],
+        'houses': app_conf['test']['houses'],
+        'channels': app_conf['test']['channels']
     }
-}
 def load_dataframe(directory, building, channel, col_names=['time', 'data'], nrows=None):
     df = pd.read_table(directory + 'house_' + str(building) + '/' + 'channel_' +
                        str(channel) + '.dat',
@@ -101,10 +84,10 @@ def aggregate_app(df):
 def main():
 
     start_time = time.time()
-    sample_seconds = 60
+    sample_seconds = CONFIG['processing']['sample_seconds']
     training_building_percent = 0
-    validation_percent = 0
-    testing_percent = 100
+    validation_percent = CONFIG['processing']['testing']['validation_percent']
+    testing_percent = CONFIG['processing']['testing']['testing_percent']
     nrows = None
     debug = False  # Disabled plotting for faster execution
 

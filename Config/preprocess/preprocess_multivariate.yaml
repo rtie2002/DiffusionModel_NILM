@@ -1,0 +1,63 @@
+paths:
+  data_dir: "UK_DALE/"
+  save_path: "created_data/UK_DALE/"
+
+normalization:
+  aggregate_mean: 522
+  aggregate_std: 814
+
+processing:
+  sample_seconds: 60
+  training:
+    validation_percent: 0
+    testing_percent: 0
+  testing:
+    validation_percent: 0
+    testing_percent: 100
+
+appliances:
+  kettle:
+    mean: 700
+    std: 1000
+    train:
+      houses: [1, 3, 5]
+      channels: [10, 2, 18]
+    test:
+      houses: [2]
+      channels: [8]
+  microwave:
+    mean: 500
+    std: 800
+    train:
+      houses: [1, 5]
+      channels: [13, 23]
+    test:
+      houses: [2]
+      channels: [15]
+  fridge:
+    mean: 200
+    std: 400
+    train:
+      houses: [1, 5]
+      channels: [12, 19]
+    test:
+      houses: [2]
+      channels: [14]
+  dishwasher:
+    mean: 700
+    std: 1000
+    train:
+      houses: [1, 5]
+      channels: [6, 22]
+    test:
+      houses: [2]
+      channels: [13]
+  washingmachine:
+    mean: 400
+    std: 700
+    train:
+      houses: [1, 5]
+      channels: [5, 24]
+    test:
+      houses: [2]
+      channels: [12]
