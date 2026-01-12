@@ -7,7 +7,9 @@ import numpy as np
 import os
 import yaml
 
-CONFIG_PATH = r'C:\Users\Raymond Tie\Desktop\DiffusionModel_NILM\Config\preprocess\preprocess_multivariate.yaml'
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(script_dir)
+CONFIG_PATH = os.path.join(project_root, 'Config', 'preprocess', 'preprocess_multivariate.yaml')
 
 def load_config():
     with open(CONFIG_PATH, 'r') as f:
