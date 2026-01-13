@@ -437,7 +437,10 @@ def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, output_s
         # Fallback path if created_data root differs
         output_dir = Path('NILM-main/dataset_preprocess/created_data/UK_DALE')
         
-    output_file = output_dir / f'{appliance_name}_training_{output_suffix}.csv'
+    output_file = output_dir / appliance_name / f'{appliance_name}_training_{output_suffix}.csv'
+    
+    # Ensure directory exists
+    output_file.parent.mkdir(parents=True, exist_ok=True)
     
     # Save with header=True for multivariate
     final_df.to_csv(output_file, index=False, header=True)

@@ -21,7 +21,8 @@ import argparse
 
 def get_model(appliance, input_tensor, window_length, transfer_dense=False, transfer_cnn=False,
               cnn='fridge', n_dense=1, pretrainedmodel_dir='./models/'):
-    reshape = Reshape((-1, window_length, 1))(input_tensor)
+    # reshape = Reshape((-1, window_length, 1))(input_tensor)
+    reshape = input_tensor
 
     cnn1 = Conv1D(filters=8, kernel_size=5, strides=1, padding='same', activation='relu')(reshape)
     cnn1 = BatchNormalization()(cnn1)

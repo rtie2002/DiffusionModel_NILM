@@ -1,6 +1,6 @@
 from Logger import log
 import random
-from DataProvider import DoubleSourceProvider3, DoubleSourceProvider4, MultiApp_Slider
+from DataProvider import DoubleSourceProvider3, DoubleSourceProvider4, MultiApp_Slider, DoubleSourceProvider4_Multivariate
 import NetFlowExt as nf
 import nilm_metric as nm
 from EasyS2S_Model import get_model, weights_loader
@@ -143,8 +143,11 @@ def get_arguments():
                         type=int,
                         default=None,
                         help='for debugging porpose should be helpful to crop the test dataset size')
+    parser.add_argument('--test_file',
+                        type=str,
+                        default=None,
+                        help='Specific path or name of the testing file')
     return parser.parse_args()
-
 
 
 args = get_arguments()
@@ -157,7 +160,13 @@ log(args)
 def load_dataset(filename, header=0):
     data_frame = pd.read_csv(filename,skiprows= None, nrows=args.crop_dataset,header=header,na_filter=False)
     # data_frame = pd.read_csv(filename, nrows=None,header=header,na_filter=False)
-    test_set_x = np.round(np.array(data_frame.iloc[:, 0], float), 5)
+    # test_set_x = np.round(np.array(data_frame.iloc[:, 0], float), 5)
+    
+    np_array = np.array(data_frame)
+    # Aggregate (0) + 8 features (2-10).
+    test_set_x = np.concatenate([np_array[:, 0:1], np_array[:, 2:]], axis=1)
+    test_set_x = np.array(test_set_x, float)
+
     test_set_y = np.round(np.array(data_frame.iloc[:, 1], float), 5)
     #ground_truth = np.round(np.array(data_frame.iloc[offset:-offset, 1], float), 5)
     ground_truth = np.round(np.array(data_frame.iloc[:, 1], float), 5)
@@ -169,34 +178,47 @@ def load_dataset(filename, header=0):
 appliance_name = args.appliance_name
 log('Appliance target is: ' + appliance_name)
 
-# Looking for the selected test set
-for filename in os.listdir(args.datadir + appliance_name):
-        if args.test_type == 'train' and 'TRAIN' in filename.upper():
-            test_filename = filename
-            break
-        elif args.test_type == 'uk' and 'UK' in filename.upper():
-            test_filename = filename
-            break
-        elif args.test_type == 'redd' and 'REDD' in filename.upper():
-            test_filename = filename
-            break
-        elif args.test_type == 'test' and 'TEST' in\
-                filename.upper() and 'TRAIN' not in filename.upper() and 'UK' not in filename.upper():
-            test_filename = filename
-            break
-        elif args.test_type == 'val' and 'VALIDATION' in filename.upper():
-            test_filename = filename
-            break
-
-
-log('File for test: ' + test_filename)
-# loadname_test = args.datadir + appliance_name + '/' + test_filename
-if(originHome):
-    # loadname_test = f'dataset_preprocess/created_data/UK_DALE/{applianceName}/{applianceName}_test_.csv'
-    # loadname_test = f'dataset_preprocess/created_data/{datasetName}/{applianceName}/{applianceName}_test_.csv'
-    loadname_test = f'dataset_preprocess/created_data/{datasetName}/{applianceName}/{applianceName}_test_.csv'
+if args.test_file:
+     # If explicit file provided, check if it's a full path or just name
+     if os.path.exists(args.test_file):
+         loadname_test = args.test_file
+         test_filename = os.path.basename(args.test_file)
+     elif os.path.exists(args.test_file + '.csv'):
+         loadname_test = args.test_file + '.csv'
+         test_filename = os.path.basename(args.test_file)
+     else:
+         # Try in datadir
+         loadname_test = args.datadir + appliance_name + '/' + args.test_file + '.csv'
+         test_filename = args.test_file
 else:
-    loadname_test = f'dataset_preprocess/created_data/{datasetName}/{applianceName}/{applianceName}_test_home1Small_.csv'
+    # Looking for the selected test set
+    for filename in os.listdir(args.datadir + appliance_name):
+            if args.test_type == 'train' and 'TRAIN' in filename.upper():
+                test_filename = filename
+                break
+            elif args.test_type == 'uk' and 'UK' in filename.upper():
+                test_filename = filename
+                break
+            elif args.test_type == 'redd' and 'REDD' in filename.upper():
+                test_filename = filename
+                break
+            elif args.test_type == 'test' and 'TEST' in\
+                    filename.upper() and 'TRAIN' not in filename.upper() and 'UK' not in filename.upper():
+                test_filename = filename
+                break
+            elif args.test_type == 'val' and 'VALIDATION' in filename.upper():
+                test_filename = filename
+                break
+
+
+    log('File for test: ' + test_filename)
+    # loadname_test = args.datadir + appliance_name + '/' + test_filename
+    if(originHome):
+        # loadname_test = f'dataset_preprocess/created_data/UK_DALE/{applianceName}/{applianceName}_test_.csv'
+        # loadname_test = f'dataset_preprocess/created_data/{datasetName}/{applianceName}/{applianceName}_test_.csv'
+        loadname_test = f'dataset_preprocess/created_data/{datasetName}/{applianceName}/{applianceName}_test_.csv'
+    else:
+        loadname_test = f'dataset_preprocess/created_data/{datasetName}/{applianceName}/{applianceName}_test_home1Small_.csv'
 # loadname_test = args.datadir + appliance_name + '/' + test_filename
 log('Loading from: ' + loadname_test)
 
@@ -216,7 +238,7 @@ test_kwag = {
 }
 
 # Defining object for training set loading and windowing provider
-test_provider = DoubleSourceProvider4(nofWindows=args.nosOfWindows,
+test_provider = DoubleSourceProvider4_Multivariate(nofWindows=args.nosOfWindows,
                                       offset=offset,
                                       windowlength = windowlength)
 
@@ -224,7 +246,7 @@ test_provider = DoubleSourceProvider4(nofWindows=args.nosOfWindows,
 
 # TensorFlow placeholders
 x = tf.placeholder(tf.float32,
-                   shape=[None, windowlength],
+                   shape=[None, windowlength, 9],
                    name='x')
 
 # y_ = tf.placeholder(tf.float32,

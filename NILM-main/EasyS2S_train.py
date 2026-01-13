@@ -3,7 +3,7 @@ import random
 
 # from S2S_Model import get_model,get_FPNmodel,get_FpnPanmodel
 from EasyS2S_Model import get_model
-from DataProvider import ChunkDoubleSourceSlider2, ChunkS2S_Slider
+from DataProvider import ChunkDoubleSourceSlider2, ChunkS2S_Slider, ChunkS2S_Slider_Multivariate
 import NetFlowExt as nf
 from Logger import log
 from nilm_metric import *
@@ -129,6 +129,10 @@ def get_arguments():
                         type=int,
                         default=5 * 10 ** 5,
                         help='Maximum number of rows of csv dataset can handle without loading in chunks')
+    parser.add_argument('--train_filename',
+                        type=str,
+                        default=None,
+                        help='Specific training filename (without .csv extension)')
     return parser.parse_args()
 
 
@@ -145,7 +149,9 @@ sess = tf.InteractiveSession()
 # the appliance to train on
 appliance_name = args.appliance_name
 
-if originModel:
+if args.train_filename:
+    trainfile = args.train_filename
+elif originModel:
     trainfile = f'{appliance_name}_{TrainPercent}training_'
 else:
     #trainfile=f'{datasetName}Combined{applianceName}_fileEight'
@@ -176,7 +182,7 @@ windowlength = 600 # 599
 # params_appliance[args.appliance_name]['windowlength']
 
 # Defining object for training set loading and windowing provider (DataProvider.py)
-train_provider = ChunkS2S_Slider(filename=training_path,
+train_provider = ChunkS2S_Slider_Multivariate(filename=training_path,
                                  batchsize=args.batchsize,  # default=1000
                                  chunksize=CHUNK_SIZE,  # 5*10**6
                                  crop=args.crop_dataset,
@@ -186,7 +192,7 @@ train_provider = ChunkS2S_Slider(filename=training_path,
                                  ram_threshold=args.ram)  # ram  default=5*10**5
 
 # Defining object for validation set loading and windowing provider (DataProvider.py)
-val_provider = ChunkS2S_Slider(filename=validation_path,
+val_provider = ChunkS2S_Slider_Multivariate(filename=validation_path,
                                batchsize=args.batchsize,
                                chunksize=CHUNK_SIZE,
                                crop=args.crop_dataset,
@@ -198,7 +204,7 @@ val_provider = ChunkS2S_Slider(filename=validation_path,
 # TensorFlow placeholders
 
 x = tf.placeholder(tf.float32,
-                   shape=[None, windowlength],
+                   shape=[None, windowlength, 9],
                    name='x')
 
 y_ = tf.placeholder(tf.float32,

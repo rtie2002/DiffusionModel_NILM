@@ -905,3 +905,143 @@ class ChunkS2S_Slider(object):
                 tar = np.array([targets[idx:idx + self.length] for idx in excerpt])
 
                 yield inp, tar
+
+
+class ChunkS2S_Slider_Multivariate(object):
+    def __init__(self, filename, batchsize, chunksize, shuffle, length, crop=None, header=0, ram_threshold=5 * 10 ** 5):
+
+        self.filename = filename  #training_path
+        self.batchsize = batchsize  #default=1000
+        self.chunksize = chunksize  #5*10**6
+        self.shuffle = shuffle  #True False
+        self.length = length  #windowlength=599
+        self.header = header
+        self.crop = crop
+        self.ram = ram_threshold
+        self.total_size = 0
+
+    def check_length(self):
+        # check the csv size
+        check_cvs = pd.read_csv(self.filename,
+                                nrows=self.crop,
+                                chunksize=10 ** 3,
+                                header=self.header
+                                )
+
+        for chunk in check_cvs:
+            size = chunk.shape[0]
+            self.total_size += size
+            del chunk
+        log('Size of the dataset is {:.3f} M rows.'.format(self.total_size / 10 ** 6))
+        if self.total_size > self.ram:  # IF dataset is too large for memory
+            log('It is too large to fit in memory so it will be loaded in chunkes of size {:}.'.format(self.chunksize))
+        else:
+            log('This size can fit the memory so it will load entirely')
+
+    def feed_chunk(self):
+
+        if self.total_size == 0:
+            ChunkS2S_Slider_Multivariate.check_length(self)
+
+        if self.total_size > self.ram:  # IF dataset is too large for memory
+
+            # LOAD data from csv
+            data_frame = pd.read_csv(self.filename,
+                                     nrows=self.crop,
+                                     chunksize=self.chunksize,
+                                     header=self.header
+                                     )
+
+            skip_idx = np.arange(self.total_size/self.chunksize)
+            if self.shuffle:
+                np.random.shuffle(skip_idx)
+
+            log(str(skip_idx), 'debug')
+
+            for i in skip_idx:
+
+                log('index: ' + str(i), 'debug')
+
+                # Read the data
+                data = pd.read_csv(self.filename,
+                                   nrows=self.chunksize,
+                                   skiprows=int(i)*self.chunksize,
+                                   header=self.header)
+
+                np_array = np.array(data)
+                # Input: Aggregate (0) + 8 features (2-10). Target: Appliance (1)
+                inputs = np.concatenate([np_array[:, 0:1], np_array[:, 2:]], axis=1)
+                targets = np_array[:, 1]
+
+                max_batchsize = inputs.shape[0] - self.length + 1
+                if self.batchsize < 0:
+                    self.batchsize = max_batchsize
+
+                # define indices and shuffle them if necessary
+                indices = np.arange(max_batchsize)
+                if self.shuffle:
+                    np.random.shuffle(indices)
+
+                # providing sliding windows:
+                for start_idx in range(0, max_batchsize, self.batchsize):
+                    excerpt = indices[start_idx:start_idx + self.batchsize]
+
+                    inp = np.array([inputs[idx:idx + self.length] for idx in excerpt])
+                    tar = np.array([targets[idx:idx + self.length] for idx in excerpt])
+
+                    yield inp, tar
+
+        else:  # IF dataset can fit the memory
+
+            # LOAD data from csv
+            data_frame = pd.read_csv(self.filename,
+                                     nrows=self.crop,
+                                     header=self.header
+                                     )
+
+            np_array = np.array(data_frame)
+            inputs = np.concatenate([np_array[:, 0:1], np_array[:, 2:]], axis=1)
+            targets = np_array[:, 1]
+
+            max_batchsize = inputs.shape[0] - self.length + 1
+            if self.batchsize < 0:
+                self.batchsize = max_batchsize
+
+            # define indices and shuffle them if necessary
+            indices = np.arange(max_batchsize)
+            if self.shuffle:
+                np.random.shuffle(indices)
+
+            # providing sliding windows:
+            for start_idx in range(0, max_batchsize, self.batchsize):
+                excerpt = indices[start_idx:start_idx + self.batchsize]
+
+                inp = np.array([inputs[idx:idx + self.length] for idx in excerpt])  
+
+                tar = np.array([targets[idx:idx + self.length] for idx in excerpt])
+
+                yield inp, tar
+
+
+class DoubleSourceProvider4_Multivariate(object):
+
+    def __init__(self, nofWindows, offset, windowlength):
+
+        self.nofWindows = nofWindows
+        self.offset = offset
+        self.windowlength = windowlength
+
+    def feed(self, inputs):
+
+        # inputs: (N, 9)
+        max_nofw = inputs.shape[0] - self.windowlength + 1
+        if self.nofWindows < 0:
+            self.nofWindows = max_nofw
+
+        indices = np.arange(max_nofw, dtype=int)
+
+        # providing sliding windows:
+        for start_idx in range(0, max_nofw, self.nofWindows):
+            excerpt = indices[start_idx:start_idx + self.nofWindows]
+
+            yield np.array([inputs[idx:idx + self.windowlength] for idx in excerpt])
