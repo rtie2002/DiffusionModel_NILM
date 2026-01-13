@@ -516,6 +516,19 @@ if __name__ == '__main__':
         syn_k = args.synthetic_rows // 1000
         args.suffix = f'{real_k}k+{syn_k}k'
     
+    # Determine shuffle logic:
+    # 1. Default to config value (or True if config missing)
+    # 2. CLI flag --no-shuffle overrides to False
+    config_shuffle_default = True
+    if CONFIG and 'mixing' in CONFIG:
+        config_shuffle_default = CONFIG['mixing'].get('shuffle', True)
+    
+    # If user explicitly passed --no-shuffle, force False. Otherwise use config.
+    should_shuffle = False if args.no_shuffle else config_shuffle_default
+
+    if not should_shuffle:
+        print("-> Shuffling DISABLED (via Config or CLI)")
+
     # Mix data
     mix_data(
         appliance_name=args.appliance,
@@ -523,6 +536,6 @@ if __name__ == '__main__':
         synthetic_rows=args.synthetic_rows,
         real_path=args.real_path,
         output_suffix=args.suffix,
-        shuffle=not args.no_shuffle  # Shuffle by default, disable if --no-shuffle is set
+        shuffle=should_shuffle
     )
 
