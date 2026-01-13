@@ -128,7 +128,7 @@ def aggregate_app(df):
 def main():
 
     start_time = time.time()
-    sample_seconds = 60
+    sample_seconds = 6
     training_building_percent = 0
     validation_percent = 20
     testing_percent = 20
