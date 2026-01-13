@@ -16,17 +16,17 @@ normalization:
   aggregate_std: 814       # Std Dev for cleaning/normalizing aggregate (mains) channel
 
 processing:
-  sample_seconds: 60       # Sampling rate (resamples raw 6s data to 1 min)
+  sample_seconds: 6       # Sampling rate (resamples raw 6s data to 1 min)
   
   # Settings for multivariate_ukdale_preprocess_training+validating.py
   training:
-    validation_percent: 0  # Percentage of data to use for validation (split from tail)
-    testing_percent: 0     # Percentage of data to use for testing (usually 0 for training script)
+    validation_percent: 20  # Percentage of data to use for validation (split from tail)
+    testing_percent: 20     # Percentage of data to use for testing (usually 0 for training script)
 
   # Settings for multivariate_ukdale_preprocess_testing.py
   testing:
     validation_percent: 0  # Typically 0 for testing script
-    testing_percent: 100   # Use 100% of the loaded data for generating test set
+    testing_percent: 0   # Use 100% of the loaded data for generating test set
 
 
 # ====================================================================================================
@@ -60,8 +60,8 @@ appliances:
     real_max_power: 3969
     max_power_clip: 3969
     train:
-      houses: [1, 5]
-      channels: [13, 23]
+      houses: [1]
+      channels: [13]
     test:
       houses: [2]
       channels: [15]
@@ -74,8 +74,8 @@ appliances:
     real_max_power: 3323
     max_power_clip: 300       # Clipped max for filtering, as per original config
     train:
-      houses: [1, 5]
-      channels: [12, 19]
+      houses: [1]
+      channels: [12]
     test:
       houses: [2]
       channels: [14]
@@ -88,8 +88,8 @@ appliances:
     real_max_power: 3964
     max_power_clip: 3964
     train:
-      houses: [1, 5]
-      channels: [6, 22]
+      houses: [1]
+      channels: [6]
     test:
       houses: [2]
       channels: [13]
@@ -102,8 +102,8 @@ appliances:
     real_max_power: 3999
     max_power_clip: 3999
     train:
-      houses: [1, 5]
-      channels: [5, 24]
+      houses: [1]
+      channels: [5]
     test:
       houses: [2]
       channels: [12]
@@ -135,7 +135,7 @@ algorithm1:
 
 mixing:
   window_size: 600      # Sequence length / Window size for shuffling. Matches mix_training_data_multivariate.py
-  shuffle: false          # Randomly shuffle the order of windows before saving to CSV?
+  shuffle: True          # Randomly shuffle the order of windows before saving to CSV?
   time_cols:             # Time features to include/preserve
     - 'minute_sin'
     - 'minute_cos'
