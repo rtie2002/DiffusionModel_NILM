@@ -81,14 +81,14 @@ def get_model(appliance, input_tensor, window_length, transfer_dense=False, tran
 
     # Printing, logging and plotting the model
     # print_summary(model_def)
-    model_def.summary()
+    # model_def.summary()
     # plot_model(model, to_file='./model.png', show_shapes=True, show_layer_names=True, rankdir='TB')
 
     # Adding network structure to both the log file and output terminal
-    files = [x for x in os.listdir('./') if x.endswith(".log")]
-    with open(max(files, key=os.path.getctime), 'a') as fh:
-        # Pass the file handle in as a lambda function to make it callable
-        model_def.summary(print_fn=lambda x: fh.write(x + '\n'))
+    # files = [x for x in os.listdir('./') if x.endswith(".log")]
+    # with open(max(files, key=os.path.getctime), 'a') as fh:
+    #     # Pass the file handle in as a lambda function to make it callable
+    #     model_def.summary(print_fn=lambda x: fh.write(x + '\n'))
 
     # Check weights slice
     for v in tf.trainable_variables():
