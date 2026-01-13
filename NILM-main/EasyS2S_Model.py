@@ -91,6 +91,7 @@ def get_model(appliance, input_tensor, window_length, transfer_dense=False, tran
     #     model_def.summary(print_fn=lambda x: fh.write(x + '\n'))
 
     # Check weights slice
+    cnn1_weights = None
     for v in tf.trainable_variables():
         if v.name == 'conv1d_1/kernel:0':
             cnn1_weights = session.run(v)
