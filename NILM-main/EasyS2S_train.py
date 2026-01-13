@@ -213,7 +213,7 @@ y_ = tf.placeholder(tf.float32,
 
 # -------------------------------- Keras Network - from model.py -----------------------------------------
 
-inp = Input(tensor=x)
+inp = Input(shape=(windowlength, 9))
 model, cnn_check_weights = get_model(args.appliance_name,   #seq2seq model
                       inp,  # 预定义
                       windowlength,
@@ -222,7 +222,7 @@ model, cnn_check_weights = get_model(args.appliance_name,   #seq2seq model
                       cnn=args.cnn,
                       pretrainedmodel_dir=args.pretrainedmodel_dir)
 # cnn_check_weights
-y = model.outputs
+y = model(x)
 
 
 # #---FPN model----------------------

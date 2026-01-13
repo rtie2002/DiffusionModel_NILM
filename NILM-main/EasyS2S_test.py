@@ -254,7 +254,7 @@ x = tf.placeholder(tf.float32,
 #                     name='y_')
 
 # -------------------------------- Keras Network - from model.py -------------------------------------
-inp = Input(tensor=x)
+inp = Input(shape=(windowlength, 9))
 
 model, _= get_model(args.appliance_name,
                   inp,
@@ -297,7 +297,7 @@ test_prediction = nf.custompredictS2SX(sess=sess,
                                 x=x,
                                 fragment_size=args.nosOfWindows, #1000
                                 output_length=windowlength,
-                                y_op=None,
+                                y_op=model(x),
                                 out_kwag=test_kwag)
 
 

@@ -27,7 +27,7 @@ else {
 }
 
 # --- Helper Function to Modify Python Scripts ---
-function Modify-PythonVar {
+function Set-PythonVar {
     param ($FilePath, $VarName, $NewValue, $IsString = $false)
     
     $CurrentContent = Get-Content $FilePath -Raw
@@ -57,10 +57,10 @@ function Modify-PythonVar {
 
 # --- Step 1: Modify Training Script ---
 Write-Host "`n[1/3] Configuring Training Script..." -ForegroundColor Green
-Modify-PythonVar -FilePath $TRAIN_SCRIPT -VarName "originModel" -NewValue $OriginModel
-Modify-PythonVar -FilePath $TRAIN_SCRIPT -VarName "datasetName" -NewValue "UK_DALE" -IsString $true
-Modify-PythonVar -FilePath $TRAIN_SCRIPT -VarName "applianceName" -NewValue $Appliance -IsString $true
-Modify-PythonVar -FilePath $TRAIN_SCRIPT -VarName "TrainPercent" -NewValue $TrainPercent -IsString $true
+Set-PythonVar -FilePath $TRAIN_SCRIPT -VarName "originModel" -NewValue $OriginModel
+Set-PythonVar -FilePath $TRAIN_SCRIPT -VarName "datasetName" -NewValue "UK_DALE" -IsString $true
+Set-PythonVar -FilePath $TRAIN_SCRIPT -VarName "applianceName" -NewValue $Appliance -IsString $true
+Set-PythonVar -FilePath $TRAIN_SCRIPT -VarName "TrainPercent" -NewValue $TrainPercent -IsString $true
 
 # --- Step 2: Run Training ---
 Write-Host "`n[2/3] Starting Training..." -ForegroundColor Green
@@ -89,9 +89,9 @@ finally {
 Write-Host "`n[3/3] Configuring & Running Test..." -ForegroundColor Green
 
 # Update Test Script Variables
-Modify-PythonVar -FilePath $TEST_SCRIPT -VarName "originModel" -NewValue $OriginModel
-Modify-PythonVar -FilePath $TEST_SCRIPT -VarName "datasetName" -NewValue "UK_DALE" -IsString $true
-Modify-PythonVar -FilePath $TEST_SCRIPT -VarName "TrainPercent" -NewValue $TrainPercent -IsString $true
+Set-PythonVar -FilePath $TEST_SCRIPT -VarName "originModel" -NewValue $OriginModel
+Set-PythonVar -FilePath $TEST_SCRIPT -VarName "datasetName" -NewValue "UK_DALE" -IsString $true
+Set-PythonVar -FilePath $TEST_SCRIPT -VarName "TrainPercent" -NewValue $TrainPercent -IsString $true
 
 # The test script sometimes hardcodes applianceName or doesn't use the arg properly in some legacy versions,
 # but our previous edits ensured it uses args.appliance_name. 
