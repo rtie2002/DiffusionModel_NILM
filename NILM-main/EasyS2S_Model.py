@@ -52,7 +52,7 @@ def get_model(appliance, input_tensor, window_length, transfer_dense=False, tran
     model = Model(inputs=input_tensor, outputs=d_out)
 ##############################
     #session = K.get_session()
-    session = tf.compat.v1.keras.backend.get_session()
+    session = tf.compat.v1.get_default_session()
 
 
 ##############################

@@ -144,7 +144,9 @@ log(args)
 CHUNK_SIZE = 5 * 10 ** 6
 
 # start the session for training a network
-sess = tf.InteractiveSession()
+
+# sess = tf.InteractiveSession() # Moved up
+
 
 # the appliance to train on
 appliance_name = args.appliance_name
@@ -212,7 +214,7 @@ y_ = tf.placeholder(tf.float32,
                     name='y_')
 
 # -------------------------------- Keras Network - from model.py -----------------------------------------
-
+sess = tf.InteractiveSession()
 inp = Input(shape=(windowlength, 9))
 model, cnn_check_weights = get_model(args.appliance_name,   #seq2seq model
                       inp,  # 预定义
