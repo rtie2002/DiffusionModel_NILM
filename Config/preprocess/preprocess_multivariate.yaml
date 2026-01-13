@@ -134,8 +134,8 @@ algorithm1:
 # Purpose: Controls how the processed data sequences are chopped and shuffled for training.
 
 mixing:
-  window_size: 600      # Sequence length / Window size for shuffling. Matches mix_training_data_multivariate.py
-  shuffle: false          # Randomly shuffle the order of windows before saving to CSV?
+  window_size: 100      # Sequence length / Window size for shuffling. Matches mix_training_data_multivariate.py
+  shuffle: true          # Randomly shuffle the order of windows before saving to CSV?
   time_cols:             # Time features to include/preserve
     - 'minute_sin'
     - 'minute_cos'
