@@ -17,8 +17,7 @@ import yaml
 from pathlib import Path
 
 # Load configuration
-BASE_DIR = Path(__file__).resolve().parent
-CONFIG_PATH = BASE_DIR / 'Config/preprocess/preprocess_multivariate.yaml'
+CONFIG_PATH = 'Config/preprocess/preprocess_multivariate.yaml'
 
 def load_config():
     try:
@@ -48,9 +47,6 @@ if CONFIG:
         TIME_COLS = ['minute_sin', 'minute_cos', 'hour_sin', 'hour_cos', 'dow_sin', 'dow_cos', 'month_sin', 'month_cos']
         
     SYNTHETIC_DIR = CONFIG['paths'].get('synthetic_dir', 'synthetic_data_multivariate')
-    # Resolve to absolute path
-    if not Path(SYNTHETIC_DIR).is_absolute():
-        SYNTHETIC_DIR = (BASE_DIR / SYNTHETIC_DIR).resolve()
     
 else:
     # Fallback to hardcoded defaults if config fails
@@ -82,14 +78,9 @@ def load_synthetic_data(appliance_name, custom_folder=None, return_full=False):
     
     if custom_folder:
         # Use filename pattern for files in synthetic_data_multivariate
-        # Ensure custom_folder is a Path object or string handled correctly
-        folder_path = Path(custom_folder)
-        if not folder_path.is_absolute():
-             folder_path = (BASE_DIR / folder_path).resolve()
-        
-        npy_path = folder_path / f'ddpm_fake_{appliance_name}_multivariate.npy'
+        npy_path = f'{custom_folder}/ddpm_fake_{appliance_name}_multivariate.npy'
     else:
-        npy_path = BASE_DIR / f'OUTPUT/{appliance_name}_512/ddpm_fake_{appliance_name}_512.npy'
+        npy_path = f'OUTPUT/{appliance_name}_512/ddpm_fake_{appliance_name}_512.npy'
 
     print(f"Loading from: {npy_path}")
     try:
@@ -124,11 +115,9 @@ def load_real_data_multivariate(appliance_name, custom_path=None):
     print(f"\n=== Loading Real Data for {appliance_name} ===")
     
     if custom_path:
-        csv_path = Path(custom_path)
-        if not csv_path.is_absolute():
-            csv_path = (BASE_DIR / csv_path).resolve()
+        csv_path = custom_path
     else:
-        csv_path = BASE_DIR / f'created_data/UK_DALE/{appliance_name}_training_.csv'
+        csv_path = f'created_data/UK_DALE/{appliance_name}_training_.csv'
         
     print(f"Loading from: {csv_path}")
     try:
@@ -181,7 +170,7 @@ def get_all_appliances_stats():
     
     all_stats = {}
     for app_name in APPLIANCE_SPECS.keys():
-        csv_path = BASE_DIR / f'created_data/UK_DALE/{app_name}_training_.csv'
+        csv_path = f'created_data/UK_DALE/{app_name}_training_.csv'
         
         try:
             df = pd.read_csv(csv_path)
@@ -230,7 +219,7 @@ def convert_synthetic_to_zscore(synthetic_minmax_01, appliance_name, real_stats=
     clip_power = specs['max_power']  # This is clip_power from APPLIANCE_SPECS
     
     # Load YAML to check if appliance was clipped
-    config_path = BASE_DIR / 'Config/applainces_configuration.yaml'
+    config_path = 'Config/applainces_configuration.yaml'
     try:
         with open(config_path, 'r') as f:
             config = yaml.safe_load(f)
@@ -443,10 +432,10 @@ def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, output_s
     print(f"Final Combined Shape: {final_df.shape}")
 
     # 6. Save Output
-    output_dir = BASE_DIR / 'created_data/UK_DALE'
+    output_dir = Path(f'created_data/UK_DALE')
     if not output_dir.exists():
         # Fallback path if created_data root differs
-        output_dir = BASE_DIR / 'NILM-main/dataset_preprocess/created_data/UK_DALE'
+        output_dir = Path('NILM-main/dataset_preprocess/created_data/UK_DALE')
         
     output_file = output_dir / f'{appliance_name}_training_{output_suffix}.csv'
     
