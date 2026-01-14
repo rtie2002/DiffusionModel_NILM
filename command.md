@@ -12,6 +12,9 @@ python main.py --train --config Config/washingmachine.yaml --name washingmachine
 # Other appliances
 python main.py --train --config Config/kettle.yaml --name kettle_multivariate --tensorboard
 python main.py --train --config Config/microwave.yaml --name microwave_multivariate --tensorboard
+python main.py --train --config Config/fridge.yaml --name fridge_multivariate --tensorboard
+python main.py --train --config Config/dishwasher.yaml --name dishwasher_multivariate --tensorboard
+python main.py --train --config Config/washingmachine.yaml --name washingmachine_multivariate --tensorboard
 ```
 
 **Training Controls**:
