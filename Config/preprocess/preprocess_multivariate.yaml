@@ -46,8 +46,8 @@ appliances:
     real_max_power: 3998         # Real maximum power observed in dataset (Watts)
     max_power_clip: 3998         # Clipped maximum for filtering algorithms (Watts)
     train:
-      houses: [2]
-      channels: [8]
+      houses: [1, 3, 5]
+      channels: [10, 2, 18]
     test:
       houses: [2]
       channels: [8]
@@ -60,8 +60,8 @@ appliances:
     real_max_power: 3969
     max_power_clip: 3969
     train:
-      houses: [2]
-      channels: [15]
+      houses: [1, 5]
+      channels: [13, 23]
     test:
       houses: [2]
       channels: [15]
@@ -74,8 +74,8 @@ appliances:
     real_max_power: 3323
     max_power_clip: 300       # Clipped max for filtering, as per original config
     train:
-      houses: [2]
-      channels: [14]
+      houses: [1, 5]
+      channels: [12, 19]
     test:
       houses: [2]
       channels: [14]
@@ -88,8 +88,8 @@ appliances:
     real_max_power: 3964
     max_power_clip: 3964
     train:
-      houses: [2]
-      channels: [13]
+      houses: [1, 5]
+      channels: [6, 22]
     test:
       houses: [2]
       channels: [13]
@@ -102,8 +102,8 @@ appliances:
     real_max_power: 3999
     max_power_clip: 3999
     train:
-      houses: [2]
-      channels: [12]
+      houses: [1,5]
+      channels: [5,24]
     test:
       houses: [2]
       channels: [12]
