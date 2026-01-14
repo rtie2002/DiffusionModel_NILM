@@ -5,7 +5,8 @@ param (
     [switch]$Sample,
     [int]$Milestone = 10, # Note: Milestone is the checkpoint index (e.g., 10 for 20,000 steps with 2,000 save cycle)
     [int]$SampleNum = 5000,
-    [int]$Gpu = 0
+    [int]$Gpu = 0,
+    [float]$Proportion = 1.0 # Added: Use to reduce data size if RAM is limited (e.g., 0.5)
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,6 +22,8 @@ Write-Host "   Diffusion Model Automation: Train & Sample" -ForegroundColor Cyan
 Write-Host "====================================================" -ForegroundColor Cyan
 Write-Host "Appliances: $($Appliances -join ', ')"
 Write-Host "GPU ID: $Gpu"
+Write-Host "Proportion: $Proportion"
+Write-Host "Flags: --tensorboard (Training), _multivariate (Naming)" -ForegroundColor Gray
 Write-Host "Steps: $(if ($Train) { 'Training ' })$(if ($Train -and $Sample) { '& ' })$(if ($Sample) { 'Sampling' })"
 Write-Host "====================================================" -ForegroundColor Cyan
 
@@ -38,10 +41,13 @@ foreach ($app in $Appliances) {
         Write-Host "--- [1/2] Starting Training for $app ---" -ForegroundColor Green
         $trainArgs = @(
             "main.py",
-            "--name", $app,
-            "--config", $configPath,
             "--train",
-            "--gpu", $Gpu
+            "--name", "${app}_multivariate",
+            "--config", $configPath,
+            "--tensorboard",
+            "--gpu", $Gpu,
+            "--opts", "dataloader.train_dataset.params.save2npy", "False", 
+            "dataloader.train_dataset.params.proportion", $Proportion
         )
         
         Write-Host "Running: python $($trainArgs -join ' ')" -ForegroundColor Gray
@@ -100,7 +106,7 @@ foreach ($app in $Appliances) {
         # Note: milestone defaults to 10 which is current checkpoint index
         $sampleArgs = @(
             "main.py",
-            "--name", $app,
+            "--name", "${app}_multivariate",
             "--config", $configPath,
             "--sample", 1,
             "--milestone", $Milestone,
