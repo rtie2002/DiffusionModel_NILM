@@ -177,8 +177,8 @@ class CustomDataset(Dataset):
         regular_train_id = id_rdm[:regular_train_num]
         irregular_train_id = id_rdm[regular_train_num:]
 
-        regular_data = data[regular_train_id, :]
-        irregular_data = data[irregular_train_id, :]
+        regular_data = data[regular_train_id]
+        irregular_data = data[irregular_train_id]
 
         # Restore RNG.
         np.random.set_state(st0)
