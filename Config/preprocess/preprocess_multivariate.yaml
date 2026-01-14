@@ -102,8 +102,8 @@ appliances:
     real_max_power: 3999
     max_power_clip: 3999
     train:
-      houses: [1,5]
-      channels: [5,24]
+      houses: [1, 5]
+      channels: [5, 24]
     test:
       houses: [2]
       channels: [12]
