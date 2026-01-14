@@ -88,14 +88,16 @@ foreach ($app in $Appliances) {
             if (Test-Path $fullDataPath) {
                 # If SampleNum is 0, we MUST calculate it.
                 if ($dynamicSampleNum -eq 0) {
+                    # Clean up path (removes .\ and other redundancies)
+                    $fullDataPath = [System.IO.Path]::GetFullPath($fullDataPath)
                     Write-Host "  -> Calculating SampleNum from: $fullDataPath" -ForegroundColor Gray
                     
-                    # PERFORMANCE FIX: Using 'find /v /c ""' is the fastest way on Windows to count lines in huge files
-                    # (Import-Csv or Get-Content would crash on 628M rows)
-                    $lineCountStr = find /v /c "" $fullDataPath
-                    if ($lineCountStr -match "(\d+)$") {
-                        $totalLines = [int]$matches[1]
-                        $totalPoints = $totalLines - 1 # Subtract Header
+                    # PERFORMANCE FIX: Using Get-Content with -ReadCount is robust for large files in PowerShell
+                    $lineCount = 0
+                    Get-Content $fullDataPath -ReadCount 10000 | ForEach-Object { $lineCount += $_.Count }
+                    
+                    if ($lineCount -gt 1) {
+                        $totalPoints = $lineCount - 1 # Subtract Header
                         
                         $dynamicSampleNum = [math]::Ceiling($totalPoints / $window)
                         Write-Host "  -> Found $totalPoints data points. Window size: $window" -ForegroundColor Gray
