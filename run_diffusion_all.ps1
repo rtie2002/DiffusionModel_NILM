@@ -4,7 +4,7 @@ param (
     [switch]$Train,
     [switch]$Sample,
     [int]$Milestone = 10, # Note: Milestone is the checkpoint index (e.g., 10 for 20,000 steps with 2,000 save cycle)
-    [int]$SampleNum = 5000,
+    [int]$SampleNum = 0, # Default to 0 to trigger automatic calculation from CSV
     [int]$Gpu = 0,
     [float]$Proportion = 1.0 # Added: Use to reduce data size if RAM is limited (e.g., 0.5)
 )
@@ -76,32 +76,45 @@ foreach ($app in $Appliances) {
             $dataPath = $matches[1]
         }
         
-        $dynamicSampleNum = $SampleNum # Fallback to param
+        $dynamicSampleNum = $SampleNum
         
         if ($dataPath) {
-            # Handle relative paths in config (relative to project root usually)
+            $dataPath = $dataPath.Trim("'").Trim("`"")
             $fullDataPath = $dataPath
             if (-not [System.IO.Path]::IsPathRooted($fullDataPath)) {
                 $fullDataPath = Join-Path $PWD $fullDataPath
             }
             
             if (Test-Path $fullDataPath) {
-                Write-Host "  -> Calculating SampleNum from: $fullDataPath" -ForegroundColor Gray
-                # Count lines minus header
-                $rowCount = 0
-                Get-Content $fullDataPath -ReadCount 10000 | ForEach-Object { $rowCount += $_.Count }
-                $rowCount = $rowCount - 1 # Subtract header
-                
-                if ($rowCount -gt 0) {
-                    $dynamicSampleNum = [math]::Floor($rowCount / $window)
-                    Write-Host "  -> Original Rows: $rowCount, Window: $window" -ForegroundColor Gray
-                    Write-Host "  -> Dynamic SampleNum: $dynamicSampleNum (to cover $rowCount points)" -ForegroundColor Cyan
+                # If SampleNum is 0, we MUST calculate it.
+                if ($dynamicSampleNum -eq 0) {
+                    Write-Host "  -> Calculating SampleNum from: $fullDataPath" -ForegroundColor Gray
+                    
+                    # PERFORMANCE FIX: Using 'find /v /c ""' is the fastest way on Windows to count lines in huge files
+                    # (Import-Csv or Get-Content would crash on 628M rows)
+                    $lineCountStr = find /v /c "" $fullDataPath
+                    if ($lineCountStr -match "(\d+)$") {
+                        $totalLines = [int]$matches[1]
+                        $totalPoints = $totalLines - 1 # Subtract Header
+                        
+                        $dynamicSampleNum = [math]::Ceiling($totalPoints / $window)
+                        Write-Host "  -> Found $totalPoints data points. Window size: $window" -ForegroundColor Gray
+                        Write-Host "  -> Dynamic SampleNum set to: $dynamicSampleNum windows" -ForegroundColor Cyan
+                    }
+                }
+                else {
+                    Write-Host "  -> Using manually specified SampleNum: $dynamicSampleNum" -ForegroundColor Gray
                 }
             }
             else {
-                Write-Warning "  -> Could not verify data path: $fullDataPath. Using default SampleNum."
+                if ($dynamicSampleNum -eq 0) {
+                    Write-Warning "  -> Could not find data file and SampleNum is 0. Using fallback of 1000."
+                    $dynamicSampleNum = 1000
+                }
             }
         }
+        
+        if ($dynamicSampleNum -eq 0) { $dynamicSampleNum = 1000 } # Final safety fallback
 
         # Note: milestone defaults to 10 which is current checkpoint index
         $sampleArgs = @(
