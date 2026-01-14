@@ -187,15 +187,30 @@ class CustomDataset(Dataset):
     @staticmethod
     def read_data(filepath, name=''):
         """Reads a single .csv
-        Supports both single-column and two-column (aggregate, power) formats.
-        If 'power' column exists, extracts only that column for diffusion model training.
+        Supports both single-column and multi-column formats.
+        Automatically identifies appliance power column and time features (sin/cos).
         """
         df = pd.read_csv(filepath, header=0)
-        # If CSV has 'power' column, use it directly (for two-column format: aggregate, power)
-        if 'power' in df.columns:
-            data = df[['power']].values
-        # Otherwise, use all columns (for backward compatibility)
+        
+        # 1. Try to find the appliance column
+        app_col = None
+        for col in df.columns:
+            if col.lower() == name.lower() or col.lower() == 'power':
+                app_col = col
+                break
+        
+        # 2. Find time columns (look for _sin or _cos)
+        time_cols = [col for col in df.columns if '_sin' in col or '_cos' in col]
+        
+        if app_col and time_cols:
+            print(f"✓ Found target column '{app_col}' and {len(time_cols)} time features.")
+            data = df[[app_col] + time_cols].values
+        elif app_col:
+            print(f"✓ Found target column '{app_col}', no time features found.")
+            data = df[[app_col]].values
         else:
+            # Fallback to standard behavior if column identification fails
+            print(f"⚠ Could not identify column '{name}', using all {len(df.columns)} columns.")
             data = df.values
         
         # Use float32 to save memory
