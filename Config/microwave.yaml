@@ -3,15 +3,15 @@ model:
   params:
     seq_length: 512
     feature_size: 1
-    condition_dim: 8  # NEW: 8 time features (minute, hour, dow, month sin/cos)
-    n_layer_enc: 2
-    n_layer_dec: 2
-    d_model: 128
+    condition_dim: 8  # 8 time features (minute, hour, dow, month sin/cos)
+    n_layer_enc: 3    # Increased for better pattern recognition
+    n_layer_dec: 3    # Increased for better pattern recognition
+    d_model: 256      # Doubled for 1M+ data capacity
     timesteps: 2000
     sampling_timesteps: 2000
     loss_type: 'l1'
     beta_schedule: 'cosine'
-    n_heads: 4
+    n_heads: 8        # Increased to match larger d_model
     mlp_hidden_times: 4
     attn_pd: 0.0
     resid_pd: 0.0
@@ -19,7 +19,7 @@ model:
     padding_size: 0
 
 solver:
-  base_lr: 1.0e-6
+  base_lr: 1.0e-4      # Increased to match larger dataset and scheduler
   max_epochs: 20000
   results_folder: .Checkpoints/Checkpoints_microwave_multivariate
   gradient_accumulate_every: 2
@@ -46,13 +46,13 @@ dataloader:
     params:
       name: Microwave
       proportion: 1.0
-      data_root: ./Data/datasets/microwave_multivariate.csv  # NEW: Use multivariate data (9 columns)
+      data_root: ./Data/datasets/microwave_multivariate.csv
       window: 512  # seq_length
       save2npy: True
       neg_one_to_one: True
       seed: 2024
       period: train
 
-  batch_size: 64
+  batch_size: 128     # Increased for 4090 efficiency
   sample_size: 256
-  shuffle: False
+  shuffle: True       # Enabled shuffling for better generalization

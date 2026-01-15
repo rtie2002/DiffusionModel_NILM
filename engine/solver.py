@@ -124,25 +124,25 @@ class Trainer(object):
         if self.logger is not None:
             self.logger.log_info('Training done, time: {:.2f}'.format(time.time() - tic))
 
-    def sample(self, num, size_every, shape=None, dataset=None):
+    def sample(self, num, size_every, shape=None, dataset=None, ordered=True):
         if self.logger is not None:
             tic = time.time()
             self.logger.log_info('Begin to sample...')
         samples = np.empty([0, shape[0], shape[1]])
-        num_cycle = int(num // size_every) + 1
+        num_cycle = int(num // size_every) + (1 if num % size_every != 0 else 0)
         
         print(f"\n{'='*70}")
+        print(f"SAMPLING MODE: {'ORDERED (Sequential)' if ordered else 'RANDOM'}")
         print(f"Generating {num} windows in {num_cycle} batches (batch_size={size_every})")
         print(f"{'='*70}\n")
 
-        # NEW: Check if conditional generation is supported
+        # Check if conditional generation is supported
         use_conditional = hasattr(self.ema.ema_model, 'generate_with_conditions') and dataset is not None and shape[1] == 9
         
         if use_conditional:
             print("✓ Using CONDITIONAL generation with time features from dataset")
-            # Sample conditions from dataset
             dataset_size = len(dataset.samples)
-            print(f"  Dataset size: {dataset_size} windows")
+            print(f"  Available time templates in dataset: {dataset_size} windows")
         else:
             print("✓ Using UNCONDITIONAL generation")
 
@@ -150,31 +150,25 @@ class Trainer(object):
             windows_completed = batch_idx * size_every
             windows_this_batch = min(size_every, num - windows_completed)
             
-            print(f"Batch {batch_idx + 1}/{num_cycle} | Windows completed: {windows_completed}/{num} | Generating {windows_this_batch} windows...")
+            if windows_this_batch <= 0:
+                break
+                
+            print(f"Batch {batch_idx + 1}/{num_cycle} | Generating steps {windows_completed} to {windows_completed + windows_this_batch}...")
             
             if use_conditional:
-                # NEW: Proportional sampling to maintain time distribution
-                # Instead of pure random, sample proportionally from dataset
-                
-                if windows_this_batch >= dataset_size:
-                    # If generating more than dataset size, sample with replacement
-                    indices = np.random.choice(dataset_size, size=size_every, replace=True)
+                if ordered:
+                    # SEQUENTIAL: Take indices in exact order [0, 1, 2, ...]
+                    # Use modulo to wrap around if num > dataset_size
+                    indices = [(windows_completed + i) % dataset_size for i in range(windows_this_batch)]
                 else:
-                    # Sample without replacement to maintain distribution
-                    # Calculate how many samples to take from each part of dataset
-                    sample_ratio = size_every / dataset_size
-                    
-                    if sample_ratio <= 1.0:
-                        # Take proportional samples from entire dataset
-                        indices = np.random.choice(dataset_size, size=size_every, replace=False)
-                    else:
-                        # Need more samples than dataset, use replacement
-                        indices = np.random.choice(dataset_size, size=size_every, replace=True)
+                    # RANDOM: Sample indices randomly
+                    indices = np.random.choice(dataset_size, size=windows_this_batch, replace=(num > dataset_size))
                 
-                # Extract time features (columns 1-8) from dataset
+                # Extract time features from dataset based on indices
                 conditions = []
                 for idx in indices:
                     window_data = dataset.samples[idx]  # (512, 9)
+                    # For conditioning, we need 8 features (minute_sin to month_cos)
                     time_features = window_data[:, 1:9]  # (512, 8)
                     conditions.append(time_features)
                 
@@ -184,18 +178,15 @@ class Trainer(object):
                 sample = self.ema.ema_model.generate_with_conditions(conditions)
             else:
                 # Unconditional generation
-                sample = self.ema.ema_model.generate_mts(batch_size=size_every)
+                sample = self.ema.ema_model.generate_mts(batch_size=windows_this_batch)
             
             samples = np.row_stack([samples, sample.detach().cpu().numpy()])
             torch.cuda.empty_cache()
             
-            windows_completed_after = min((batch_idx + 1) * size_every, num)
-            print(f"✓ Batch {batch_idx + 1}/{num_cycle} complete! Total windows: {windows_completed_after}/{num}\n")
-
-        print(f"{'='*70}")
+        print(f"\n{'='*70}")
         print(f"✓ All {num} windows generated successfully!")
         if use_conditional:
-            print(f"✓ Generated data includes time features (9 columns)")
+            print(f"✓ Generated data follows the {'ORIGINAL SEQUENCE' if ordered else 'RANDOM DISTRIBUTION'}")
         print(f"{'='*70}\n")
         
         if self.logger is not None:
