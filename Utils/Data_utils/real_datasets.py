@@ -96,6 +96,11 @@ class CustomDataset(Dataset):
         indices = np.arange(self.sample_num_total)
         train_indices, test_indices = self.divide(indices, proportion, seed)
 
+        # CRITICAL FIX: Sort indices to maintain temporal order (Jan -> Dec)
+        # Without this, 'divide' returns shuffled random indices!
+        train_indices = np.sort(train_indices)
+        test_indices = np.sort(test_indices)
+
         if self.save2npy:
             if 1 - proportion > 0:
                 self._save_chunked_npy(data, test_indices, os.path.join(self.dir, f"{self.name}_ground_truth_{self.window}_test.npy"), unnormalize=True)
