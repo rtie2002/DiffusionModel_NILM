@@ -128,9 +128,23 @@ class CustomDataset(Dataset):
             if unnormalize:
                 # Unnormalize this chunk
                 d = chunk_windows.reshape(-1, self.var_num)
-                if self.auto_norm:
-                    d = unnormalize_to_zero_to_one(d)
-                d = self.scaler.inverse_transform(d)
+                
+                # For multivariate (9 cols), only inverse-transform power
+                if self.var_num == 9:
+                    power = d[:, 0:1]
+                    time_features = d[:, 1:]
+                    
+                    if self.auto_norm:
+                        power = unnormalize_to_zero_to_one(power)
+                    power = self.scaler.inverse_transform(power)
+                    
+                    d = np.concatenate([power, time_features], axis=1)
+                else:
+                    # Single column case
+                    if self.auto_norm:
+                        d = unnormalize_to_zero_to_one(d)
+                    d = self.scaler.inverse_transform(d)
+                
                 chunk_windows = d.reshape(-1, self.window, self.var_num)
             
             fp[i:end] = chunk_windows.astype(np.float32)
@@ -141,9 +155,22 @@ class CustomDataset(Dataset):
 
     def normalize(self, sq):
         d = sq.reshape(-1, self.var_num)
-        d = self.scaler.transform(d)
-        if self.auto_norm:
-            d = normalize_to_neg_one_to_one(d)
+        
+        # For multivariate (9 cols), only scale power (col 0)
+        if self.var_num == 9:
+            power = d[:, 0:1]
+            time_features = d[:, 1:]
+            
+            power_scaled = self.scaler.transform(power)
+            if self.auto_norm:
+                power_scaled = normalize_to_neg_one_to_one(power_scaled)
+            
+            d = np.concatenate([power_scaled, time_features], axis=1)
+        else:
+            d = self.scaler.transform(d)
+            if self.auto_norm:
+                d = normalize_to_neg_one_to_one(d)
+        
         return d.reshape(-1, self.window, self.var_num)
 
     def unnormalize(self, sq):
@@ -154,16 +181,44 @@ class CustomDataset(Dataset):
         return d.reshape(-1, self.window, self.var_num)
     
     def __normalize(self, rawdata):
-        data = self.scaler.transform(rawdata)
-        if self.auto_norm:
-            data = normalize_to_neg_one_to_one(data)
+        # For multivariate (9 cols), only scale power (col 0), keep time features as-is
+        if rawdata.shape[-1] == 9:
+            power = rawdata[:, 0:1]  # Power column
+            time_features = rawdata[:, 1:]  # Time features (already in [-1,1])
+            
+            # Scale only power
+            power_scaled = self.scaler.transform(power)
+            if self.auto_norm:
+                power_scaled = normalize_to_neg_one_to_one(power_scaled)
+            
+            # Concatenate scaled power with original time features
+            data = np.concatenate([power_scaled, time_features], axis=1)
+        else:
+            # Single column case
+            data = self.scaler.transform(rawdata)
+            if self.auto_norm:
+                data = normalize_to_neg_one_to_one(data)
         return data
 
     def __unnormalize(self, data):
-        if self.auto_norm:
-            data = unnormalize_to_zero_to_one(data)
-        x = data
-        return self.scaler.inverse_transform(x)
+        # For multivariate (9 cols), only unscale power (col 0)
+        if data.shape[-1] == 9:
+            power = data[:, 0:1]  # Power column
+            time_features = data[:, 1:]  # Time features
+            
+            # Unscale only power
+            if self.auto_norm:
+                power = unnormalize_to_zero_to_one(power)
+            power_original = self.scaler.inverse_transform(power)
+            
+            # Concatenate with time features
+            result = np.concatenate([power_original, time_features], axis=1)
+        else:
+            # Single column case
+            if self.auto_norm:
+                data = unnormalize_to_zero_to_one(data)
+            result = self.scaler.inverse_transform(data)
+        return result
     
     @staticmethod
     def divide(data, ratio, seed=2024):
@@ -205,19 +260,27 @@ class CustomDataset(Dataset):
         if app_col and time_cols:
             print(f"✓ Found target column '{app_col}' and {len(time_cols)} time features.")
             data = df[[app_col] + time_cols].values
+            
+            # CRITICAL FIX: Only fit scaler on power column (column 0)
+            # Time features are already sin/cos in [-1,1], don't scale them!
+            scaler = MinMaxScaler()
+            scaler = scaler.fit(data[:, 0:1])  # Fit only on power column
+            print(f"  ⚡ Scaler fitted on power column only (range: {scaler.data_min_[0]:.2f} to {scaler.data_max_[0]:.2f}W)")
         elif app_col:
             print(f"✓ Found target column '{app_col}', no time features found.")
             data = df[[app_col]].values
+            scaler = MinMaxScaler()
+            scaler = scaler.fit(data)
         else:
             # Fallback to standard behavior if column identification fails
             print(f"⚠ Could not identify column '{name}', using all {len(df.columns)} columns.")
             data = df.values
+            scaler = MinMaxScaler()
+            scaler = scaler.fit(data)
         
         # Use float32 to save memory
         data = data.astype(np.float32)
         
-        scaler = MinMaxScaler()
-        scaler = scaler.fit(data)
         return data, scaler
     
     def mask_data(self, seed=2024):
