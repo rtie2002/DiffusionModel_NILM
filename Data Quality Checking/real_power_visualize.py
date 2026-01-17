@@ -27,18 +27,30 @@ import argparse
 import sys
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider, Button
+import yaml
 
-# Normalization parameters from ukdale_processing.py
-AGG_MEAN = 522
-AGG_STD = 814
+# Load config dynamically
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(script_dir)
+CONFIG_PATH = os.path.join(project_root, 'Config', 'preprocess', 'preprocess_multivariate.yaml')
 
-APPLIANCE_PARAMS = {
-    'kettle': {'mean': 700, 'std': 1000, 'max_power': 3998},
-    'microwave': {'mean': 500, 'std': 800, 'max_power': 2000},  # Clipped in algorithm1_v2.py
-    'fridge': {'mean': 200, 'std': 400, 'max_power': 350},  # Clipped in algorithm1_v2.py
-    'dishwasher': {'mean': 700, 'std': 1000, 'max_power': 3964},
-    'washingmachine': {'mean': 400, 'std': 700, 'max_power': 3999}  # Original from paper
-}
+if not os.path.exists(CONFIG_PATH):
+    raise FileNotFoundError(f"Config file not found at: {CONFIG_PATH}")
+
+with open(CONFIG_PATH, 'r') as f:
+    config_data = yaml.safe_load(f)
+print(f"Loaded config from {CONFIG_PATH}")
+
+AGG_MEAN = config_data['normalization']['aggregate_mean']
+AGG_STD = config_data['normalization']['aggregate_std']
+
+APPLIANCE_PARAMS = {}
+for app_name, app_conf in config_data['appliances'].items():
+    APPLIANCE_PARAMS[app_name] = {
+        'mean': app_conf['mean'],
+        'std': app_conf['std'],
+        'max_power': app_conf['max_power']
+    }
 
 def detect_data_type(data):
     """
