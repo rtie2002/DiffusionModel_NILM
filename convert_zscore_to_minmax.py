@@ -48,6 +48,9 @@ def convert_zscore_to_minmax(file_path, appliance_name, specs):
         
     print(f"  Target Column: {app_col}")
     
+    # Extract Z-score data
+    z_data = df[app_col].values
+
     # 1. Auto-Detect Format
     data_min = z_data.min()
     print(f"  Input Min Value: {data_min:.4f}")
