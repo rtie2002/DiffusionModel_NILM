@@ -48,18 +48,23 @@ def convert_zscore_to_minmax(file_path, appliance_name, specs):
         
     print(f"  Target Column: {app_col}")
     
-    # Extract Z-score data
-    z_data = df[app_col].values
+    # 1. Auto-Detect Format
+    data_min = z_data.min()
+    print(f"  Input Min Value: {data_min:.4f}")
     
-    # 1. Input is ALREADY Watts (based on user observation of 0 baseline)
-    # If we add mean, it shifts up. So we skip Z-score conversion.
-    # Old Logic: watts_data = z_data * std + mean
-    watts_data = z_data 
+    if data_min < -0.1:
+        # Probable Z-score (Negative values present)
+        print("  ✓ Detected Z-Score format (Negative values found). Converting to Watts...")
+        watts_data = z_data * std + mean
+    else:
+        # Probable Watts (All positive)
+        print("  ✓ Detected Watts format (All positive). Skipping Z-Score conversion...")
+        watts_data = z_data
     
     # Clip negative watts (just in case)
     watts_data = np.maximum(watts_data, 0)
     
-    print(f"  Watts Max: {watts_data.max():.2f} (Assuming input was Watts)")
+    print(f"  Watts Max: {watts_data.max():.2f}")
     
     # 2. Watts -> MinMax [0, 1]
     # Logic: MinMax = Watts / MaxPower
