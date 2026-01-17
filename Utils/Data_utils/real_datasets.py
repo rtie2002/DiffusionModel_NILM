@@ -269,20 +269,8 @@ class CustomDataset(Dataset):
             # CRITICAL FIX: Only fit scaler on power column (column 0)
             # Time features are already sin/cos in [-1,1], don't scale them!
             scaler = MinMaxScaler()
-            
-            # Check for pre-normalized data (from normalize_csv_static.py)
-            power_data = data[:, 0:1]
-            if power_data.max() <= 1.05 and power_data.min() >= -0.05:
-                # print(f"  ✓ Pre-normalized data detected (Max={power_data.max():.4f}). Skipping rescale.")
-                # Set scaler to Identity so it doesn't change values, but inverse_transform still works
-                scaler.min_ = np.array([0.0])
-                scaler.scale_ = np.array([1.0])
-                scaler.data_min_ = np.array([0.0])
-                scaler.data_max_ = np.array([1.0])
-                scaler.data_range_ = np.array([1.0])
-            else:
-                scaler = scaler.fit(power_data)  # Fit only on power column
-                print(f"  ⚡ Scaler fitted on power column only (range: {scaler.data_min_[0]:.2f} to {scaler.data_max_[0]:.2f}W)")
+            scaler = scaler.fit(data[:, 0:1])  # Fit only on power column
+            print(f"  ⚡ Scaler fitted on power column only (range: {scaler.data_min_[0]:.2f} to {scaler.data_max_[0]:.2f}W)")
         elif app_col:
             print(f"✓ Found target column '{app_col}', no time features found.")
             data = df[[app_col]].values
