@@ -20,74 +20,79 @@ def load_config():
 def convert_zscore_to_minmax(file_path, appliance_name, specs):
     print(f"\nProcessing {appliance_name} from {file_path}...")
     
-    # Logic extracted from APPLIANCE_SPECS
+    # Logic extracted from APPLIANCE_SPECS (Algorithm 1 Logic)
     mean = specs['mean']
     std = specs['std']
     max_power = specs['max_power']
     
     print(f"  Params: Mean={mean}, Std={std}, MaxPower={max_power}")
     
+    # 1. Read CSV
     df = pd.read_csv(file_path)
     
-    # Identify Appliance Column (Col 1 usually in the 10-col format)
-    # Col 0: Aggregate, Col 1: Appliance, Cols 2-9: Time
-    # Or rely on headers
+    # 2. Identify Columns
+    # Algorithm 1 expects: aggregate, appliance, 8 time features
+    # But input might vary. We verify we have the appliance and time columns.
     
     app_col = None
-    # Method 1: Header match
     if appliance_name in df.columns:
         app_col = appliance_name
-    # Method 2: Header match 'power'
     elif 'power' in df.columns:
         app_col = 'power'
-    # Method 3: Index 1 (if multivariate) or Index 0 (if single)
-    elif len(df.columns) >= 2:
-        app_col = df.columns[1] # standard multivariate index
     else:
-        app_col = df.columns[0]
-        
+        # Fallback: assume column 1 if 10 cols, or col 0 if 9 cols
+        # Typically Algorithm 1 input has Aggregate at 0, Appliance at 1
+        if 'aggregate' in df.columns:
+             # Find the column that is NOT aggregate and NOT time
+             cols = [c for c in df.columns if c != 'aggregate' and '_sin' not in c and '_cos' not in c]
+             if cols: app_col = cols[0]
+    
+    if not app_col:
+        print(f"  ❌ Could not identify appliance column for {appliance_name}. Skipping.")
+        return
+
     print(f"  Target Column: {app_col}")
     
-    # Extract Z-score data
+    # 3. Extract Z-Score Data
     z_data = df[app_col].values
-
-    # 1. Auto-Detect Format
-    data_min = z_data.min()
-    print(f"  Input Min Value: {data_min:.4f}")
     
-    if data_min < -0.1:
-        # Probable Z-score (Negative values present)
-        print("  ✓ Detected Z-Score format (Negative values found). Converting to Watts...")
-        watts_data = z_data * std + mean
+    # 4. Denormalize: Z-Score -> Watts (Matches algorithm1_v2 logic)
+    # Check for Z-score format (Negative values)
+    if z_data.min() < -0.1:
+         print("  ✓ Detected Z-Score. Denormalizing to Watts (Z * Std + Mean)...")
+         watts_data = z_data * std + mean
     else:
-        # Probable Watts (All positive)
-        print("  ✓ Detected Watts format (All positive). Skipping Z-Score conversion...")
-        watts_data = z_data
-    
-    # Clip negative watts (just in case)
-    watts_data = np.maximum(watts_data, 0)
-    
+         print("  ✓ Detected Watts/Positive. Skipping Denormalization...")
+         watts_data = z_data
+
+    # Metric check
     print(f"  Watts Max: {watts_data.max():.2f}")
     
-    # 2. Watts -> MinMax [0, 1]
-    # Logic: MinMax = Watts / MaxPower
+    # 5. Normalize: Watts -> MinMax (Matches algorithm1_v2 logic)
+    # Logic: Watts / MaxPower
     minmax_data = watts_data / max_power
     
-    print(f"  Converted MinMax Max: {minmax_data.max():.6f}")
+    # Clip to [0, 1] (Algorithm 1 does this via clip(upper=max_power) then div)
+    minmax_data = np.clip(minmax_data, 0, 1.0)
     
-    if minmax_data.max() > 1.0:
-        print(f"  ⚠ Warning: Data exceeds {max_power}W! Max is {minmax_data.max():.4f} (normalized).")
-        # Optional: Clip to 1.0? usually better to keep it to notify user, but for MinMax input usually expect <=1
+    print(f"  MinMax Max: {minmax_data.max():.6f}")
+
+    # 6. Construct Output DataFrame
+    # Algorithm 1 Output Format: [Appliance, Time Features...] (Drops Aggregate)
+    time_cols = [c for c in df.columns if '_sin' in c or '_cos' in c]
     
-    # Update DataFrame
-    df[app_col] = minmax_data
-    
-    # Save
+    df_out = pd.DataFrame()
+    df_out[app_col] = minmax_data
+    for tc in time_cols:
+        df_out[tc] = df[tc]
+        
+    # 7. Save
     dir_name = os.path.dirname(file_path)
-    save_path = os.path.join(dir_name, f"{appliance_name}_multivariate.csv")
+    save_fname = f"{appliance_name}_multivariate.csv"
+    save_path = os.path.join(dir_name, save_fname)
     
-    df.to_csv(save_path, index=False)
-    print(f"  ✅ Saved to: {save_path}")
+    df_out.to_csv(save_path, index=False)
+    print(f"  ✅ Saved to: {save_path} (Cols: {len(df_out.columns)})")
 
 def main():
     config = load_config()
@@ -99,17 +104,8 @@ def main():
     data_dir = r"C:\Users\Raymond Tie\Desktop\DiffusionModel_NILM\created_data\UK_DALE"
     
     print("=" * 60)
-    print("Z-SCORE -> MINMAX CONVERTER")
-    print("Logic: (Z * Std + Mean) / MaxPower")
+    print("Z-SCORE -> MINMAX CONVERTER (Algorithm 1 Logic - No Filtering)")
     print("=" * 60)
-    
-    # Helper to get specs
-    def get_specs(app_name):
-        c = appliances_config.get(app_name)
-        if c: return c
-        # Fallback defaults locally if not in YAML (rare)
-        return {'mean': 0, 'std': 1, 'max_power': 1} # Dummy
-        
     
     target_path = input(f"Enter file or directory path (default: {data_dir}): ").strip()
     if not target_path:
