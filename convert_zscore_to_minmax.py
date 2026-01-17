@@ -75,9 +75,7 @@ def convert_zscore_to_minmax(file_path, appliance_name, specs):
     
     # Save
     dir_name = os.path.dirname(file_path)
-    base_name = os.path.basename(file_path)
-    name, ext = os.path.splitext(base_name)
-    save_path = os.path.join(dir_name, f"{name}_minmax{ext}")
+    save_path = os.path.join(dir_name, f"{appliance_name}_multivariate.csv")
     
     df.to_csv(save_path, index=False)
     print(f"  ✅ Saved to: {save_path}")
