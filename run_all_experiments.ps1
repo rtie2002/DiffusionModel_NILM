@@ -7,7 +7,7 @@ param (
     [string]$Suffix = "200k+200k" # Suffix of the training file (e.g. kettle_training_200k+200k)
 )
 
-$Appliances = @(washingmachine","kettle", "microwave", "fridge", "dishwasher", "washingmachine")
+$Appliances = @(washingmachine", "kettle", "microwave", "fridge", "dishwasher")
 $Results = @()
 
 Write-Host "==========================================================" -ForegroundColor Magenta
