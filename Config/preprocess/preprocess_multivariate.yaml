@@ -135,7 +135,7 @@ algorithm1:
 
 mixing:
   window_size: 100      # Sequence length / Window size for shuffling. Matches mix_training_data_multivariate.py
-  shuffle: True          # Randomly shuffle the order of windows before saving to CSV?
+  shuffle: False          # Randomly shuffle the order of windows before saving to CSV?
   time_cols:             # Time features to include/preserve
     - 'minute_sin'
     - 'minute_cos'
