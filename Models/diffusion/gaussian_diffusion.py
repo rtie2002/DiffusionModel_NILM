@@ -309,6 +309,17 @@ class Diffusion(nn.Module):
 
         train_loss = self.loss_fn(model_out_power, target, reduction='none')
 
+        # === WEIGHTED LOSS CORRECTION ===
+        # Problem: The dataset is 99% "OFF", so the model minimizes loss by predicting "OFF" everywhere.
+        # Solution: Apply heavy weights (20x) to "ON" periods so the model learns they are critical.
+        # Threshold: -0.9 is close to the minimum -1.0, catching almost all activity.
+        # Weights: 1.0 for OFF, 20.0 for ON
+        
+        on_mask = (target > -0.9).float()
+        weights = 1.0 + (on_mask * 19.0)
+        train_loss = train_loss * weights
+        # ================================
+
         fourier_loss = torch.tensor([0.])
         if self.use_ff:
             # NEW: Use only power part for Fourier loss

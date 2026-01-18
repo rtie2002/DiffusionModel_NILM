@@ -53,6 +53,30 @@ Where $w_i$ is the weight for sample $i$:
 - If $y_{true}$ is **OFF** ($< -0.9$): $w_i = 1.0$
 - If $y_{true}$ is **ON** ($> -0.9$): $w_i = 20.0$ (Assigned 20x importance)
 
+### Python Implementation Explained
+Here is the code that implements this logic:
+
+```python
+# 1. Create a "Mask" to identify ON periods
+# target is the real ground truth data.
+# In our normalized data, -1.0 is OFF (0 Watts).
+# We choose -0.9 as a threshold: anything higher is considered "Activity".
+# Result is a tensor where 1.0 = ON, 0.0 = OFF.
+on_mask = (target > -0.9).float()
+
+# 2. Calculate Weights based on the Mask
+# If on_mask is 0 (OFF): weight = 1.0 + (0 * 19) = 1.0  (Standard importance)
+# If on_mask is 1 (ON):  weight = 1.0 + (1 * 19) = 20.0 (High importance)
+weights = 1.0 + (on_mask * 19.0)
+
+# 3. Apply Weights to the Loss
+# train_loss is the standard error (L1 difference).
+# We multiply it by 'weights'.
+# Errors on OFF windows stay the same (x1).
+# Errors on ON windows become HUGE (x20).
+train_loss = train_loss * weights
+```
+
 ### The Logic Shift
 Now, let's re-evaluate the model's strategies:
 
