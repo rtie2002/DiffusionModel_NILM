@@ -126,6 +126,7 @@ foreach ($app in $Appliances) {
             "--sample", 1,
             "--milestone", $Milestone,
             "--sample_num", $dynamicSampleNum,
+            "--sampling_mode", "ordered_non_overlapping",
             "--gpu", $Gpu
         )
 

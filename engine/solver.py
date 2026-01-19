@@ -124,7 +124,7 @@ class Trainer(object):
         if self.logger is not None:
             self.logger.log_info('Training done, time: {:.2f}'.format(time.time() - tic))
 
-    def sample(self, num, size_every, shape=None, dataset=None, ordered=True):
+    def sample(self, num, size_every, shape=None, dataset=None, ordered=True, stride=1):
         if self.logger is not None:
             tic = time.time()
             self.logger.log_info('Begin to sample...')
@@ -133,6 +133,8 @@ class Trainer(object):
         
         print(f"\n{'='*70}")
         print(f"SAMPLING MODE: {'ORDERED (Sequential)' if ordered else 'RANDOM'}")
+        if stride > 1:
+            print(f"STRIDE: {stride} (Non-overlapping blocks if stride == window)")
         print(f"Generating {num} windows in {num_cycle} batches (batch_size={size_every})")
         print(f"{'='*70}\n")
 
@@ -157,9 +159,9 @@ class Trainer(object):
             
             if use_conditional:
                 if ordered:
-                    # SEQUENTIAL: Take indices in exact order [0, 1, 2, ...]
+                    # SEQUENTIAL: Take indices in exact order with STRIDE
                     # Use modulo to wrap around if num > dataset_size
-                    indices = [(windows_completed + i) % dataset_size for i in range(windows_this_batch)]
+                    indices = [(windows_completed + i * stride) % dataset_size for i in range(windows_this_batch)]
                 else:
                     # RANDOM: Sample indices randomly
                     indices = np.random.choice(dataset_size, size=windows_this_batch, replace=(num > dataset_size))

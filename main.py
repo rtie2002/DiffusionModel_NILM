@@ -44,6 +44,10 @@ def parse_args():
         help='Optional key-value overrides like dataloader.batch_size 32'
     )
 
+    parser.add_argument('--sampling_mode', type=str, default='ordered_non_overlapping',
+                        choices=['random', 'ordered', 'ordered_non_overlapping'],
+                        help='Sampling mode: random (default), ordered (sequential overlap), or ordered_non_overlapping (sequential non-overlap)')
+
     args = parser.parse_args()
     
     # Get the directory where main.py is located (project root)
@@ -110,15 +114,50 @@ def main():
         trainer.load(args.milestone)
         dataset = dataloader_info['dataset']
         
-        # Determine number of samples to generate
-        if args.sample_num is not None:
-            num_samples = args.sample_num
-            print(f"Generating custom number of samples: {num_samples}")
-        else:
-            num_samples = len(dataset)
-            print(f"Generating default number of samples: {num_samples} (dataset size)")
+        # Determine number of samples and stride based on mode
+        stride = 1
+        ordered = False
         
-        samples = trainer.sample(num=num_samples, size_every=400, shape=[dataset.window, dataset.var_num], dataset=dataset)
+        if args.sampling_mode == 'ordered_non_overlapping':
+            print("Mode: Ordered Non-Overlapping (Sequential, Non-Sliding)")
+            stride = dataset.window
+            ordered = True
+            
+            # For non-overlapping, we usually want to verify covering the whole dataset
+            max_windows = len(dataset) // stride
+            
+            if args.sample_num is not None:
+                num_samples = args.sample_num
+                if num_samples > max_windows:
+                    print(f"Warning: Requested {num_samples} samples, but dataset only fits {max_windows} non-overlapping windows.")
+            else:
+                num_samples = max_windows
+                print(f"Auto-calculated samples for full coverage: {num_samples}")
+                
+        elif args.sampling_mode == 'ordered':
+            print("Mode: Ordered (Sequential, Sliding Window)")
+            stride = 1
+            ordered = True
+            if args.sample_num is not None:
+                num_samples = args.sample_num
+            else:
+                num_samples = len(dataset)
+                
+        else: # random
+            print("Mode: Random (Random Sampling from Full Dataset)")
+            stride = 1
+            ordered = False
+            if args.sample_num is not None:
+                num_samples = args.sample_num
+            else:
+                num_samples = 2500 # Default reasonable number for random sampling if not specified
+                print(f"Generating default number of samples: {num_samples}")
+
+        
+        # Call trainer.sample with updated arguments (need to update solver.py next)
+        samples = trainer.sample(num=num_samples, size_every=400, shape=[dataset.window, dataset.var_num], 
+                                dataset=dataset, ordered=ordered, stride=stride)
+        
         if dataset.auto_norm:
             # CRITICAL: Only normalize power column, preserve time features in [-1, 1]
             if dataset.var_num == 9:  # Conditional case (1 power + 8 time features)
