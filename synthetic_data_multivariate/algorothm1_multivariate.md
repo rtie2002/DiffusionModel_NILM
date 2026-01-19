@@ -18,10 +18,7 @@ python synthetic_data_multivariate/algorithm1_v2_multivariate.py \
 
 ## 2. Fridge
 ```bash
-python synthetic_data_multivariate/algorithm1_v2_multivariate.py \
-  --appliance_name fridge \
-  --input_file "synthetic_data_multivariate/zscore_converted/ddpm_fake_fridge_multivariate_zscore.csv" \
-  --output_dir "Data/datasets/synthetic_processed"
+python synthetic_data_multivariate/algorithm1_v2_multivariate.py --appliance_name fridge --input_file "synthetic_data_multivariate/zscore_converted/ddpm_fake_fridge_multivariate_zscore.csv" --output_dir "Data/datasets/synthetic_processed"
 ```
 
 ## 3. Kettle

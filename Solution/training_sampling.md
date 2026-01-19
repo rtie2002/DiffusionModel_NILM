@@ -23,7 +23,7 @@ $$
 
 Critically, the starting index $j$ is sampled uniformly from the entire dataset at each step. This **Randomized Slice Learning** ensures that:
 1.  **IID Assumption Approximation**: By treating each window $\mathbf{x}_j$ as an independent sample, we satisfy the independent and identically distributed (IID) assumption required for stable stochastic gradient descent (SGD).
-2.  **Temporal Bias Elimination**: The model is exposed to all temporal contexts (e.g., morning/evening, summer/winter) with equal probability within each epoch, preventing overfitting to any specific period.
+2.  **Temporal Bias Elimination**: Due to the DataLoader's `shuffle=True` setting, while a single batch may not contain all temporal contexts, within each **epoch**, the model traverses all samples in the dataset (covering all seasons, weekdays, and hours). Over multiple epochs with different shuffling orders, the model is exposed to all temporal contexts (e.g., morning/evening, summer/winter) with approximately equal frequency, thereby preventing overfitting to any specific period.
 
 ## 2. Sampling: Conditional Generation Strategies
 

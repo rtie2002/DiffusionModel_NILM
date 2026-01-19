@@ -112,7 +112,25 @@ def main():
         trainer.train()
     else:
         trainer.load(args.milestone)
-        dataset = dataloader_info['dataset']
+        
+        # CRITICAL: For sampling, use FULL dataset (100%) to ensure complete temporal coverage
+        # Training uses 80/20 split, but generation should access ALL months (1-12)
+        print("\n" + "="*70)
+        print("LOADING FULL DATASET FOR SAMPLING (100% temporal coverage)")
+        print("="*70)
+        
+        # Create a separate dataset with proportion=1.0 (no train/test split)
+        sampling_dataset_config = config['dataloader']['train_dataset'].copy()
+        sampling_dataset_config['params']['proportion'] = 1.0  # Use 100% of data
+        sampling_dataset_config['params']['save2npy'] = False  # Don't save, just for sampling
+        sampling_dataset = instantiate_from_config(sampling_dataset_config)
+        
+        print(f"✓ Sampling dataset loaded: {len(sampling_dataset)} windows (100% of raw data)")
+        print(f"  This ensures synthetic data covers all 12 months")
+        print("="*70 + "\n")
+        
+        # Use this full dataset for sampling
+        dataset = sampling_dataset
         
         # Determine number of samples and stride based on mode
         stride = 1
