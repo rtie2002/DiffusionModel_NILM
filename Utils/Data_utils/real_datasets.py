@@ -72,7 +72,10 @@ class CustomDataset(Dataset):
 
         self.window, self.period = window, period
         self.len, self.var_num = self.rawdata.shape[0], self.rawdata.shape[-1]
-        self.sample_num_total = max(self.len - self.window + 1, 0)
+        
+        # Use NON-OVERLAPPING windows for full temporal coverage
+        self.sample_num_total = max(self.len // self.window, 0)
+        
         self.save2npy = save2npy
         self.auto_norm = neg_one_to_one
 
@@ -93,7 +96,8 @@ class CustomDataset(Dataset):
 
     def __getsamples(self, data, proportion, seed):
         # data is (L, V), normalized
-        indices = np.arange(self.sample_num_total)
+        # Create NON-OVERLAPPING window indices: [0, 512, 1024, ...]
+        indices = np.arange(self.sample_num_total) * self.window
         train_indices, test_indices = self.divide(indices, proportion, seed)
 
         # CRITICAL FIX: Sort indices to maintain temporal order (Jan -> Dec)
@@ -263,22 +267,22 @@ class CustomDataset(Dataset):
         time_cols = [col for col in df.columns if '_sin' in col or '_cos' in col]
         
         if app_col and time_cols:
-            print(f"✓ Found target column '{app_col}' and {len(time_cols)} time features.")
+            print(f"[OK] Found target column '{app_col}' and {len(time_cols)} time features.")
             data = df[[app_col] + time_cols].values
             
             # CRITICAL FIX: Only fit scaler on power column (column 0)
             # Time features are already sin/cos in [-1,1], don't scale them!
             scaler = MinMaxScaler()
             scaler = scaler.fit(data[:, 0:1])  # Fit only on power column
-            print(f"  ⚡ Scaler fitted on power column only (range: {scaler.data_min_[0]:.2f} to {scaler.data_max_[0]:.2f}W)")
+            print(f"  [Scaler] Fitted on power column only (range: {scaler.data_min_[0]:.2f} to {scaler.data_max_[0]:.2f}W)")
         elif app_col:
-            print(f"✓ Found target column '{app_col}', no time features found.")
+            print(f"[OK] Found target column '{app_col}', no time features found.")
             data = df[[app_col]].values
             scaler = MinMaxScaler()
             scaler = scaler.fit(data)
         else:
             # Fallback to standard behavior if column identification fails
-            print(f"⚠ Could not identify column '{name}', using all {len(df.columns)} columns.")
+            print(f"[Warning] Could not identify column '{name}', using all {len(df.columns)} columns.")
             data = df.values
             scaler = MinMaxScaler()
             scaler = scaler.fit(data)
