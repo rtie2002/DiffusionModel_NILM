@@ -121,6 +121,7 @@ def main():
         # Create a separate dataset with proportion=1.0 (no train/test split)
         sampling_dataset_config = config['dataloader']['train_dataset'].copy()
         sampling_dataset_config['params']['proportion'] = 1.0  # Use 100% of data
+        sampling_dataset_config['params']['style'] = 'non_overlapping'  # CRITICAL: Use non-overlapping for sampling
         sampling_dataset_config['params']['save2npy'] = False  # Don't save, just for sampling
         sampling_dataset = instantiate_from_config(sampling_dataset_config)
         
@@ -136,12 +137,14 @@ def main():
         ordered = False
         
         if args.sampling_mode == 'ordered_non_overlapping':
-            print("Mode: Ordered Non-Overlapping (Sequential, Non-Sliding)")
-            stride = dataset.window
+            print("Mode: Ordered Non-Overlapping (Sequential)")
+            # CRITICAL: Dataset is already non-overlapping blocks, so we step 1 by 1
+            stride = 1 
             ordered = True
             
-            # For non-overlapping, we usually want to verify covering the whole dataset
-            max_windows = len(dataset) // stride
+            # Verify coverage matches dataset size
+            max_windows = len(dataset)
+
             
             if args.sample_num is not None:
                 num_samples = args.sample_num

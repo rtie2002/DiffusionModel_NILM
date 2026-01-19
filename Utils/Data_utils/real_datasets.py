@@ -73,9 +73,16 @@ class CustomDataset(Dataset):
         self.window, self.period = window, period
         self.len, self.var_num = self.rawdata.shape[0], self.rawdata.shape[-1]
         
-        # Use NON-OVERLAPPING windows for full temporal coverage
-        self.sample_num_total = max(self.len // self.window, 0)
-        
+        # Decide Windowing Strategy based on style
+        if self.style == 'non_overlapping':
+            # Non-Overlapping: for Sampling (full coverage)
+            self.sample_num_total = max(self.len // self.window, 0)
+            print(f"[Dataset] {name}: Using NON-OVERLAPPING windows (for Sampling)")
+        else:
+            # Sliding Window: for Training (maximum data)
+            self.sample_num_total = max(self.len - self.window + 1, 0)
+            print(f"[Dataset] {name}: Using SLIDING windows (for Training)")
+            
         self.save2npy = save2npy
         self.auto_norm = neg_one_to_one
 
@@ -96,8 +103,16 @@ class CustomDataset(Dataset):
 
     def __getsamples(self, data, proportion, seed):
         # data is (L, V), normalized
-        # Create NON-OVERLAPPING window indices: [0, 512, 1024, ...]
-        indices = np.arange(self.sample_num_total) * self.window
+        
+        if self.style == 'non_overlapping':
+            # Non-Overlapping indices: [0, 512, 1024, ...]
+            indices = np.arange(self.sample_num_total) * self.window
+            print(f"  -> Created {len(indices)} non-overlapping blocks")
+        else:
+            # Sliding Window indices: [0, 1, 2, 3...]
+            indices = np.arange(self.sample_num_total)
+            print(f"  -> Created {len(indices)} sliding windows")
+            
         train_indices, test_indices = self.divide(indices, proportion, seed)
 
         # CRITICAL FIX: Sort indices to maintain temporal order (Jan -> Dec)
