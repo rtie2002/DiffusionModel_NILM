@@ -99,6 +99,36 @@ Consider generating the power profile for a *Washing Machine* specifically for *
 4.  **Convergence ($t \rightarrow 0$)**:
     *   As noise is removed, the power profile takes shape. Because the time features were present and correct at every step, the model "hallucinates" a washing cycle specifically aligned with the provided time window, rather than a random hallucination.
 
-## 5. Advantages over Concat-Conditioning
+## 5. Temporal Alignment via Transformer Inductive Bias
+
+A common concern with window-based synthesis (generating 512-point chunks) is whether the generated waveform remains consistent and aligned when stitched into a longer sequence. Specifically, how do we ensure the waveform doesn't "shift" or "drift" relative to the actual time?
+
+The answer lies in the **Inductive Bias of the Attention Mechanism**.
+
+### 5.1. Cross-Attention Mechanism
+The model does not simply concatenate time features. It uses a **Cross-Attention** mechanism layer (inside `Transformer`'s decoder).
+
+*   **Query ($Q$)**: The generated power waveform features.
+*   **Key ($K$) & Value ($V$)**: The fixed Time Conditions.
+
+$$ \text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right) V $$
+
+Every single point in the generated waveform (e.g., the 10th point in the window) explicitly "queries" its corresponding time feature. If the 10th point corresponds to `09:10 AM`, the Attention mechanism retrieves embedding vectors associated with "Warning Up Phase of Washing Machine". The model learns a strict mapping: **Time Context $\rightarrow$ Expected Power State**.
+
+### 5.2. Hard Alignment vs. Soft Drift
+Because of the **Hard Manifold Constraint** (Section 2.3), we do not just "tell" the model the time; we **force** the time coordinates to be exact at every generation step.
+
+*   $x_{gen}[0, \text{time}]$ is forced to be `09:00`.
+*   $x_{gen}[511, \text{time}]$ is forced to be `09:15`.
+
+If the model attempted to generate a shifted waveform (e.g., starting a cycle at 09:10 instead of 09:00), the Cross-Attention would detect a mismatch between the "Quiet" power state it is generating and the "Active" time features it perceives, resulting in a high energy/loss state. The diffusion process naturally corrects this to align the energy usage with the active time markers.
+
+### 5.3. Window Stitching Strategy
+To further ensure smoothness at boundaries, we employ **Overlapping Sliding Windows**:
+*   **Stride** < **Window Size**.
+*   E.g., Window 1: `[0, 512]`, Window 2: `[256, 768]`.
+*   The overlapping region `[256, 512]` is averaged. This minimizes any minor discontinuities at the "joints", although the strong temporal conditioning makes these discontinuities rare.
+
+## 6. Advantages over Concat-Conditioning
 
 Standard concatenation conditioning (simply appending the condition to the input without replacement) often suffers from **signal washout** in diffusion models. By treating the condition as part of the data manifold but exempting it from corruption, we ensure the guidance signal remains strong ($SNR_{cond} = \infty$) even when the target signal is pure noise ($SNR_{target} \approx 0$). This results in significantly faster convergence and higher adherence to temporal constraints.
