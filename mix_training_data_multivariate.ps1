@@ -81,7 +81,7 @@ function Run-Mix-Ratios {
         Write-Host "Total Real Data Points: $totalRealPoints"
         
         # Different Ratios of Synthetic Data
-        $ratios = @(0.25, 0.50, 1.00)
+        $ratios = @(0.25, 0.50, 1.00, 2.00)
         
         foreach ($ratio in $ratios) {
             $synRows = [math]::Floor($totalRealPoints * $ratio)

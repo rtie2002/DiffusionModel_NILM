@@ -99,7 +99,7 @@ foreach ($app in $Appliances) {
                     if ($lineCount -gt 1) {
                         $totalPoints = $lineCount - 1 # Subtract Header
                         
-                        $dynamicSampleNum = [math]::Ceiling($totalPoints / $window)
+                        $dynamicSampleNum = 2 * [math]::Ceiling($totalPoints / $window)
                         Write-Host "  -> Found $totalPoints data points. Window size: $window" -ForegroundColor Gray
                         Write-Host "  -> Dynamic SampleNum set to: $dynamicSampleNum windows" -ForegroundColor Cyan
                     }
