@@ -38,7 +38,8 @@ if CONFIG:
         APPLIANCE_SPECS[app_name] = {
             'mean': app_data['mean'],
             'std': app_data['std'],
-            'max_power': app_data['max_power']
+            'max_power': app_data['max_power'],
+            'real_max_power': app_data.get('real_max_power', app_data['max_power']) # Load real max power, default to max_power if missing
         }
     
     TIME_COLS = CONFIG['mixing'].get('time_cols', [])
@@ -217,19 +218,11 @@ def convert_synthetic_to_zscore(synthetic_minmax_01, appliance_name, real_stats=
     mean = specs['mean']
     std = specs['std']
     clip_power = specs['max_power']  # This is clip_power from APPLIANCE_SPECS
+    real_max_power = specs.get('real_max_power', clip_power) # Get real max power from specs
     
-    # Load YAML to check if appliance was clipped
-    config_path = 'Config/applainces_configuration.yaml'
-    try:
-        with open(config_path, 'r') as f:
-            config = yaml.safe_load(f)
-        appliance_config = config[appliance_name]
-        real_max_power = appliance_config.get('real_max_power')
-        was_clipped = (clip_power != real_max_power)
-    except Exception as e:
-        print(f"Warning: Could not load YAML config: {e}")
-        was_clipped = False  # Assume not clipped if can't load config
-        real_max_power = clip_power
+    # Check if appliance was clipped/limited in config relative to real data
+    # (e.g. Fridge max_power=350 vs real_max=3323)
+    was_clipped = (clip_power != real_max_power)
     
     if was_clipped:
         # CLIPPED APPLIANCE: Use clip_power method
