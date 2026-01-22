@@ -180,40 +180,35 @@ def main():
                                 dataset=dataset, ordered=ordered, stride=stride)
         
         if dataset.auto_norm:
-            # CRITICAL FIX: Recover the EXACT amplitude from the dataset's dynamic scaler
-            # The model generates [0,1] or [-1,1], but the dataset might have stretched 
-            # a smaller range (e.g. 0-0.8) to fit that. We must undo that stretch.
-            
-            # 1. Unnormalize from Model Range (-1,1) to Scaler Range (0,1)
-            # This is what dataset.start_norm does internally if auto_norm=True
-            samples = unnormalize_to_zero_to_one(samples)
-            
-            # 2. Inverse Transform using the exact scaler fitted on the loaded data
-            # This recovers the original values (e.g. MinMax or Z-Score) as they were in the input file
-            print("Applying inverse transform to recover original amplitude...")
-            
-            # Reshape for inverse_transform: (N*L, V)
-            N, L, V = samples.shape
-            samples_flat = samples.reshape(-1, V)
+            # 1. The model output 'samples' is in range [-1, 1]
             
             if V == 9:
-                # Multivariate: Only inverse transform Power (col 0)
-                power_flat = samples_flat[:, 0:1]
-                time_feats = samples_flat[:, 1:]
+                print("Applying recovery for Multivariate (1 Power + 8 Time features)...")
+                # Split power and time - BOTH are in [-1, 1] range from model
+                power = samples[:, :, 0:1] # (N, L, 1)
+                time_feats = samples[:, :, 1:9] # (N, L, 8) - Keep as is in [-1, 1]
                 
-                # Inverse transform power
+                # 2. Unnormalize ONLY power to [0, 1] for inverse_transform
+                power_01 = unnormalize_to_zero_to_one(power)
+                
+                # Reshape for scaler
+                N, L, _ = power_01.shape
+                power_flat = power_01.reshape(-1, 1)
                 power_recovered = dataset.scaler.inverse_transform(power_flat)
+                power_recovered = power_recovered.reshape(N, L, 1)
                 
-                # Recombine
-                samples_recovered = np.concatenate([power_recovered, time_feats], axis=1)
-                samples = samples_recovered.reshape(N, L, V)
+                # 3. Recombine: Recovered Power + Original [-1, 1] Time Features
+                samples = np.concatenate([power_recovered, time_feats], axis=2)
             else:
-                # Univariate
-                samples_flat = dataset.scaler.inverse_transform(samples_flat)
-                samples = samples_flat.reshape(N, L, V)
+                # Univariate case
+                samples = unnormalize_to_zero_to_one(samples)
+                N, L, V = samples.shape
+                samples_flat = samples.reshape(-1, V)
+                samples_recovered = dataset.scaler.inverse_transform(samples_flat)
+                samples = samples_recovered.reshape(N, L, V)
 
             print(f"Generated data shape: {samples.shape}")
-            print(f"Data Unnormalized Range: {samples.min():.4f} to {samples.max():.4f}")
+            print(f"Data Unnormalized Range: {samples[:,:,0].min():.4f} to {samples[:,:,0].max():.4f}W")
             np.save(os.path.join(args.save_dir, f'ddpm_fake_{args.name}.npy'), samples)
 
 if __name__ == '__main__':
