@@ -98,7 +98,7 @@ class CustomDataset(Dataset):
                 masks[:, -predict_length:, :] = 0
                 self.masking = masks.astype(bool)
             else:
-                raise NotImplementedError()
+                self.masking = None
         self.sample_num = self.samples.shape[0]
 
     def __getsamples(self, data, proportion, seed):
@@ -353,11 +353,10 @@ class CustomDataset(Dataset):
         return masks
 
     def __getitem__(self, ind):
-        if self.period == 'test':
-            x = self.samples[ind]  # (seq_length, feat_dim) array
+        x = self.samples[ind]  # (seq_length, feat_dim) array
+        if self.period == 'test' and self.masking is not None:
             m = self.masking[ind]  # (seq_length, feat_dim) boolean array
             return torch.from_numpy(x).float(), torch.from_numpy(m)
-        x = self.samples[ind]  # (seq_length, feat_dim) array
         return torch.from_numpy(x).float()
 
     def __len__(self):

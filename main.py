@@ -120,7 +120,7 @@ def main():
 
         # Create a separate dataset with proportion=1.0 (no train/test split)
         sampling_dataset_config = config['dataloader']['train_dataset'].copy()
-        sampling_dataset_config['params']['proportion'] = 1.0  # Use 100% of data
+        sampling_dataset_config['params']['proportion'] = 0.0  # Use 0.0 to put 100% of data into the inference/test set
         sampling_dataset_config['params']['style'] = 'non_overlapping'  # CRITICAL: Use non-overlapping for sampling
         sampling_dataset_config['params']['save2npy'] = False  # Don't save, just for sampling
         sampling_dataset_config['params']['period'] = 'test'   # FORCE test period to disable booster during sampling
