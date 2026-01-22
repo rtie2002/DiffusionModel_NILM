@@ -494,6 +494,15 @@ class Transformer(nn.Module):
         self.pos_dec = LearnablePositionalEncoding(n_embd, dropout=resid_pdrop, max_len=max_len)
         self.n_feat = n_feat
 
+        # DiT-Style Zero Initialization for the Final Output Layers
+        # This ensures the model starts by predicting a zero-centered output,
+        # which is the most stable starting point for the diffusion process.
+        nn.init.constant_(self.inverse.sequential[1].weight, 0)
+        nn.init.constant_(self.inverse.sequential[1].bias, 0)
+        nn.init.constant_(self.combine_s.weight, 0)
+        nn.init.constant_(self.combine_m.weight, 0)
+        # Note: combine_s and combine_m don't have bias (bias=False in init)
+
     def forward(self, input, t, padding_masks=None):
         # DECOUPLE INPUT: Separate 1D power from 8D conditions
         # input shape expected: (B, L, 1+8) = (B, L, 9)
