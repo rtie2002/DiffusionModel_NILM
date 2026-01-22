@@ -189,17 +189,34 @@ class AdaLayerNorm(nn.Module):
         super().__init__()
         self.emb = SinusoidalPosEmb(n_embd)
         self.silu = nn.SiLU()
-        self.linear = nn.Linear(n_embd, n_embd*2)
+        # Output 3 parameters per AdaLN: gamma (scale), beta (shift), and alpha (gate)
+        self.linear = nn.Linear(n_embd, n_embd * 3)
+        
+        # DiT-Style Zero Initialization
+        # This makes the model initially behave as an identity function
+        nn.init.zeros_(self.linear.weight)
+        nn.init.zeros_(self.linear.bias)
+        
         self.layernorm = nn.LayerNorm(n_embd, elementwise_affine=False)
 
     def forward(self, x, timestep, label_emb=None):
-        emb = self.emb(timestep)
+        # emb: (B, D) from diffusion timestep t
+        emb = self.emb(timestep).unsqueeze(1) # (B, 1, D)
+        
         if label_emb is not None:
-            emb = emb + label_emb
-        emb = self.linear(self.silu(emb)).unsqueeze(1)
-        scale, shift = torch.chunk(emb, 2, dim=2)
-        x = self.layernorm(x) * (1 + scale) + shift
-        return x
+            # POINTWISE GUIDANCE: 
+            # If label_emb is (B, L, D), it will provide a specific gamma/beta/alpha
+            # for every single point in the 512-length sequence.
+            emb = emb + label_emb # Broadcase (B, 1, D) + (B, L, D) -> (B, L, D)
+            
+        # Generating modulation parameters for every step in the sequence
+        emb = self.linear(self.silu(emb)) # (B, L, 3D)
+        
+        # gamma (scale), beta (shift), alpha (gate)
+        gamma, beta, alpha = torch.chunk(emb, 3, dim=-1)
+        
+        x = self.layernorm(x) * (1 + gamma) + beta
+        return x, alpha
     
 
 class AdaInsNorm(nn.Module):
@@ -208,12 +225,18 @@ class AdaInsNorm(nn.Module):
         self.emb = SinusoidalPosEmb(n_embd)
         self.silu = nn.SiLU()
         self.linear = nn.Linear(n_embd, n_embd*2)
+        # ZERO-INIT: Same for InstanceNorm
+        nn.init.zeros_(self.linear.weight)
+        nn.init.zeros_(self.linear.bias)
         self.instancenorm = nn.InstanceNorm1d(n_embd)
 
     def forward(self, x, timestep, label_emb=None):
         emb = self.emb(timestep)
         if label_emb is not None:
-            emb = emb + label_emb
+            if label_emb.dim() == 2:
+                emb = emb + label_emb
+            else:
+                emb = emb + label_emb.mean(dim=1)
         emb = self.linear(self.silu(emb)).unsqueeze(1)
         scale, shift = torch.chunk(emb, 2, dim=2)
         x = self.instancenorm(x.transpose(-1, -2)).transpose(-1,-2) * (1 + scale) + shift

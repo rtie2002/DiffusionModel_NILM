@@ -244,8 +244,6 @@ class CrossAttention(nn.Module):
 
 
 class EncoderBlock(nn.Module):
-    """ an unassuming Transformer block """
-
     def __init__(self,
                  n_embd=1024,
                  n_head=16,
@@ -256,8 +254,10 @@ class EncoderBlock(nn.Module):
                  ):
         super().__init__()
 
+        # DiT uses separate AdaLN for attention and MLP branches
         self.ln1 = AdaLayerNorm(n_embd)
-        self.ln2 = nn.LayerNorm(n_embd)
+        self.ln2 = AdaLayerNorm(n_embd) # NEW: Using AdaLN instead of LN
+        
         self.attn = FullAttention(
             n_embd=n_embd,
             n_head=n_head,
@@ -276,9 +276,17 @@ class EncoderBlock(nn.Module):
         )
 
     def forward(self, x, timestep, mask=None, label_emb=None):
-        a, att = self.attn(self.ln1(x, timestep, label_emb), mask=mask)
-        x = x + a
-        x = x + self.mlp(self.ln2(x))  # only one really use encoder_output
+        # 1. Attention Branch with alpha_1 (gate)
+        # norm1_x is modulated by gamma and beta inside AdaLayerNorm
+        norm1_x, alpha1 = self.ln1(x, timestep, label_emb)
+        attn_out, att = self.attn(norm1_x, mask=mask)
+        x = x + alpha1 * attn_out # alpha = gate
+        
+        # 2. MLP Branch with alpha_2 (gate)
+        norm2_x, alpha2 = self.ln2(x, timestep, label_emb)
+        mlp_out = self.mlp(norm2_x)
+        x = x + alpha2 * mlp_out
+        
         return x, att
 
 
@@ -312,8 +320,6 @@ class Encoder(nn.Module):
 
 
 class DecoderBlock(nn.Module):
-    """ an unassuming Transformer block """
-
     def __init__(self,
                  n_channel,
                  n_feat,
@@ -327,8 +333,10 @@ class DecoderBlock(nn.Module):
                  ):
         super().__init__()
 
-        self.ln1 = AdaLayerNorm(n_embd)
-        self.ln2 = nn.LayerNorm(n_embd)
+        # Full DiT-Style: All normalizations are Adaptive and gated
+        self.ln1 = AdaLayerNorm(n_embd) # Self-Attn
+        self.ln1_1 = AdaLayerNorm(n_embd) # Cross-Attn
+        self.ln2 = AdaLayerNorm(n_embd) # MLP
 
         self.attn1 = FullAttention(
             n_embd=n_embd,
@@ -346,15 +354,11 @@ class DecoderBlock(nn.Module):
             resid_pdrop=resid_pdrop,
         )
 
-        self.ln1_1 = AdaLayerNorm(n_embd)
-
         assert activate in ['GELU', 'GELU2']
         act = nn.GELU() if activate == 'GELU' else GELU2()
 
         self.trend = TrendBlock(n_channel, n_channel, n_embd, n_feat, act=act)
-        # self.decomp = MovingBlock(n_channel)
         self.seasonal = FourierLayer(d_model=n_embd)
-        # self.seasonal = SeasonBlock(n_channel, n_channel)
 
         self.mlp = nn.Sequential(
             nn.Linear(n_embd, mlp_hidden_times * n_embd),
@@ -367,13 +371,26 @@ class DecoderBlock(nn.Module):
         self.linear = nn.Linear(n_embd, n_feat)
 
     def forward(self, x, encoder_output, timestep, mask=None, label_emb=None):
-        a, att = self.attn1(self.ln1(x, timestep, label_emb), mask=mask)
-        x = x + a
-        a, att = self.attn2(self.ln1_1(x, timestep), encoder_output, mask=mask)
-        x = x + a
+        # 1. Self-Attention with Gating
+        norm1_x, alpha1 = self.ln1(x, timestep, label_emb)
+        a1, att1 = self.attn1(norm1_x, mask=mask)
+        x = x + alpha1 * a1
+        
+        # 2. Cross-Attention with Gating
+        norm1_1_x, alpha1_1 = self.ln1_1(x, timestep, label_emb)
+        a2, att2 = self.attn2(norm1_1_x, encoder_output, mask=mask)
+        x = x + alpha1_1 * a2
+        
+        # Trend/Seasonality Decomposition Branch
+        # These are usually decoupled, but we apply MLP modulation for consistency
         x1, x2 = self.proj(x).chunk(2, dim=1)
         trend, season = self.trend(x1), self.seasonal(x2)
-        x = x + self.mlp(self.ln2(x))
+        
+        # 3. MLP with Gating
+        norm2_x, alpha2 = self.ln2(x, timestep, label_emb)
+        mlp_out = self.mlp(norm2_x)
+        x = x + alpha2 * mlp_out
+        
         m = torch.mean(x, dim=1, keepdim=True)
         return x - m, self.linear(m), trend, season
 
@@ -427,8 +444,9 @@ class Decoder(nn.Module):
 class Transformer(nn.Module):
     def __init__(
             self,
-            n_feat,
+            n_feat, # Usually 1 for power
             n_channel,
+            condition_dim=8, # NEW: Number of time features (8)
             n_layer_enc=5,
             n_layer_dec=14,
             n_embd=1024,
@@ -442,8 +460,17 @@ class Transformer(nn.Module):
             **kwargs
     ):
         super().__init__()
-        self.emb = Conv_MLP(n_feat, n_embd, resid_pdrop=resid_pdrop)
+        # POWER EMBEDDING (1D -> n_embd)
+        self.power_emb = Conv_MLP(n_feat, n_embd, resid_pdrop=resid_pdrop)
         self.inverse = Conv_MLP(n_embd, n_feat, resid_pdrop=resid_pdrop)
+        
+        # CONDITION ENCODER (8D -> n_embd)
+        # This takes the 8 time features and creates an embedding to guide AdaLN
+        self.cond_emb_mlp = nn.Sequential(
+            nn.Linear(condition_dim, n_embd),
+            nn.SiLU(),
+            nn.Linear(n_embd, n_embd)
+        )
 
         if conv_params is None or conv_params[0] is None:
             if n_feat < 32 and n_channel < 64:
@@ -465,14 +492,28 @@ class Transformer(nn.Module):
                                mlp_hidden_times,
                                block_activate, condition_dim=n_embd)
         self.pos_dec = LearnablePositionalEncoding(n_embd, dropout=resid_pdrop, max_len=max_len)
+        self.n_feat = n_feat
 
     def forward(self, input, t, padding_masks=None):
-        emb = self.emb(input)
+        # DECOUPLE INPUT: Separate 1D power from 8D conditions
+        # input shape expected: (B, L, 1+8) = (B, L, 9)
+        x_power = input[:, :, :self.n_feat]
+        x_cond = input[:, :, self.n_feat:]
+        
+        # 1. Encode Condition into label_emb
+        # We take the mean or specific pooling to get a global condition vector
+        label_emb = self.cond_emb_mlp(x_cond) # (B, L, n_embd)
+        
+        # 2. Process Power Signal
+        emb = self.power_emb(x_power)
         inp_enc = self.pos_enc(emb)
-        enc_cond = self.encoder(inp_enc, t, padding_masks=padding_masks)
+        
+        # 3. Encoder Stage with AdaLN Guidance
+        enc_cond = self.encoder(inp_enc, t, padding_masks=padding_masks, label_emb=label_emb)
 
+        # 4. Decoder Stage with AdaLN Guidance
         inp_dec = self.pos_dec(emb)
-        output, mean, trend, season = self.decoder(inp_dec, t, enc_cond, padding_masks=padding_masks)
+        output, mean, trend, season = self.decoder(inp_dec, t, enc_cond, padding_masks=padding_masks, label_emb=label_emb)
 
         res = self.inverse(output)
         res_m = torch.mean(res, dim=1, keepdim=True)

@@ -63,10 +63,20 @@ class Diffusion(nn.Module):
         self.condition_dim = condition_dim  # NEW: Store condition dimension
         self.ff_weight = default(reg_weight, math.sqrt(self.seq_length) / 5)
 
-        # NEW: Transformer now accepts feature_size + condition_dim dimensions
-        self.model = Transformer(n_feat=feature_size + condition_dim, n_channel=seq_length, n_layer_enc=n_layer_enc, n_layer_dec=n_layer_dec,
-                                 n_heads=n_heads, attn_pdrop=attn_pd, resid_pdrop=resid_pd, mlp_hidden_times=mlp_hidden_times,
-                                 max_len=seq_length, n_embd=d_model, conv_params=[kernel_size, padding_size], **kwargs)
+        # NEW: Transformer now decouples feature_size (power) and condition_dim (time)
+        self.model = Transformer(n_feat=feature_size, 
+                                 n_channel=seq_length, 
+                                 condition_dim=condition_dim,
+                                 n_layer_enc=n_layer_enc, 
+                                 n_layer_dec=n_layer_dec,
+                                 n_heads=n_heads, 
+                                 attn_pdrop=attn_pd, 
+                                 resid_pdrop=resid_pd, 
+                                 mlp_hidden_times=mlp_hidden_times,
+                                 max_len=seq_length, 
+                                 n_embd=d_model, 
+                                 conv_params=[kernel_size, padding_size], 
+                                 **kwargs)
 
         if beta_schedule == 'linear':
             betas = linear_beta_schedule(timesteps)
@@ -147,8 +157,17 @@ class Diffusion(nn.Module):
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
     
     def output(self, x, t, padding_masks=None):
+        # x shape: (B, L, 1+8) = (B, L, 9)
         trend, season = self.model(x, t, padding_masks=padding_masks)
-        model_output = trend + season
+        
+        # The model now only predicts the power dimension (1D)
+        power_pred = trend + season # (B, L, 1)
+        
+        # We MUST return all 9 dimensions for the diffusion loop, 
+        # but the time features (conditions) must be the original ones from x.
+        conditions = x[:, :, self.feature_size:] # (B, L, 8)
+        model_output = torch.cat([power_pred, conditions], dim=-1) # (B, L, 9)
+        
         return model_output
 
     def model_predictions(self, x, t, clip_x_start=False, padding_masks=None):
