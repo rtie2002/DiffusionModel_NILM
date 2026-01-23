@@ -41,7 +41,9 @@ python synthetic_data_multivariate/algorithm1_v2_multivariate.py \
 ```bash
 python synthetic_data_multivariate/algorithm1_v2_multivariate.py --appliance_name washingmachine --input_file "synthetic_data_multivariate/zscore_converted/ddpm_fake_washingmachine_multivariate_zscore.csv" --output_dir "Data/datasets/synthetic_processed"
 ```
-
+```bash
+python synthetic_data_multivariate/algorithm1_v2_multivariate.py --appliance_name washingmachine --input_file "synthetic_data_multivariate/zscore_converted/washingmachine_training_.csv" --output_dir "Data/datasets/synthetic_processed"
+```
 ---
 
 ### Batch Script (PowerShell)
