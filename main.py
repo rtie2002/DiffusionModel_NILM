@@ -180,7 +180,9 @@ def main():
                                 dataset=dataset, ordered=ordered, stride=stride)
         
         if dataset.auto_norm:
-            # 1. The model output 'samples' is in range [-1, 1]
+            # 1. Get shape information from generated samples
+            # This is critical to define 'V' before using it in the check below
+            N, L, V = samples.shape
             
             if V == 9:
                 print("Applying recovery for Multivariate (1 Power + 8 Time features)...")
@@ -192,7 +194,6 @@ def main():
                 power_01 = unnormalize_to_zero_to_one(power)
                 
                 # Reshape for scaler
-                N, L, _ = power_01.shape
                 power_flat = power_01.reshape(-1, 1)
                 power_recovered = dataset.scaler.inverse_transform(power_flat)
                 power_recovered = power_recovered.reshape(N, L, 1)
@@ -202,7 +203,6 @@ def main():
             else:
                 # Univariate case
                 samples = unnormalize_to_zero_to_one(samples)
-                N, L, V = samples.shape
                 samples_flat = samples.reshape(-1, V)
                 samples_recovered = dataset.scaler.inverse_transform(samples_flat)
                 samples = samples_recovered.reshape(N, L, V)
