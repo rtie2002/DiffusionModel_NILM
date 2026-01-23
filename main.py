@@ -105,7 +105,19 @@ def main():
     logger.save_config(config)
 
     model = instantiate_from_config(config['model']).to(device)
-    dataloader_info = build_dataloader(config, args)
+    
+    # ⚡ EFFICIENCY FIX: Only build the heavy training dataloader if we are actually training.
+    # This prevents creating millions of sliding windows and applying booster/jitter for training 
+    # when we only intended to sample.
+    if args.train:
+        dataloader_info = build_dataloader(config, args)
+    else:
+        # Provide a minimal placeholder to avoid Trainer initialization failure
+        dataloader_info = {
+            'dataloader': [], 
+            'dataset': None
+        }
+    
     trainer = Trainer(config=config, args=args, model=model, dataloader=dataloader_info, logger=logger)
 
     if args.train:
