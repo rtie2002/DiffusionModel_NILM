@@ -187,11 +187,13 @@ class Trainer(object):
                 
                 conditions = torch.FloatTensor(np.stack(conditions)).to(self.device)  # (batch, 512, 8)
                 
-                # Generate with conditions
-                sample = self.ema.ema_model.generate_with_conditions(conditions)
+                # Generate with conditions (FP16 for speed)
+                with torch.no_grad(), autocast():
+                    sample = self.ema.ema_model.generate_with_conditions(conditions)
             else:
-                # Unconditional generation
-                sample = self.ema.ema_model.generate_mts(batch_size=windows_this_batch)
+                # Unconditional generation (FP16 for speed)
+                with torch.no_grad(), autocast():
+                    sample = self.ema.ema_model.generate_mts(batch_size=windows_this_batch)
             
             samples = np.row_stack([samples, sample.detach().cpu().numpy()])
             torch.cuda.empty_cache()
