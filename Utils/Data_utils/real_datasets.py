@@ -117,29 +117,32 @@ class CustomDataset(Dataset):
 
         # DENSITY & CONTINUITY BOOSTER (Apply to Training only)
         if self.period == 'train' and len(train_indices) > 0:
-            print(f"  [Continuity Booster] Analyzing training windows for transitions...")
-            # Threshold to consider a window 'active' (MinMax 0.05)
-            # We look for windows that have some 'ON' samples to oversample them
-            active_ids = []
-            for idx in train_indices:
-                if np.max(data[idx : idx + self.window, 0]) > 0.05:
-                    active_ids.append(idx)
-            
-            active_ids = np.array(active_ids)
-            if len(active_ids) > 0:
-                # INDUSTRY TRICK: Oversample with a bit of Jitter (tiny time shifts)
-                # This makes the model learn the 'shape' better rather than just 
-                # a fixed timestamp, improving generation diversity.
-                boost_factor = 4
-                boosted_versions = [train_indices]
-                for _ in range(boost_factor - 1):
-                    # Add +/- 1 or 2 sample shift to some active windows
-                    jitter = np.random.randint(-2, 3, size=len(active_ids))
-                    jittered_active = np.clip(active_ids + jitter, 0, self.sample_num_total - 1)
-                    boosted_versions.append(jittered_active)
+            if self.name and self.name.lower() == 'fridge':
+                print(f"  [Continuity Booster] Skipping for {self.name} (Avoiding over-boosting for fridge)")
+            else:
+                print(f"  [Continuity Booster] Analyzing training windows for transitions...")
+                # Threshold to consider a window 'active' (MinMax 0.05)
+                # We look for windows that have some 'ON' samples to oversample them
+                active_ids = []
+                for idx in train_indices:
+                    if np.max(data[idx : idx + self.window, 0]) > 0.05:
+                        active_ids.append(idx)
                 
-                train_indices = np.concatenate(boosted_versions)
-                print(f"  [Continuity Booster] Found {len(active_ids)} active windows. Training set boosted with jitter to {len(train_indices)} samples.")
+                active_ids = np.array(active_ids)
+                if len(active_ids) > 0:
+                    # INDUSTRY TRICK: Oversample with a bit of Jitter (tiny time shifts)
+                    # This makes the model learn the 'shape' better rather than just 
+                    # a fixed timestamp, improving generation diversity.
+                    boost_factor = 4
+                    boosted_versions = [train_indices]
+                    for _ in range(boost_factor - 1):
+                        # Add +/- 1 or 2 sample shift to some active windows
+                        jitter = np.random.randint(-2, 3, size=len(active_ids))
+                        jittered_active = np.clip(active_ids + jitter, 0, self.sample_num_total - 1)
+                        boosted_versions.append(jittered_active)
+                    
+                    train_indices = np.concatenate(boosted_versions)
+                    print(f"  [Continuity Booster] Found {len(active_ids)} active windows. Training set boosted with jitter to {len(train_indices)} samples.")
 
         # CRITICAL FIX: Sort indices to maintain temporal order (Jan -> Dec)
         # This helps the model see the progression of months
