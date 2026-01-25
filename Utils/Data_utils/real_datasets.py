@@ -122,8 +122,11 @@ class CustomDataset(Dataset):
             else:
                 print(f"  [Continuity Booster] Analyzing training windows for transitions...")
                 active_ids = []
+                # Threshold raised to 0.2 (~800W) to target ONLY strong cooking events
+                # This prevents boosting "edge" cases or noise, sharpening the temporal distribution
+                threshold = 0.2 
                 for idx in train_indices:
-                    if np.max(data[idx : idx + self.window, 0]) > 0.05:
+                    if np.max(data[idx : idx + self.window, 0]) > threshold:
                         active_ids.append(idx)
                 
                 active_ids = np.array(active_ids)
