@@ -118,7 +118,7 @@ class CustomDataset(Dataset):
         # DENSITY & CONTINUITY BOOSTER (Apply to Training only)
         if self.period == 'train' and len(train_indices) > 0:
             if self.name.lower() == 'fridge':
-                print(f"  [Continuity Booster] Skipping for {self.name} as requested (sufficient real data)")
+                print(f"  [Continuity Booster] Skipping for {self.name} as requested (Avoiding over-boosting)")
             else:
                 print(f"  [Continuity Booster] Analyzing training windows for transitions...")
                 active_ids = []
@@ -130,7 +130,9 @@ class CustomDataset(Dataset):
                 if len(active_ids) > 0:
                     boost_factor = 4
                     boosted_versions = [train_indices]
+                    
                     for _ in range(boost_factor - 1):
+                        # Apply Jitter (random shifting) for other appliances
                         jitter = np.random.randint(-2, 3, size=len(active_ids))
                         jittered_active = np.clip(active_ids + jitter, 0, self.sample_num_total - 1)
                         boosted_versions.append(jittered_active)
