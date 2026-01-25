@@ -9,6 +9,7 @@ from tqdm.auto import tqdm
 from ema_pytorch import EMA
 from torch.optim import Adam
 from torch.nn.utils import clip_grad_norm_
+from torch.cuda.amp import autocast, GradScaler
 from Utils.io_utils import instantiate_from_config, get_model_parameters_info
 
 
@@ -44,6 +45,9 @@ class Trainer(object):
 
         self.opt = Adam(filter(lambda p: p.requires_grad, self.model.parameters()), lr=start_lr, betas=[0.9, 0.96])
         self.ema = EMA(self.model, beta=ema_decay, update_every=ema_update_every).to(self.device)
+        
+        # Mixed Precision Training (FP16) for ~2x speedup
+        self.scaler = GradScaler()
 
         sc_cfg = config['solver']['scheduler']
         sc_cfg['params']['optimizer'] = self.opt
@@ -87,15 +91,22 @@ class Trainer(object):
                 total_loss = 0.
                 for _ in range(self.gradient_accumulate_every):
                     data = next(self.dl).to(device)
-                    loss = self.model(data)
-                    loss = loss / self.gradient_accumulate_every
-                    loss.backward()
+                    # FP16 Forward Pass
+                    with autocast():
+                        loss = self.model(data)
+                        loss = loss / self.gradient_accumulate_every
+                    # Scaled Backward Pass
+                    self.scaler.scale(loss).backward()
                     total_loss += loss.item()
 
                 pbar.set_description(f'loss: {total_loss:.6f}')
 
+                # Unscale gradients before clipping
+                self.scaler.unscale_(self.opt)
                 clip_grad_norm_(self.model.parameters(), 1.0)
-                self.opt.step()
+                # Scaled Optimizer Step
+                self.scaler.step(self.opt)
+                self.scaler.update()
                 self.sch.step(total_loss)
                 self.opt.zero_grad()
                 self.step += 1
