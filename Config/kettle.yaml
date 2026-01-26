@@ -22,7 +22,7 @@ solver:
   base_lr: 1.0e-4      # Increased to match larger dataset and scheduler
   max_epochs: 20000
   results_folder: .Checkpoints/Checkpoints_kettle_multivariate
-  gradient_accumulate_every: 1
+  gradient_accumulate_every: 2
   save_cycle: 2000
   ema:
     decay: 0.995
@@ -53,6 +53,6 @@ dataloader:
       seed: 2024
       period: train
 
-  batch_size: 256     # 4090 Optimized
+  batch_size: 128     # Increased for 4090 efficiency
   sample_size: 256
   shuffle: True       # Enabled shuffling for better generalization
