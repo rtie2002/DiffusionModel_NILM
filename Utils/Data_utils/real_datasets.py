@@ -58,7 +58,10 @@ class CustomDataset(Dataset):
         missing_ratio=None,
         style='separate', 
         distribution='geometric', 
-        mean_mask_length=3
+        mean_mask_length=3,
+        boost_factor=None,
+        boost_threshold=0.2,
+        save_train_npy=False
     ):
         super(CustomDataset, self).__init__()
         assert period in ['train', 'test'], 'period must be train or test.'
@@ -66,6 +69,9 @@ class CustomDataset(Dataset):
             assert ~(predict_length is not None or missing_ratio is not None), ''
         self.name, self.pred_len, self.missing_ratio = name, predict_length, missing_ratio
         self.style, self.distribution, self.mean_mask_length = style, distribution, mean_mask_length
+        self.boost_factor = boost_factor
+        self.boost_threshold = boost_threshold
+        self.save_train_npy = save_train_npy
         self.rawdata, self.scaler = self.read_data(data_root, self.name)
         self.dir = os.path.join(output_dir, 'samples')
         os.makedirs(self.dir, exist_ok=True)
@@ -122,26 +128,33 @@ class CustomDataset(Dataset):
             else:
                 print(f"  [Continuity Booster] Analyzing training windows for transitions...")
                 active_ids = []
-                # Threshold raised to 0.2 (~800W) to target ONLY strong cooking events
-                # This prevents boosting "edge" cases or noise, sharpening the temporal distribution
-                threshold = 0.2 
+                threshold = self.boost_threshold
                 for idx in train_indices:
                     if np.max(data[idx : idx + self.window, 0]) > threshold:
                         active_ids.append(idx)
                 
                 active_ids = np.array(active_ids)
                 if len(active_ids) > 0:
-                    boost_factor = 4
-                    boosted_versions = [train_indices]
+                    # Decide boost factor
+                    current_boost = self.boost_factor
+                    if current_boost is None:
+                        if len(train_indices) > 200000:
+                            current_boost = 1
+                            print(f"  [Continuity Booster] Large dataset detected ({len(train_indices)} windows). Auto-setting boost factor to 1.")
+                        else:
+                            current_boost = 4
                     
-                    for _ in range(boost_factor - 1):
-                        # Apply Jitter (random shifting) for other appliances
-                        jitter = np.random.randint(-2, 3, size=len(active_ids))
-                        jittered_active = np.clip(active_ids + jitter, 0, self.sample_num_total - 1)
-                        boosted_versions.append(jittered_active)
-                    
-                    train_indices = np.concatenate(boosted_versions)
-                    print(f"  [Continuity Booster] Found {len(active_ids)} active windows. Training set boosted to {len(train_indices)} samples.")
+                    if current_boost > 1:
+                        boosted_versions = [train_indices]
+                        for _ in range(int(current_boost) - 1):
+                            jitter = np.random.randint(-2, 3, size=len(active_ids))
+                            jittered_active = np.clip(active_ids + jitter, 0, self.sample_num_total - 1)
+                            boosted_versions.append(jittered_active)
+                        
+                        train_indices = np.concatenate(boosted_versions)
+                        print(f"  [Continuity Booster] Found {len(active_ids)} active windows. Training set boosted to {len(train_indices)} samples (Factor: {current_boost}).")
+                    else:
+                        print(f"  [Continuity Booster] Boost factor is 1. No dataset expansion applied.")
 
         # CRITICAL FIX: Sort indices to maintain temporal order (Jan -> Dec)
         # Without this, 'divide' returns shuffled random indices!
@@ -149,37 +162,54 @@ class CustomDataset(Dataset):
         test_indices = np.sort(test_indices)
 
         if self.save2npy:
+            # Always save test set (needed for evaluation metrics)
             if 1 - proportion > 0:
                 self._save_chunked_npy(data, test_indices, os.path.join(self.dir, f"{self.name}_ground_truth_{self.window}_test.npy"), unnormalize=True)
                 self._save_chunked_npy(data, test_indices, os.path.join(self.dir, f"{self.name}_norm_truth_{self.window}_test.npy"), unnormalize=False)
             
-            self._save_chunked_npy(data, train_indices, os.path.join(self.dir, f"{self.name}_ground_truth_{self.window}_train.npy"), unnormalize=True)
-            self._save_chunked_npy(data, train_indices, os.path.join(self.dir, f"{self.name}_norm_truth_{self.window}_train.npy"), unnormalize=False)
+            # Save training set ONLY if explicitly requested (prevents 100GB+ disk usage)
+            if self.save_train_npy:
+                self._save_chunked_npy(data, train_indices, os.path.join(self.dir, f"{self.name}_ground_truth_{self.window}_train.npy"), unnormalize=True)
+                self._save_chunked_npy(data, train_indices, os.path.join(self.dir, f"{self.name}_norm_truth_{self.window}_train.npy"), unnormalize=False)
+            else:
+                if len(train_indices) > 500000:
+                    print(f"  [Dataset] Skipping training NPY save (Dataset is large: {len(train_indices)} samples). Use save_train_npy=True to override.")
 
         train_data = LazyWindows(data, train_indices, self.window)
         test_data = LazyWindows(data, test_indices, self.window)
 
         return train_data, test_data
 
-    def _save_chunked_npy(self, data, indices, filename, unnormalize=True, chunk_size=1000):
+    def _save_chunked_npy(self, data, indices, filename, unnormalize=True, chunk_size=250):
         if len(indices) == 0:
             return
         
-        print(f"Memory-efficient saving (chunked) to {filename}...")
+        # Estimate size to warn user
+        total_size_gb = (len(indices) * self.window * self.var_num * 4) / (1024**3)
+        print(f"  [Save] {os.path.basename(filename)} ({total_size_gb:.2f} GB)...")
+        
         shape = (len(indices), self.window, self.var_num)
         # Using open_memmap to write a valid .npy file piece by piece
-        # Default to float32 to save space
         fp = open_memmap(filename, dtype='float32', mode='w+', shape=shape)
+        
+        # Pre-allocate one chunk buffer to reuse memory
+        chunk_buffer = np.zeros((chunk_size, self.window, self.var_num), dtype=np.float32)
         
         for i in range(0, len(indices), chunk_size):
             end = min(i + chunk_size, len(indices))
+            current_batch_size = end - i
             chunk_idx = indices[i:end]
-            # Create the windows for this chunk
-            chunk_windows = np.stack([data[idx : idx + self.window] for idx in chunk_idx])
+            
+            # Use manual copy to avoid creating many small list/slice objects
+            for j, idx in enumerate(chunk_idx):
+                chunk_buffer[j] = data[idx : idx + self.window]
+            
+            # Take view of the filled portion
+            current_chunk = chunk_buffer[:current_batch_size]
             
             if unnormalize:
-                # Unnormalize this chunk
-                d = chunk_windows.reshape(-1, self.var_num)
+                # In-place/efficient unnormalization
+                d = current_chunk.reshape(-1, self.var_num)
                 
                 # For multivariate (9 cols), only inverse-transform power
                 if self.var_num == 9:
@@ -197,9 +227,9 @@ class CustomDataset(Dataset):
                         d = unnormalize_to_zero_to_one(d)
                     d = self.scaler.inverse_transform(d)
                 
-                chunk_windows = d.reshape(-1, self.window, self.var_num)
+                current_chunk = d.reshape(-1, self.window, self.var_num)
             
-            fp[i:end] = chunk_windows.astype(np.float32)
+            fp[i:end] = current_chunk.astype(np.float32)
             
         # Flush and close
         del fp
