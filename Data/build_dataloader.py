@@ -11,8 +11,9 @@ def build_dataloader(config, args=None):
     dataloader = torch.utils.data.DataLoader(dataset,
                                              batch_size=batch_size,
                                              shuffle=jud,
-                                             num_workers=0,
+                                             num_workers=8,        # Optimized for your 24-core CPU
                                              pin_memory=True,
+                                             persistent_workers=True,
                                              sampler=None,
                                              drop_last=jud)
 

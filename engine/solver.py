@@ -97,7 +97,8 @@ class Trainer(object):
             while step < self.train_num_steps:
                 total_loss = 0.
                 for _ in range(self.gradient_accumulate_every):
-                    data = next(self.dl).to(device)
+                    # non_blocking=True works with pin_memory=True to speed up transfer
+                    data = next(self.dl).to(device, non_blocking=True)
                     # FP16 Forward Pass
                     with autocast():
                         loss = self.model(data)
