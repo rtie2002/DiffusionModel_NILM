@@ -105,7 +105,9 @@ class FourierLayer(nn.Module):
     def forward(self, x):
         """x: (b, t, d)"""
         b, t, d = x.shape
-        x_freq = torch.fft.rfft(x, dim=1)
+        # SPEED OPTIMIZATION: Use float32 for FFT calculation
+        # ComplexHalf is currently very slow on Windows/PyTorch
+        x_freq = torch.fft.rfft(x.float(), dim=1)
 
         if t % 2 == 0:
             x_freq = x_freq[:, self.low_freq:-1]
@@ -117,17 +119,17 @@ class FourierLayer(nn.Module):
         x_freq, index_tuple = self.topk_freq(x_freq)
         f = repeat(f, 'f -> b f d', b=x_freq.size(0), d=x_freq.size(2)).to(x_freq.device)
         f = rearrange(f[index_tuple], 'b f d -> b f () d').to(x_freq.device)
-        return self.extrapolate(x_freq, f, t)
+        return self.extrapolate(x_freq, f, t).to(x.dtype)
 
     def extrapolate(self, x_freq, f, t):
         x_freq = torch.cat([x_freq, x_freq.conj()], dim=1)
         f = torch.cat([f, -f], dim=1)
-        t = rearrange(torch.arange(t, dtype=torch.float),
+        t_seq = rearrange(torch.arange(t, dtype=torch.float),
                       't -> () () t ()').to(x_freq.device)
 
         amp = rearrange(x_freq.abs(), 'b f d -> b f () d')
         phase = rearrange(x_freq.angle(), 'b f d -> b f () d')
-        x_time = amp * torch.cos(2 * math.pi * f * t + phase)
+        x_time = amp * torch.cos(2 * math.pi * f * t_seq + phase)
         return reduce(x_time, 'b f t d -> b t d', 'sum')
 
     def topk_freq(self, x_freq):

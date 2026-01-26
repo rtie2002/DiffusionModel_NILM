@@ -100,7 +100,7 @@ class Trainer(object):
                     # non_blocking=True works with pin_memory=True to speed up transfer
                     data = next(self.dl).to(device, non_blocking=True)
                     # FP16 Forward Pass
-                    with autocast():
+                    with torch.amp.autocast('cuda'):
                         loss = self.model(data)
                         loss = loss / self.gradient_accumulate_every
                     # Scaled Backward Pass
@@ -196,11 +196,11 @@ class Trainer(object):
                 conditions = torch.FloatTensor(np.stack(conditions)).to(self.device)  # (batch, 512, 8)
                 
                 # Generate with conditions (FP16 for speed)
-                with torch.no_grad(), autocast():
+                with torch.no_grad(), torch.amp.autocast('cuda'):
                     sample = self.ema.ema_model.generate_with_conditions(conditions)
             else:
                 # Unconditional generation (FP16 for speed)
-                with torch.no_grad(), autocast():
+                with torch.no_grad(), torch.amp.autocast('cuda'):
                     sample = self.ema.ema_model.generate_mts(batch_size=windows_this_batch)
             
             samples = np.row_stack([samples, sample.detach().cpu().numpy()])
