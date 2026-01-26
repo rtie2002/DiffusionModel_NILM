@@ -192,6 +192,10 @@ class AdaLayerNorm(nn.Module):
         # Output 3 parameters per AdaLN: gamma (scale), beta (shift), and alpha (gate)
         self.linear = nn.Linear(n_embd, n_embd * 3)
         
+        # HOUSE DISTRIBUTION FIX: Learnable scale for time features
+        # This prevents the "afternoon" signal from being drowned by the diffusion timestep
+        self.label_scale = nn.Parameter(torch.ones(1, 1, n_embd) * 0.1)
+        
         # DiT-Style Zero Initialization
         # This makes the model initially behave as an identity function
         nn.init.zeros_(self.linear.weight)
@@ -204,10 +208,8 @@ class AdaLayerNorm(nn.Module):
         emb = self.emb(timestep).unsqueeze(1) # (B, 1, D)
         
         if label_emb is not None:
-            # POINTWISE GUIDANCE: 
-            # If label_emb is (B, L, D), it will provide a specific gamma/beta/alpha
-            # for every single point in the 512-length sequence.
-            emb = emb + label_emb # Broadcase (B, 1, D) + (B, L, D) -> (B, L, D)
+            # POINTWISE GUIDANCE with learnable emphasis:
+            emb = emb + label_emb * self.label_scale # Weighted sum to preserve temporal sensitivity
             
         # Generating modulation parameters for every step in the sequence
         emb = self.linear(self.silu(emb)) # (B, L, 3D)
