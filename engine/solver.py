@@ -49,6 +49,16 @@ class Trainer(object):
         # Mixed Precision Training (FP16) for ~2x speedup
         self.scaler = GradScaler()
 
+        # PyTorch 2.0+ Compilation for 20-40% speedup
+        # This fuses kernels and optimizes the graph specifically for RTX 4090
+        try:
+            if hasattr(torch, 'compile'):
+                print("  [Perf] Compiling model with torch.compile (this may take a few minutes for the first batch)...")
+                # Use 'inductor' backend as default, it's the strongest
+                self.model = torch.compile(self.model)
+        except Exception as e:
+            print(f"  [Perf] torch.compile failed (skipping): {e}")
+
         sc_cfg = config['solver']['scheduler']
         sc_cfg['params']['optimizer'] = self.opt
         self.sch = instantiate_from_config(sc_cfg)
