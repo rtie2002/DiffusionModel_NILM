@@ -135,14 +135,8 @@ class CustomDataset(Dataset):
                 
                 active_ids = np.array(active_ids)
                 if len(active_ids) > 0:
-                    # Decide boost factor
-                    current_boost = self.boost_factor
-                    if current_boost is None:
-                        if len(train_indices) > 200000:
-                            current_boost = 1
-                            print(f"  [Continuity Booster] Large dataset detected ({len(train_indices)} windows). Auto-setting boost factor to 1.")
-                        else:
-                            current_boost = 4
+                    # Default to 4 (previous behavior) unless manually overridden
+                    current_boost = self.boost_factor if self.boost_factor is not None else 4
                     
                     if current_boost > 1:
                         boosted_versions = [train_indices]
