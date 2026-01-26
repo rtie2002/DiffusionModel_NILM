@@ -15,6 +15,13 @@ from Utils.io_utils import instantiate_from_config, get_model_parameters_info
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '../'))
 
+# RTX 4090 Specific Optimizations
+# Use TF32 for matrix multiplications (3x+ speedup on Ampere/Ada GPUs)
+if torch.cuda.is_available():
+    torch.set_float32_matmul_precision('high')
+    # Automatically find the fastest kernels for your hardware
+    torch.backends.cudnn.benchmark = True
+
 def cycle(dl):
     while True:
         for data in dl:
