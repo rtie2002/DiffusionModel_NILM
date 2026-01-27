@@ -65,12 +65,14 @@ class TrendBlock(nn.Module):
         )
 
         lin_space = torch.arange(1, out_dim + 1, 1) / (out_dim + 1)
-        self.poly_space = torch.stack([lin_space ** float(p + 1) for p in range(trend_poly)], dim=0)
+        poly_space = torch.stack([lin_space ** float(p + 1) for p in range(trend_poly)], dim=0)
+        self.register_buffer('poly_space', poly_space)
 
     def forward(self, input):
         b, c, h = input.shape
         x = self.trend(input).transpose(1, 2)
-        trend_vals = torch.matmul(x.transpose(1, 2), self.poly_space.to(x.device))
+        # poly_space is already on device
+        trend_vals = torch.matmul(x.transpose(1, 2), self.poly_space)
         trend_vals = trend_vals.transpose(1, 2)
         return trend_vals
 
@@ -105,32 +107,37 @@ class FourierLayer(nn.Module):
     def forward(self, x):
         """x: (b, t, d)"""
         b, t, d = x.shape
-        # SPEED OPTIMIZATION: Use float32 for FFT calculation
-        # ComplexHalf is currently very slow on Windows/PyTorch
+        # Use float32 for faster FFT
         x_freq = torch.fft.rfft(x.float(), dim=1)
 
+        f_raw = torch.fft.rfftfreq(t, device=x.device)
         if t % 2 == 0:
             x_freq = x_freq[:, self.low_freq:-1]
-            f = torch.fft.rfftfreq(t)[self.low_freq:-1]
+            f = f_raw[self.low_freq:-1]
         else:
             x_freq = x_freq[:, self.low_freq:]
-            f = torch.fft.rfftfreq(t)[self.low_freq:]
+            f = f_raw[self.low_freq:]
 
         x_freq, index_tuple = self.topk_freq(x_freq)
-        f = repeat(f, 'f -> b f d', b=x_freq.size(0), d=x_freq.size(2)).to(x_freq.device)
-        f = rearrange(f[index_tuple], 'b f d -> b f () d').to(x_freq.device)
-        return self.extrapolate(x_freq, f, t).to(x.dtype)
+        
+        # Optimized index-based frequency extraction
+        f_exp = f.view(1, -1, 1).expand(b, -1, d)
+        f_top = f_exp[index_tuple].unsqueeze(2) # (b, f, 1, d)
+        
+        return self.extrapolate(x_freq, f_top, t).to(x.dtype)
 
     def extrapolate(self, x_freq, f, t):
-        x_freq = torch.cat([x_freq, x_freq.conj()], dim=1)
-        f = torch.cat([f, -f], dim=1)
-        t_seq = rearrange(torch.arange(t, dtype=torch.float),
-                      't -> () () t ()').to(x_freq.device)
+        # f: (b, f, 1, d)
+        # x_freq: (b, f, d)
+        
+        t_seq = torch.arange(t, dtype=torch.float, device=x_freq.device).view(1, 1, t, 1)
 
-        amp = rearrange(x_freq.abs(), 'b f d -> b f () d')
-        phase = rearrange(x_freq.angle(), 'b f d -> b f () d')
+        amp = x_freq.abs().unsqueeze(2)    # (b, f, 1, d)
+        phase = x_freq.angle().unsqueeze(2) # (b, f, 1, d)
+        
+        # Vectorized cosine sum
         x_time = amp * torch.cos(2 * math.pi * f * t_seq + phase)
-        return reduce(x_time, 'b f t d -> b t d', 'sum')
+        return x_time.sum(dim=1) # (b, t, d)
 
     def topk_freq(self, x_freq):
         length = x_freq.shape[1]
@@ -151,17 +158,21 @@ class SeasonBlock(nn.Module):
         super(SeasonBlock, self).__init__()
         season_poly = factor * min(32, int(out_dim // 2))
         self.season = nn.Conv1d(in_channels=in_dim, out_channels=season_poly, kernel_size=1, padding=0)
+        
         fourier_space = torch.arange(0, out_dim, 1) / out_dim
         p1, p2 = (season_poly // 2, season_poly // 2) if season_poly % 2 == 0 \
             else (season_poly // 2, season_poly // 2 + 1)
         s1 = torch.stack([torch.cos(2 * np.pi * p * fourier_space) for p in range(1, p1 + 1)], dim=0)
         s2 = torch.stack([torch.sin(2 * np.pi * p * fourier_space) for p in range(1, p2 + 1)], dim=0)
-        self.poly_space = torch.cat([s1, s2])
+        
+        # Register as buffer to keep it on GPU once and for all
+        self.register_buffer('poly_space', torch.cat([s1, s2]))
 
     def forward(self, input):
         b, c, h = input.shape
         x = self.season(input)
-        season_vals = torch.matmul(x.transpose(1, 2), self.poly_space.to(x.device))
+        # poly_space is already on same device as x
+        season_vals = torch.matmul(x.transpose(1, 2), self.poly_space)
         season_vals = season_vals.transpose(1, 2)
         return season_vals
 

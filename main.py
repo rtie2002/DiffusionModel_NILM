@@ -1,4 +1,10 @@
 import os
+import sys
+
+# SUPPRESS ALL TENSORFLOW WARNINGS BEFORE ANYTHING ELSE
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+
 import torch
 import argparse
 import numpy as np
