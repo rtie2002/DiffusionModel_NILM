@@ -357,33 +357,31 @@ class CustomDataset(Dataset):
         if app_col:
             power_data = df[app_col].values.astype(np.float32)
             
-            # ALL DATA IS ALREADY [0, 1] IN CSV (MinMax relative to real_max_power)
+            # UNIFIED PICKLABLE PIPELINE (Compatible with Windows Multi-processing)
+            # We restore the CSV [0, 1] data back to absolute Watts scale first.
+            # This allows the standard MinMaxScaler.transform() to work correctly in ONE pass.
             
-            # 1. SPECIAL CASE: Fridge Resolution Restoration
-            # If max_power (target) is different from real_max_power (original normalization),
-            # we need to adjust the signal contrast so visibility is restored.
-            if max_power is not None and real_max_power is not None and max_power != real_max_power:
-                gain = real_max_power / max_power
-                power_data = np.clip(power_data * gain, 0, 1.0)
-                print(f"[DATA] Appliance '{name}' signal resolution-gain applied: {gain:.2f}x")
-                actual_max_val = max_power
-            else:
-                # 2. STATUS QUO: Kettle, Dishwasher, etc.
-                # Use directly [0, 1] as is. No changes to your successful logic.
-                print(f"[DATA] Appliance '{name}' using verified MinMax logic from yesterday.")
-                actual_max_val = max_power if max_power else 1.0
+            # 1. Choose the restoration multiplier
+            # If it's the fridge, real_max (3323) != target_max (300).
+            # If it's dishwasher, both are likely ~3998.
+            target_max = max_power if max_power is not None else 1.0
+            original_divider = real_max_power if real_max_power is not None else target_max
 
-            # 3. PROTECTION AGAINST DOUBLE-NORMALIZATION
-            # We set data_max_ to 1.0 because power_data is ALREADY the final [0, 1] signal 
-            # we want the model to learn. This ensures self.__normalize() does nothing.
+            # 2. RESTORE TO WATTS (e.g. 0.03 * 3323 = 100W)
+            power_data = power_data * original_divider
+            
+            # 3. APPLY PHYSICS CAP (e.g. np.clip(..., 0, 300) for Fridge)
+            power_data = np.clip(power_data, 0, target_max)
+            
+            print(f"[DATA] '{name}' restored to {original_divider}W scale, then capped at {target_max}W.")
+
+            # 4. Create a Standard Scaler (No Lambdas, 100% Picklable)
+            # This scaler defines the mapping: 0W -> 0.0 and target_max -> 1.0
             scaler = MinMaxScaler()
             scaler.data_min_ = np.array([0.0])
-            scaler.data_max_ = np.array([actual_max_val]) # Use the physical max for un-normalization during eval
-            scaler.scale_ = np.array([1.0])               # Force identity transform (1.0 ratio)
+            scaler.data_max_ = np.array([target_max])
+            scaler.scale_ = np.array([1.0 / target_max])
             scaler.min_ = np.array([0.0])
-            
-            # Monkey-patch transform to be an identity function for [0, 1] data
-            scaler.transform = lambda x: x 
 
             if time_cols:
                 data = np.concatenate([power_data.reshape(-1, 1), df[time_cols].values], axis=1)
@@ -391,7 +389,7 @@ class CustomDataset(Dataset):
                 data = power_data.reshape(-1, 1)
         else:
             # Fallback
-            print(f"[Warning] No NILM config. Using data-driven defaults.")
+            print(f"[Warning] No NILM config found. Using standard data-fit.")
             data = df.values
             scaler = MinMaxScaler().fit(data)
         
