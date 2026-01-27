@@ -115,16 +115,13 @@ def main():
 
     model = instantiate_from_config(config['model']).to(device)
     
-    # --- 🚀 STABLE ACCELERATION: WSL2/RTX 4090 Optimized ---
-    if sys.platform != 'win32' and hasattr(torch, 'compile'):
-        try:
-            print("🚀 WSL2 Detected: Tuning Transformer kernels (Standard Mode)...")
-            # Default mode is the most compatible and avoids CUDA Graph stride errors
-            model = torch.compile(model)
-        except Exception as e:
-            print(f"⚠️ Compilation error, falling back to eager: {e}")
+    # --- 🚀 HIGH STABILITY MODE: RTX 4090 Native (Eager) ---
+    # Disabled torch.compile due to stride compatibility issues with complex Transformer layers.
+    # The 4090 will still run at peak speed via BF16 and Fused Optimizer in solver.py.
+    if sys.platform != 'win32':
+        print("🚀 WSL2 Detected: Running in Native High-Speed Mode (Eager).")
     else:
-        print("💡 Standard Mode: Maximum stability verified.")
+        print("💡 Windows Detected: Running in Standard Mode.")
     
     # ⚡ EFFICIENCY FIX: Only build the heavy training dataloader if we are actually training.
     # This prevents creating millions of sliding windows and applying booster/jitter for training 
