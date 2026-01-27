@@ -118,9 +118,9 @@ def main():
     # --- 🚀 STABLE ACCELERATION: WSL2/RTX 4090 Optimized ---
     if sys.platform != 'win32' and hasattr(torch, 'compile'):
         try:
-            print("🚀 WSL2 Detected: Activating RTX 4090 STABLE-ACCEL Mode...")
-            # 'reduce-overhead' is much more stable than max-autotune for complex models
-            model = torch.compile(model, mode='reduce-overhead')
+            print("🚀 WSL2 Detected: Tuning Transformer kernels (Standard Mode)...")
+            # Default mode is the most compatible and avoids CUDA Graph stride errors
+            model = torch.compile(model)
         except Exception as e:
             print(f"⚠️ Compilation error, falling back to eager: {e}")
     else:
