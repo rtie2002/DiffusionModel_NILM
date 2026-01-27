@@ -244,6 +244,7 @@ def main():
                 time_feats = samples[:, :, 1:9] # (N, L, 8) - Keep as is in [-1, 1]
                 
                 # 2. Unnormalize ONLY power to [0, 1] for inverse_transform
+                # This is the correct step for MinMaxScaler!
                 power_01 = unnormalize_to_zero_to_one(power)
                 
                 # Reshape for scaler
@@ -255,8 +256,8 @@ def main():
                 samples = np.concatenate([power_recovered, time_feats], axis=2)
             else:
                 # Univariate case
-                samples = unnormalize_to_zero_to_one(samples)
-                samples_flat = samples.reshape(-1, V)
+                samples_01 = unnormalize_to_zero_to_one(samples)
+                samples_flat = samples_01.reshape(-1, V)
                 samples_recovered = dataset.scaler.inverse_transform(samples_flat)
                 samples = samples_recovered.reshape(N, L, V)
 

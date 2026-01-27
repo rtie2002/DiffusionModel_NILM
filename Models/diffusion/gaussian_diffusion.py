@@ -22,7 +22,6 @@ def huber_loss_fn(input, target):
     return F.huber_loss(input, target,  delta=0.5)
 
 def cosine_beta_schedule(timesteps, s=0.008):
-
     steps = timesteps + 1
     x = torch.linspace(0, timesteps, steps, dtype=torch.float64)
     alphas_cumprod = torch.cos(((x / timesteps) + s) / (1 + s) * math.pi * 0.5) ** 2
@@ -169,10 +168,6 @@ class Diffusion(nn.Module):
         model_output = torch.cat([power_pred, conditions], dim=-1) # (B, L, 9)
         
         return model_output
-
-    def model_predictions(self, x, t, clip_x_start=False, padding_masks=None):
-        if padding_masks is None:
-            padding_masks = torch.ones(x.shape[0], self.seq_length, dtype=bool, device=x.device)
 
         maybe_clip = partial(torch.clamp, min=-1., max=1.) if clip_x_start else identity
         x_start = self.output(x, t, padding_masks)
@@ -344,6 +339,10 @@ class Diffusion(nn.Module):
             fourier_loss = self.loss_fn(torch.real(fft1), torch.real(fft2), reduction='none')\
                            + self.loss_fn(torch.imag(fft1), torch.imag(fft2), reduction='none')
             train_loss +=  self.ff_weight * fourier_loss
+            
+        # 🚀 SMOOTHNESS BOOST: Total Variation Regularization
+        # This explicitly fights the "pulse" issue by smoothing transitions
+        train_loss += 0.1 * tv_loss(model_out_power)
         
         train_loss = reduce(train_loss, 'b ... -> b (...)', 'mean')
         train_loss = train_loss * extract(self.loss_weight, t, train_loss.shape)
