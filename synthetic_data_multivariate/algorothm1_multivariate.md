@@ -10,10 +10,7 @@ This ensures the synthetic data used for downstream tasks follows the same filte
 
 ## 1. Dishwasher
 ```bash
-python synthetic_data_multivariate/algorithm1_v2_multivariate.py \
-  --appliance_name dishwasher \
-  --input_file "synthetic_data_multivariate/zscore_converted/ddpm_fake_dishwasher_multivariate_zscore.csv" \
-  --output_dir "Data/datasets/synthetic_processed"
+python synthetic_data_multivariate/algorithm1_v2_multivariate.py --appliance_name dishwasher --input_file "synthetic_data_multivariate/zscore_converted/ddpm_fake_dishwasher_multivariate_zscore.csv" --output_dir "Data/datasets/synthetic_processed"
 ```
 
 ## 2. Fridge
@@ -37,6 +34,10 @@ python synthetic_data_multivariate/algorithm1_v2_multivariate.py --appliance_nam
 ```
 ```bash
 python synthetic_data_multivariate/algorithm1_v2_multivariate.py --appliance_name washingmachine --input_file "synthetic_data_multivariate/zscore_converted/washingmachine_training_.csv" --output_dir "Data/datasets/synthetic_processed"
+```
+
+```bash
+python synthetic_data_multivariate/algorithm1_v2_multivariate.py --appliance_name dishwasher --input_file "Data\dishwasher_training_.csv" --output_dir "Data/datasets/synthetic_processed"
 ```
 ---
 

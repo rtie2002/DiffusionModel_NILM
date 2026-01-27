@@ -321,6 +321,26 @@ class CustomDataset(Dataset):
         Supports both single-column and multi-column formats.
         Automatically identifies appliance power column and time features (sin/cos).
         """
+        # 0. Load Preprocess Config to get "Source of Truth" for thresholds
+        curr_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(curr_dir))
+        PREPROCESS_CONFIG_PATH = os.path.join(project_root, 'Config', 'preprocess', 'preprocess_multivariate.yaml')
+        
+        max_power = None
+        real_max_power = None
+        
+        if os.path.exists(PREPROCESS_CONFIG_PATH):
+            try:
+                with open(PREPROCESS_CONFIG_PATH, 'r') as f:
+                    conf = yaml.safe_load(f)
+                    app_key = name.lower().replace(' ', '')
+                    if app_key in conf.get('appliances', {}):
+                        max_power = conf['appliances'][app_key].get('max_power')
+                        real_max_power = conf['appliances'][app_key].get('real_max_power')
+                        print(f"  [Auto-Config] Loaded '{app_key}': max_power={max_power}W, real_max_power={real_max_power}W")
+            except Exception as e:
+                print(f"  [Warning] Failed to parse preprocess config: {e}")
+
         df = pd.read_csv(filepath, header=0)
         
         # 1. Try to find the appliance column
@@ -330,23 +350,53 @@ class CustomDataset(Dataset):
                 app_col = col
                 break
         
-        # 2. Find time columns (look for _sin or _cos)
+        # 2. Find time columns
         time_cols = [col for col in df.columns if '_sin' in col or '_cos' in col]
         
-        if app_col and time_cols:
-            print(f"[OK] Found target column '{app_col}' and {len(time_cols)} time features.")
-            data = df[[app_col] + time_cols].values
+        if app_col:
+            power_data = df[app_col].values.astype(np.float32)
             
-            # CRITICAL FIX: Only fit scaler on power column (column 0)
-            # Time features are already sin/cos in [-1,1], don't scale them!
+            # DETERMINING DYNAMIC SCALING (User's Proportional Scaling Solution)
+            # CASE A: Data is raw Watts (> 1.5 threshold to be safe)
+            if power_data.max() > 1.5:
+                scaling_max = max_power if max_power else power_data.max()
+                power_data = np.clip(power_data, 0, scaling_max)
+                power_data = power_data / scaling_max
+                print(f"[DIRECT CLIP] Normalizing raw Watts: 0-{scaling_max}W -> [0, 1.0]")
+            
+            # CASE B: Data is pre-normalized (from Algorithm 1)
+            else:
+                # Ensure we have the necessary values from config for re-scaling
+                if max_power is not None and real_max_power is not None and real_max_power > 0:
+                    # Logic: normalized_val = actual / real_max_power
+                    # We want to clip at 'max_power' 
+                    norm_threshold = max_power / real_max_power
+                    
+                    # 1. Clip in normalized space
+                    power_data = np.clip(power_data, 0, norm_threshold)
+                    
+                    # 2. Re-scale so that max_power becomes 1.0
+                    factor = 1.0 / norm_threshold if norm_threshold > 0 else 1.0
+                    power_data = power_data * factor
+                    
+                    print(f"[DIRECT CLIP] Proportional Re-scaling: threshold={norm_threshold:.4f}, factor={factor:.2f}x")
+                    scaling_max = max_power
+                else:
+                    # Safety fallback: preserve whatever is in the CSV
+                    scaling_max = 1.0
+                    print(f"[DIRECT CLIP] Fallback: Preserving existing data range (Max={power_data.max():.2f})")
+
+            # Create a mock scaler for backward compatibility (inverse_transform)
             scaler = MinMaxScaler()
-            scaler = scaler.fit(data[:, 0:1])  # Fit only on power column
-            print(f"  [Scaler] Fitted on power column only (range: {scaler.data_min_[0]:.2f} to {scaler.data_max_[0]:.2f}W)")
-        elif app_col:
-            print(f"[OK] Found target column '{app_col}', no time features found.")
-            data = df[[app_col]].values
-            scaler = MinMaxScaler()
-            scaler = scaler.fit(data)
+            scaler.data_min_ = np.array([0.0])
+            scaler.data_max_ = np.array([scaling_max])
+            scaler.scale_ = np.array([1.0 / scaling_max])
+            scaler.min_ = np.array([0.0])
+
+            if time_cols:
+                data = np.concatenate([power_data.reshape(-1, 1), df[time_cols].values], axis=1)
+            else:
+                data = power_data.reshape(-1, 1)
         else:
             # Fallback to standard behavior if column identification fails
             print(f"[Warning] Could not identify column '{name}', using all {len(df.columns)} columns.")

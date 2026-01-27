@@ -69,7 +69,7 @@ appliances:
   fridge:
     mean: 200
     std: 400
-    max_power: 350
+    max_power: 300              # MATCHED with clip to prevent NaN/Overflow
     on_power_threshold: 50
     real_max_power: 3323
     max_power_clip: 300       # Clipped max for filtering, as per original config
