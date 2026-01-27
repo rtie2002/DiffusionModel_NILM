@@ -9,7 +9,6 @@ from torch.utils.data import Dataset
 from Models.diffusion.model_utils import normalize_to_neg_one_to_one, unnormalize_to_zero_to_one
 from numpy.lib.format import open_memmap
 from Utils.masking_utils import noise_mask
-import yaml
 
 
 class LazyWindows:
@@ -321,29 +320,7 @@ class CustomDataset(Dataset):
         """Reads a single .csv
         Supports both single-column and multi-column formats.
         Automatically identifies appliance power column and time features (sin/cos).
-        
-        ENHANCED PROTECTION: 
-        Automatically loads max_power from preprocess_multivariate.yaml 
-        to enforce clipping and normalization.
         """
-        # 0. Load Preprocess Config to get "Source of Truth" for thresholds
-        curr_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.dirname(os.path.dirname(curr_dir))
-        PREPROCESS_CONFIG_PATH = os.path.join(project_root, 'Config', 'preprocess', 'preprocess_multivariate.yaml')
-        
-        max_power_from_config = None
-        if os.path.exists(PREPROCESS_CONFIG_PATH):
-            try:
-                with open(PREPROCESS_CONFIG_PATH, 'r') as f:
-                    conf = yaml.safe_load(f)
-                    app_key = name.lower().replace(' ', '')
-                    if app_key in conf.get('appliances', {}):
-                        # Use max_power as the primary normalization/clip target
-                        max_power_from_config = conf['appliances'][app_key].get('max_power')
-                        print(f"  [Auto-Config] Loaded '{app_key}' max_power: {max_power_from_config}W from preprocess config")
-            except Exception as e:
-                print(f"  [Warning] Failed to parse preprocess config for auto-scaling: {e}")
-
         df = pd.read_csv(filepath, header=0)
         
         # 1. Try to find the appliance column
@@ -358,55 +335,18 @@ class CustomDataset(Dataset):
         
         if app_col and time_cols:
             print(f"[OK] Found target column '{app_col}' and {len(time_cols)} time features.")
+            data = df[[app_col] + time_cols].values
             
-            # DIRECT PROTECTION (As per user request): 
-            # Use max_power from config for in-place clipping and scaling
-            power_data = df[app_col].values.astype(np.float32)
-            
-            # Use found config max, or fallback to data-driven max
-            scaling_max = max_power_from_config if max_power_from_config is not None else power_data.max()
-            
-            # STEP 1: CLIP - Force input to be within 0 and scaling_max
-            power_data = np.clip(power_data, 0, scaling_max)
-            
-            # STEP 2: NORMALIZE - Force output to be within [0, 1]
-            power_data = power_data / scaling_max
-            
-            if max_power_from_config:
-                print(f"[DIRECT CLIP] Synchronized scaling using Config: 0-{scaling_max}W -> [0, 1.0]")
-            else:
-                print(f"[DATA CLIP] Falling back to dynamic scaling (No config found): 0-{scaling_max:.2f}W -> [0, 1.0]")
-
-            # Create a mock scaler that effectively performs 0-1 normalization based on scaling_max
+            # CRITICAL FIX: Only fit scaler on power column (column 0)
+            # Time features are already sin/cos in [-1,1], don't scale them!
             scaler = MinMaxScaler()
-            scaler.data_min_ = np.array([0.0])
-            scaler.data_max_ = np.array([scaling_max])
-            scaler.scale_ = np.array([1.0 / scaling_max])
-            scaler.min_ = np.array([0.0])
-
-            # Combine scaled power with time features
-            data = np.concatenate([power_data.reshape(-1, 1), df[time_cols].values], axis=1)
-            
+            scaler = scaler.fit(data[:, 0:1])  # Fit only on power column
+            print(f"  [Scaler] Fitted on power column only (range: {scaler.data_min_[0]:.2f} to {scaler.data_max_[0]:.2f}W)")
         elif app_col:
             print(f"[OK] Found target column '{app_col}', no time features found.")
-            
-            power_data = df[app_col].values.astype(np.float32)
-            scaling_max = max_power_from_config if max_power_from_config is not None else power_data.max()
-            power_data = np.clip(power_data, 0, scaling_max)
-            power_data = power_data / scaling_max
-
-            if max_power_from_config:
-                print(f"[DIRECT CLIP] Synchronized scaling using Config: 0-{scaling_max}W -> [0, 1.0]")
-            else:
-                print(f"[DATA CLIP] Falling back to dynamic scaling (No config found): 0-{scaling_max:.2f}W -> [0, 1.0]")
-
+            data = df[[app_col]].values
             scaler = MinMaxScaler()
-            scaler.data_min_ = np.array([0.0])
-            scaler.data_max_ = np.array([scaling_max])
-            scaler.scale_ = np.array([1.0 / scaling_max])
-            scaler.min_ = np.array([0.0])
-            
-            data = power_data.reshape(-1, 1)
+            scaler = scaler.fit(data)
         else:
             # Fallback to standard behavior if column identification fails
             print(f"[Warning] Could not identify column '{name}', using all {len(df.columns)} columns.")
