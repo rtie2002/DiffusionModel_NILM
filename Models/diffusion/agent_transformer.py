@@ -35,17 +35,17 @@ class AgentAttention(nn.Module):
         v_agents = self.v_linear(v)
 
         # Agent Aggregation #Rightside
-        scores1 = torch.matmul(q_agents, k_agents.transpose(-2, -1).contiguous()) / math.sqrt(hs)
-        scores1 = F.softmax(scores1, dim=-1).contiguous()
-        context1 = torch.matmul(scores1, v_agents).contiguous()
+        scores1 = torch.matmul(q_agents, k_agents.transpose(-2, -1)) / math.sqrt(hs)
+        scores1 = F.softmax(scores1, dim=-1)
+        context1 = torch.matmul(scores1, v_agents)
 
         # Agent Broadcast #leftside
-        scores2 = torch.matmul(q.contiguous(), context1.transpose(-2, -1).contiguous()) / math.sqrt(hs)
-        scores2 = F.softmax(scores2, dim=-1).contiguous()
-        context2 = torch.matmul(scores2, context1).contiguous()
+        scores2 = torch.matmul(q, context1.transpose(-2, -1)) / math.sqrt(hs)
+        scores2 = F.softmax(scores2, dim=-1)
+        context2 = torch.matmul(scores2, context1)
 
         context2 = context2.transpose(1, 2).contiguous().view(B, N, nh * hs)
-        output = self.dropout(self.out(context2)).contiguous()
+        output = self.dropout(self.out(context2))
         return output, scores2
 
 
@@ -309,10 +309,10 @@ class Encoder(nn.Module):
         ) for _ in range(n_layer)])
 
     def forward(self, input, t, padding_masks=None, label_emb=None):
-        x = input.contiguous()
+        x = input
         for block_idx in range(len(self.blocks)):
             x, _ = self.blocks[block_idx](x, t, mask=padding_masks, label_emb=label_emb)
-        return x.contiguous()
+        return x
 
 
 class DecoderBlock(nn.Module):

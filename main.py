@@ -123,17 +123,12 @@ def main():
         torch.backends.cudnn.benchmark = True
         torch.set_float32_matmul_precision('high') # Uses TensorCores for speed
         
-        # 2. Compile TRANSFORMER CORE ONLY (Inductor)
-        # We compile the internal Transformer engine because that's where the heavy math is.
-        # Compiling the parent 'Diffusion' class often causes stride issues with schedules/indexing.
+        # 2. Compile Model (Triton)
+        # Structural fixes in agent_transformer.py (vectorization + contiguous) 
+        # should now prevent previous AssertionErrors.
         try:
-            print("  -> Compiling Transformer core with Triton (Inductor)...")
-            # The model is an instance of 'Diffusion', we want to compile its 'model' attribute (the Transformer)
-            if hasattr(model, 'model'):
-                model.model = torch.compile(model.model)
-            else:
-                model = torch.compile(model)
-            print("  ✓ Triton Core Compilation Ready.")
+            print("  -> Compiling training model with Triton (Inductor)...")
+            model = torch.compile(model)
         except Exception as e:
             print(f"  ⚠ Compile failed (Falling back to Eager): {e}")
 
@@ -148,12 +143,11 @@ def main():
     
     trainer = Trainer(config=config, args=args, model=model, dataloader=dataloader_info, logger=logger)
 
-    # 3. Also compile the EMA Transformer core if on Linux
+    # 3. Also compile the EMA model if on Linux (used for Sampling)
     if sys.platform != 'win32':
         try:
-            if hasattr(trainer.ema.ema_model, 'model'):
-                print("  -> Compiling sampling core (EMA) with Triton...")
-                trainer.ema.ema_model.model = torch.compile(trainer.ema.ema_model.model)
+            print("  -> Compiling sampling model (EMA) with Triton...")
+            trainer.ema.ema_model = torch.compile(trainer.ema.ema_model)
         except Exception as e:
             print(f"  ⚠ EMA Compile failed: {e}")
 
