@@ -208,8 +208,8 @@ def main():
                 print(f"Generating default number of samples: {num_samples}")
 
         
-        # Call trainer.sample with updated arguments (size_every=800 for 4090 speed boost)
-        samples = trainer.sample(num=num_samples, size_every=800, shape=[dataset.window, dataset.var_num], 
+        # Call trainer.sample with updated arguments (size_every=1600 for 4090 ULTIMATE speed)
+        samples = trainer.sample(num=num_samples, size_every=1600, shape=[dataset.window, dataset.var_num], 
                                 dataset=dataset, ordered=ordered, stride=stride)
         
         if dataset.auto_norm:
