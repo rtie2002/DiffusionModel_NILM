@@ -53,9 +53,17 @@ class Diffusion(nn.Module):
             padding_size=None,
             use_ff=True,
             reg_weight=None,
+            # CBDM Parameters
+            tau=0.1,      # Regularization weight
+            gamma=0.25,   # Commitment weight
+            on_threshold=15.0, # Power threshold to define "ON" state (Appliance specific)
             **kwargs
     ):
         super(Diffusion, self).__init__()
+        
+        self.tau = tau
+        self.gamma = gamma
+        self.on_threshold = on_threshold
 
         self.eta, self.use_ff = eta, use_ff
         self.seq_length = seq_length
@@ -347,7 +355,58 @@ class Diffusion(nn.Module):
         
         train_loss = reduce(train_loss, 'b ... -> b (...)', 'mean')
         train_loss = train_loss * extract(self.loss_weight, t, train_loss.shape)
-        return train_loss.mean()
+        
+        main_loss = train_loss.mean()
+
+        # 🚀 CBDM: CLASS-BALANCING REGULARIZATION
+        # 1. Identify "ON" and "OFF" samples in the current batch
+        # x_power range is roughly [0, 1] after normalization in CustomDataset, 
+        # but the threshold in config is in Watts. 
+        # For simplicity, we assume x_power is already standardized/normalized.
+        # We classify based on mean power in the window.
+        is_on = (x_power.mean(dim=(1, 2)) > self.on_threshold) 
+        on_idx = torch.where(is_on)[0]
+        off_idx = torch.where(~is_on)[0]
+
+        cbdm_loss = torch.tensor(0.0, device=x_start.device)
+        
+        # We only apply CBDM if we have a mix of states in the batch
+        if len(on_idx) > 0 and len(off_idx) > 0 and self.tau > 0:
+            # 🚀 OPTIMIZED: Vectorized Balanced Sampling
+            B = x_start.shape[0]
+            # 50% chance to pick an ON condition, 50% chance to pick an OFF condition
+            use_on = torch.rand(B, device=x_start.device) > 0.5
+            
+            # Select random indices from each set for the entire batch
+            rand_on = on_idx[torch.randint(0, len(on_idx), (B,), device=x_start.device)]
+            rand_off = off_idx[torch.randint(0, len(off_idx), (B,), device=x_start.device)]
+            
+            # Combine based on the 50/50 roll
+            target_indices = torch.where(use_on, rand_on, rand_off)
+            
+            # 3. Get the balanced conditions (y_prime)
+            x_condition_prime = x_condition[target_indices]
+            x_prime = torch.cat([x_power_noisy, x_condition_prime], dim=-1)
+            
+            # 4. Forward pass with balanced conditions
+            model_out_prime = self.output(x_prime, t, padding_masks)
+            model_out_prime_power = model_out_prime[:, :, :self.feature_size]
+
+            # 5. Compute Lr and Lrc (Algorithm 1, lines 8 & 10)
+            # Lr = t * tau * ||eps(y) - sg(eps(y_prime))||^2
+            # Lrc = t * tau * ||sg(eps(y)) - eps(y_prime))||^2
+            # Note: At time step t, epsilon prediction vs target prediction are related.
+            # We apply it to the model outputs (x_start predictions) as per Proposition 2.
+            
+            # Weight regularization by time step t (normalized)
+            t_weight = (t.float() / self.num_timesteps).view(-1, 1, 1)
+            
+            lr = t_weight * self.tau * (model_out_power - model_out_prime_power.detach())**2
+            lrc = t_weight * self.tau * self.gamma * (model_out_power.detach() - model_out_prime_power)**2
+            
+            cbdm_loss = (lr + lrc).mean()
+
+        return main_loss + cbdm_loss
 
     def forward(self, x, condition=None, **kwargs):
         # x can be either:

@@ -15,8 +15,11 @@ model:
     mlp_hidden_times: 4
     attn_pd: 0.0
     resid_pd: 0.0
-    kernel_size: 1
     padding_size: 0
+    # 🚀 CBDM: CLASS-BALANCING BOOST
+    tau: 0.1           # Regularization strength for tail-classes (ON periods)
+    gamma: 0.25        # Commitment weight
+    on_threshold: 0.05 # 15W threshold normalized to 300W scale
 
 solver:
   base_lr: 1.0e-4      # Increased to match larger dataset and scheduler
