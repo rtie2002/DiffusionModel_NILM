@@ -115,15 +115,14 @@ def main():
 
     model = instantiate_from_config(config['model']).to(device)
     
-    # --- 🚀 ULTIMATE PERFORMANCE: WSL2/RTX 4090 Max-Autotune ---
+    # --- 🚀 STABLE ACCELERATION: WSL2/RTX 4090 Optimized ---
     if sys.platform != 'win32' and hasattr(torch, 'compile'):
         try:
-            print("🔥 WSL2 Detected: Activating RTX 4090 MAX-AUTOTUNE Mode...")
-            # 'max-autotune' is the fastest but slowest to compile. Perfect for 6h+ runs.
-            model = torch.compile(model, mode='max-autotune', fullgraph=True)
+            print("🚀 WSL2 Detected: Activating RTX 4090 STABLE-ACCEL Mode...")
+            # 'reduce-overhead' is much more stable than max-autotune for complex models
+            model = torch.compile(model, mode='reduce-overhead')
         except Exception as e:
-            print(f"⚠️ Heavy compilation failed, falling back: {e}")
-            model = torch.compile(model) # Fallback to standard
+            print(f"⚠️ Compilation error, falling back to eager: {e}")
     else:
         print("💡 Standard Mode: Maximum stability verified.")
     
