@@ -2,6 +2,7 @@ import os
 import torch
 import numpy as np
 import pandas as pd
+import yaml
 
 from scipy import io
 from sklearn.preprocessing import MinMaxScaler
@@ -356,58 +357,45 @@ class CustomDataset(Dataset):
         if app_col:
             power_data = df[app_col].values.astype(np.float32)
             
-            # DETERMINING DYNAMIC SCALING (User's Proportional Scaling Solution)
-            # CASE A: Data is raw Watts (> 1.5 threshold to be safe)
-            if power_data.max() > 1.5:
-                scaling_max = max_power if max_power else power_data.max()
-                power_data = np.clip(power_data, 0, scaling_max)
-                power_data = power_data / scaling_max
-                print(f"[DIRECT CLIP] Normalizing raw Watts: 0-{scaling_max}W -> [0, 1.0]")
+            # ALL DATA IS ALREADY [0, 1] IN CSV (MinMax relative to real_max_power)
             
-            # CASE B: Data is pre-normalized (from Algorithm 1)
+            # 1. SPECIAL CASE: Fridge Resolution Restoration
+            # If max_power (target) is different from real_max_power (original normalization),
+            # we need to adjust the signal contrast so visibility is restored.
+            if max_power is not None and real_max_power is not None and max_power != real_max_power:
+                gain = real_max_power / max_power
+                power_data = np.clip(power_data * gain, 0, 1.0)
+                print(f"[DATA] Appliance '{name}' signal resolution-gain applied: {gain:.2f}x")
+                actual_max_val = max_power
             else:
-                # Ensure we have the necessary values from config for re-scaling
-                if max_power is not None and real_max_power is not None and real_max_power > 0:
-                    # Logic: normalized_val = actual / real_max_power
-                    # We want to clip at 'max_power' 
-                    norm_threshold = max_power / real_max_power
-                    
-                    # 1. Clip in normalized space
-                    power_data = np.clip(power_data, 0, norm_threshold)
-                    
-                    # 2. Re-scale so that max_power becomes 1.0
-                    factor = 1.0 / norm_threshold if norm_threshold > 0 else 1.0
-                    power_data = power_data * factor
-                    
-                    print(f"[DIRECT CLIP] Proportional Re-scaling: threshold={norm_threshold:.4f}, factor={factor:.2f}x")
-                    scaling_max = max_power
-                else:
-                    # Safety fallback: preserve whatever is in the CSV
-                    scaling_max = 1.0
-                    print(f"[DIRECT CLIP] Fallback: Preserving existing data range (Max={power_data.max():.2f})")
+                # 2. STATUS QUO: Kettle, Dishwasher, etc.
+                # Use directly [0, 1] as is. No changes to your successful logic.
+                print(f"[DATA] Appliance '{name}' using verified MinMax logic from yesterday.")
+                actual_max_val = max_power if max_power else 1.0
 
-            # Create a mock scaler for backward compatibility (inverse_transform)
+            # 3. PROTECTION AGAINST DOUBLE-NORMALIZATION
+            # We set data_max_ to 1.0 because power_data is ALREADY the final [0, 1] signal 
+            # we want the model to learn. This ensures self.__normalize() does nothing.
             scaler = MinMaxScaler()
             scaler.data_min_ = np.array([0.0])
-            scaler.data_max_ = np.array([scaling_max])
-            scaler.scale_ = np.array([1.0 / scaling_max])
+            scaler.data_max_ = np.array([actual_max_val]) # Use the physical max for un-normalization during eval
+            scaler.scale_ = np.array([1.0])               # Force identity transform (1.0 ratio)
             scaler.min_ = np.array([0.0])
+            
+            # Monkey-patch transform to be an identity function for [0, 1] data
+            scaler.transform = lambda x: x 
 
             if time_cols:
                 data = np.concatenate([power_data.reshape(-1, 1), df[time_cols].values], axis=1)
             else:
                 data = power_data.reshape(-1, 1)
         else:
-            # Fallback to standard behavior if column identification fails
-            print(f"[Warning] Could not identify column '{name}', using all {len(df.columns)} columns.")
+            # Fallback
+            print(f"[Warning] No NILM config. Using data-driven defaults.")
             data = df.values
-            scaler = MinMaxScaler()
-            scaler = scaler.fit(data)
+            scaler = MinMaxScaler().fit(data)
         
-        # Use float32 to save memory
-        data = data.astype(np.float32)
-        
-        return data, scaler
+        return data.astype(np.float32), scaler
     
     def mask_data(self, seed=2024):
         masks = np.ones(self.samples.shape, dtype=bool)

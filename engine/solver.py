@@ -144,9 +144,14 @@ class Trainer(object):
             self.logger.log_info('Training done, time: {:.2f}'.format(time.time() - tic))
 
     def sample(self, num, size_every, shape=None, dataset=None, ordered=True, stride=1):
+        # HARDWARE ACCELERATION FOR RTX 4090
+        import torch
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        
         if self.logger is not None:
             tic = time.time()
-            self.logger.log_info('Begin to sample...')
+            self.logger.log_info('Begin to sample with Hardware Acceleration (TF32 + FP16)...')
         samples = np.empty([0, shape[0], shape[1]])
         num_cycle = int(num // size_every) + (1 if num % size_every != 0 else 0)
         
@@ -195,16 +200,18 @@ class Trainer(object):
                 
                 conditions = torch.FloatTensor(np.stack(conditions)).to(self.device)  # (batch, 512, 8)
                 
-                # Generate with conditions (FP16 for speed)
+                # Generate with conditions (FP16/TF32 for 4090 peak speed)
                 with torch.no_grad(), torch.amp.autocast('cuda'):
                     sample = self.ema.ema_model.generate_with_conditions(conditions)
             else:
-                # Unconditional generation (FP16 for speed)
+                # Unconditional generation (FP16/TF32 for 4090 peak speed)
                 with torch.no_grad(), torch.amp.autocast('cuda'):
                     sample = self.ema.ema_model.generate_mts(batch_size=windows_this_batch)
             
             samples = np.row_stack([samples, sample.detach().cpu().numpy()])
-            torch.cuda.empty_cache()
+            # Only empty cache if batch is huge to avoid fragmentation lag
+            if size_every > 256:
+                torch.cuda.empty_cache()
             
         print(f"\n{'='*70}")
         print(f"✓ All {num} windows generated successfully!")
