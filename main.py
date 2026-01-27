@@ -131,13 +131,14 @@ def main():
             # 4090 Optimization: Tune for large L2 cache
             inductor_config.coordinate_descent_tuning = True
             
-            print("  -> Compiling Transformer core with Safe-Triton...")
+            print("  -> Compiling Transformer core with Safe-Triton (Reduce-Overhead)...")
             # Compile only the heavy Transformer core to avoid diffusion-schedule issues
             if hasattr(model, 'model'):
-                model.model = torch.compile(model.model, mode='default')
+                # 'reduce-overhead' uses CUDA Graphs to eliminate CPU overhead (Best for 4090)
+                model.model = torch.compile(model.model, mode='reduce-overhead')
                 print("  ✓ Safe-Triton Core Compilation Ready.")
             else:
-                model = torch.compile(model, mode='default')
+                model = torch.compile(model, mode='reduce-overhead')
         except Exception as e:
             print(f"  ⚠ Safe-Triton failed (Falling back to Eager): {e}")
 
