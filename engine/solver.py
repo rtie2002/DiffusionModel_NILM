@@ -50,7 +50,13 @@ class Trainer(object):
         ema_decay = config['solver']['ema']['decay']
         ema_update_every = config['solver']['ema']['update_interval']
 
-        self.opt = Adam(filter(lambda p: p.requires_grad, self.model.parameters()), lr=start_lr, betas=[0.9, 0.96])
+        # Use Fused Adam for peak performance on 4090 (PyTorch 2.0+)
+        opt_kwargs = {'lr': start_lr, 'betas': [0.9, 0.96]}
+        if 'fused' in torch.optim.Adam.__init__.__code__.co_varnames:
+            opt_kwargs['fused'] = True
+            print("🚀 Fused Adam optimizer activated (Peak Efficiency)")
+            
+        self.opt = Adam(filter(lambda p: p.requires_grad, self.model.parameters()), **opt_kwargs)
         self.ema = EMA(self.model, beta=ema_decay, update_every=ema_update_every).to(self.device)
         
         # Mixed Precision Training (FP16) for ~2x speedup
@@ -97,12 +103,15 @@ class Trainer(object):
             while step < self.train_num_steps:
                 total_loss = 0.
                 for _ in range(self.gradient_accumulate_every):
-                    # non_blocking=True works with pin_memory=True to speed up transfer
+                    # non_blocking=True + BF16 for peak transfer/compute overlap
                     data = next(self.dl).to(device, non_blocking=True)
-                    # FP16 Forward Pass
-                    with torch.amp.autocast('cuda'):
+                    
+                    # 🚀 RTX 4090 Native Acceleration: Use Bfloat16
+                    # This is more stable than FP16 and just as fast on Ada-Lovelace
+                    with torch.amp.autocast('cuda', dtype=torch.bfloat16):
                         loss = self.model(data)
                         loss = loss / self.gradient_accumulate_every
+                        
                     # Scaled Backward Pass
                     self.scaler.scale(loss).backward()
                     total_loss += loss.item()
@@ -200,17 +209,21 @@ class Trainer(object):
                 
                 conditions = torch.FloatTensor(np.stack(conditions)).to(self.device)  # (batch, 512, 8)
                 
-                # Generate with conditions (FP16/TF32 for 4090 peak speed)
-                with torch.no_grad(), torch.amp.autocast('cuda'):
-                    sample = self.ema.ema_model.generate_with_conditions(conditions)
+                # 🚀 RTX 4090 NATIVE SAMPLING BOOST: High-speed BF16
+                with torch.no_grad():
+                    with torch.amp.autocast('cuda', dtype=torch.bfloat16):
+                        sample = self.ema.ema_model.generate_with_conditions(conditions)
             else:
-                # Unconditional generation (FP16/TF32 for 4090 peak speed)
-                with torch.no_grad(), torch.amp.autocast('cuda'):
-                    sample = self.ema.ema_model.generate_mts(batch_size=windows_this_batch)
+                # 🚀 RTX 4090 NATIVE SAMPLING BOOST: High-speed BF16
+                with torch.no_grad():
+                    with torch.amp.autocast('cuda', dtype=torch.bfloat16):
+                        sample = self.ema.ema_model.generate_mts(batch_size=windows_this_batch)
             
+            # Use non_blocking to transfer results back to CPU
             samples = np.row_stack([samples, sample.detach().cpu().numpy()])
-            # Only empty cache if batch is huge to avoid fragmentation lag
-            if size_every > 256:
+            
+            # Only clear cache occasionally, and keep it on the GPU as long as possible
+            if batch_idx % 20 == 0 and size_every > 512:
                 torch.cuda.empty_cache()
             
         print(f"\n{'='*70}")

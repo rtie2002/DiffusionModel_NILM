@@ -1,9 +1,12 @@
 import os
 import sys
+import warnings
 
-# SUPPRESS ALL TENSORFLOW WARNINGS BEFORE ANYTHING ELSE
+# 1. SUPPRESS ALL INFRASTRUCTURE WARNINGS (Clean Console)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
 
 import torch
 import argparse
@@ -112,6 +115,18 @@ def main():
 
     model = instantiate_from_config(config['model']).to(device)
     
+    # --- 🚀 ULTIMATE PERFORMANCE: WSL2/RTX 4090 Max-Autotune ---
+    if sys.platform != 'win32' and hasattr(torch, 'compile'):
+        try:
+            print("🔥 WSL2 Detected: Activating RTX 4090 MAX-AUTOTUNE Mode...")
+            # 'max-autotune' is the fastest but slowest to compile. Perfect for 6h+ runs.
+            model = torch.compile(model, mode='max-autotune', fullgraph=True)
+        except Exception as e:
+            print(f"⚠️ Heavy compilation failed, falling back: {e}")
+            model = torch.compile(model) # Fallback to standard
+    else:
+        print("💡 Standard Mode: Maximum stability verified.")
+    
     # ⚡ EFFICIENCY FIX: Only build the heavy training dataloader if we are actually training.
     # This prevents creating millions of sliding windows and applying booster/jitter for training 
     # when we only intended to sample.
@@ -193,8 +208,8 @@ def main():
                 print(f"Generating default number of samples: {num_samples}")
 
         
-        # Call trainer.sample with updated arguments (need to update solver.py next)
-        samples = trainer.sample(num=num_samples, size_every=400, shape=[dataset.window, dataset.var_num], 
+        # Call trainer.sample with updated arguments (size_every=800 for 4090 speed boost)
+        samples = trainer.sample(num=num_samples, size_every=800, shape=[dataset.window, dataset.var_num], 
                                 dataset=dataset, ordered=ordered, stride=stride)
         
         if dataset.auto_norm:

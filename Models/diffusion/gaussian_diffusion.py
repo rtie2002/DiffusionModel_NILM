@@ -276,8 +276,15 @@ class Diffusion(nn.Module):
         # Replace time feature part with actual conditions
         img[:, :, self.feature_size:] = condition
         
+        # 🚀 REAL-TIME PROGRESS MONITOR (For RTX 4090 Denoising)
+        from tqdm.auto import tqdm
+        pbar = tqdm(reversed(range(0, self.num_timesteps)), 
+                    total=self.num_timesteps, 
+                    desc='[Denoising Step]', 
+                    leave=False)
+
         # Reverse diffusion process
-        for t in reversed(range(0, self.num_timesteps)):
+        for t in pbar:
             img, _ = self.p_sample(img, t)
             # Force time features to stay as conditions (prevent drift)
             img[:, :, self.feature_size:] = condition
