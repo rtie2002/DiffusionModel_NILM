@@ -115,7 +115,7 @@ class FourierLayer(nn.Module):
         top_k = int(self.factor * math.log(x_freq.shape[1]))
         
         # 🚀 PERFORMANCE FIX: Vectorized Top-K Frequency Masking
-        # Replaced the manual Python loop with torch.scatter_ for Triton/Compile compatibility
+        # Even without torch.compile, this is MUCH faster than a Python loop
         values, indices = torch.topk(x_freq.abs(), top_k, dim=1, largest=True, sorted=False)
         
         mask = torch.zeros_like(x_freq)

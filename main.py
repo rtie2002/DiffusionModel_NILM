@@ -115,22 +115,31 @@ def main():
 
     model = instantiate_from_config(config['model']).to(device)
     
-    # 🚀 INDUSTRIAL STANDARD OPTIMIZATION: RTX 4090 / Linux Boost
+    # 🚀 INDUSTRIAL SAFE-TRITON MODE: RTX 4090 Optimized
     if sys.platform != 'win32':
-        print("🚀 WSL2/Linux Detected: Unlocking Industrial Standard Performance...")
+        print("🚀 WSL2/Linux Detected: Implementing Safe-Triton Performance...")
         
         # 1. Global GPU Settings
         torch.backends.cudnn.benchmark = True
-        torch.set_float32_matmul_precision('high') # Uses TensorCores for speed
+        torch.set_float32_matmul_precision('high')
         
-        # 2. Compile Model (Triton)
-        # Structural fixes in agent_transformer.py (vectorization + contiguous) 
-        # should now prevent previous AssertionErrors.
+        # 2. Configure Inductor for Stability (Prevent Stride Errors)
         try:
-            print("  -> Compiling training model with Triton (Inductor)...")
-            model = torch.compile(model)
+            import torch._inductor.config as inductor_config
+            # Industrial Fix: Disable aggressive layout changes that cause AssertionErrors
+            inductor_config.layout_heads = False 
+            # 4090 Optimization: Tune for large L2 cache
+            inductor_config.coordinate_descent_tuning = True
+            
+            print("  -> Compiling Transformer core with Safe-Triton...")
+            # Compile only the heavy Transformer core to avoid diffusion-schedule issues
+            if hasattr(model, 'model'):
+                model.model = torch.compile(model.model, mode='default')
+                print("  ✓ Safe-Triton Core Compilation Ready.")
+            else:
+                model = torch.compile(model, mode='default')
         except Exception as e:
-            print(f"  ⚠ Compile failed (Falling back to Eager): {e}")
+            print(f"  ⚠ Safe-Triton failed (Falling back to Eager): {e}")
 
     else:
         print("💡 Windows Detected: Running in Standard Mode.")
@@ -143,11 +152,12 @@ def main():
     
     trainer = Trainer(config=config, args=args, model=model, dataloader=dataloader_info, logger=logger)
 
-    # 3. Also compile the EMA model if on Linux (used for Sampling)
+    # 3. Also compile the EMA Transformer core safely for Sampling
     if sys.platform != 'win32':
         try:
-            print("  -> Compiling sampling model (EMA) with Triton...")
-            trainer.ema.ema_model = torch.compile(trainer.ema.ema_model)
+            if hasattr(trainer.ema.ema_model, 'model'):
+                print("  -> Compiling sampling core (EMA) with Safe-Triton...")
+                trainer.ema.ema_model.model = torch.compile(trainer.ema.ema_model.model, mode='default')
         except Exception as e:
             print(f"  ⚠ EMA Compile failed: {e}")
 
