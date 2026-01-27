@@ -113,20 +113,18 @@ class FourierLayer(nn.Module):
         # Identify Top-K most important frequencies
         # (This keeps the precision of Factor=3)
         top_k = int(self.factor * math.log(x_freq.shape[1]))
+        
+        # 🚀 PERFORMANCE FIX: Vectorized Top-K Frequency Masking
+        # Replaced the manual Python loop with torch.scatter_ for Triton/Compile compatibility
         values, indices = torch.topk(x_freq.abs(), top_k, dim=1, largest=True, sorted=False)
         
-        # Create a clean mask to keep only Top-K frequencies
         mask = torch.zeros_like(x_freq)
-        mesh_a, mesh_b = torch.meshgrid(torch.arange(b, device=x.device), 
-                                       torch.arange(d, device=x.device), indexing='ij')
-        
-        # Efficiently scatter the kept frequencies into the mask
-        for i in range(top_k):
-            idx = indices[:, i, :]
-            mask[mesh_a, idx, mesh_b] = x_freq[mesh_a, idx, mesh_b]
+        # Gather the values to keep
+        top_k_values = x_freq.gather(1, indices)
+        # Scatter them into the empty mask
+        mask.scatter_(1, indices, top_k_values)
         
         # Use highly-optimized inverse FFT for reconstruction
-        # This is orders of magnitude faster than manual cos() summation
         return torch.fft.irfft(mask, n=t, dim=1).to(x.dtype)
 
     def topk_freq(self, x_freq):
@@ -503,9 +501,9 @@ class Transformer(nn.Module):
 
     def forward(self, input, t, padding_masks=None):
         # DECOUPLE INPUT: Separate 1D power from 8D conditions
-        # input shape expected: (B, L, 1+8) = (B, L, 9)
-        x_power = input[:, :, :self.n_feat]
-        x_cond = input[:, :, self.n_feat:]
+        # Use .contiguous() to ensure Triton kernels can handle the layout efficiently
+        x_power = input[:, :, :self.n_feat].contiguous()
+        x_cond = input[:, :, self.n_feat:].contiguous()
         
         # 1. Encode Condition into label_emb
         # We take the mean or specific pooling to get a global condition vector

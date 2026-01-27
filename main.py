@@ -115,27 +115,41 @@ def main():
 
     model = instantiate_from_config(config['model']).to(device)
     
-    # --- 🚀 HIGH STABILITY MODE: RTX 4090 Native (Eager) ---
-    # Disabled torch.compile due to stride compatibility issues with complex Transformer layers.
-    # The 4090 will still run at peak speed via BF16 and Fused Optimizer in solver.py.
+    # 🚀 INDUSTRIAL STANDARD OPTIMIZATION: RTX 4090 / Linux Boost
     if sys.platform != 'win32':
-        print("🚀 WSL2 Detected: Running in Native High-Speed Mode (Eager).")
+        print("🚀 WSL2/Linux Detected: Unlocking Industrial Standard Performance...")
+        
+        # 1. Global GPU Settings
+        torch.backends.cudnn.benchmark = True
+        torch.set_float32_matmul_precision('high') # Uses TensorCores for speed
+        
+        # 2. Compile Model (Triton)
+        # Structural fixes in agent_transformer.py (vectorization + contiguous) 
+        # should now prevent previous AssertionErrors.
+        try:
+            print("  -> Compiling training model with Triton (Inductor)...")
+            model = torch.compile(model)
+        except Exception as e:
+            print(f"  ⚠ Compile failed (Falling back to Eager): {e}")
+
     else:
         print("💡 Windows Detected: Running in Standard Mode.")
     
     # ⚡ EFFICIENCY FIX: Only build the heavy training dataloader if we are actually training.
-    # This prevents creating millions of sliding windows and applying booster/jitter for training 
-    # when we only intended to sample.
     if args.train:
         dataloader_info = build_dataloader(config, args)
     else:
-        # Provide a minimal placeholder to avoid Trainer initialization failure
-        dataloader_info = {
-            'dataloader': [], 
-            'dataset': None
-        }
+        dataloader_info = {'dataloader': [], 'dataset': None}
     
     trainer = Trainer(config=config, args=args, model=model, dataloader=dataloader_info, logger=logger)
+
+    # 3. Also compile the EMA model if on Linux (used for Sampling)
+    if sys.platform != 'win32':
+        try:
+            print("  -> Compiling sampling model (EMA) with Triton...")
+            trainer.ema.ema_model = torch.compile(trainer.ema.ema_model)
+        except Exception as e:
+            print(f"  ⚠ EMA Compile failed: {e}")
 
     if args.train:
         trainer.train()
