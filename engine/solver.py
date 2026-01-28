@@ -205,12 +205,12 @@ class Trainer(object):
                 conditions = torch.FloatTensor(np.stack(conditions)).to(self.device)  # (batch, 512, 8)
                 
                 # 🚀 RTX 4090 NATIVE SAMPLING BOOST: High-speed BF16
-                with torch.no_grad():
+                with torch.inference_mode():
                     with torch.amp.autocast('cuda', dtype=torch.bfloat16):
                         sample = self.ema.ema_model.generate_with_conditions(conditions)
             else:
                 # 🚀 RTX 4090 NATIVE SAMPLING BOOST: High-speed BF16
-                with torch.no_grad():
+                with torch.inference_mode():
                     with torch.amp.autocast('cuda', dtype=torch.bfloat16):
                         sample = self.ema.ema_model.generate_mts(batch_size=windows_this_batch)
             
