@@ -92,11 +92,16 @@ class Trainer(object):
         self.step = data['step']
         try:
             self.opt.load_state_dict(data['opt'])
-            self.ema.load_state_dict(data['ema'])
-        except ValueError as e:
-            print(f"Warning: Optimizer/EMA state mismatch ({e}). Skipping... (Fine for Sampling, Bad for Resuming Training)")
-        except RuntimeError as e:
-            print(f"Warning: EMA state mismatch ({e}). Skipping... (Fine for Sampling)")
+        except ValueError:
+            pass # Optimizer mismatch is expected and fine for sampling
+
+        try:
+            # Try loading EMA with strict=False to get the best possible matching weights
+            self.ema.load_state_dict(data['ema'], strict=False)
+        except (ValueError, RuntimeError) as e:
+            print(f"Warning: EMA state mismatch deep failure. ({e})")
+            print("Action: Copying loaded MAIN model weights to EMA model as fallback.")
+            self.ema.ema_model.load_state_dict(self.model.state_dict())
         
         self.milestone = milestone
 

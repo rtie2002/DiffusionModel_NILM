@@ -90,16 +90,21 @@ for app in "${APPLIANCES[@]}"; do
             # Use fallback for window if not found
             if [ -z "$window" ]; then window=512; fi
 
-            if [ -n "$dataPath" ] && [ -f "$dataPath" ]; then
-                # Fast line count in Linux
-                totalLines=$(wc -l < "$dataPath")
-                totalPoints=$((totalLines - 1))
-                # Dynamic SampleNum: (Points/Window) * 2
-                dynamicSampleNum=$(( (totalPoints / window + 1) * 2 ))
-                echo "  -> Found $totalPoints points. Dynamic SampleNum: $dynamicSampleNum"
-            else
-                echo "  -> Data file not found ($dataPath). Using fallback."
-                dynamicSampleNum=1000
+            if [ -n "$dataPath" ]; then
+                # Handle relative paths properly (remove leading ./)
+                checkPath="${dataPath#./}"
+                if [ -f "$checkPath" ]; then
+                    # Fast line count in Linux
+                    totalLines=$(wc -l < "$checkPath")
+                    totalPoints=$((totalLines - 1))
+                    # Dynamic SampleNum: (Points/Window) * 2
+                    dynamicSampleNum=$(( (totalPoints / window + 1) * 2 ))
+                    echo "  -> Found $totalPoints points in $checkPath. Window size: $window"
+                    echo "  -> Dynamic SampleNum: $dynamicSampleNum (200% data)"
+                else
+                    echo "  -> Warning: Data file not found ($checkPath). Using fallback 1000."
+                    dynamicSampleNum=1000
+                fi
             fi
         fi
 
