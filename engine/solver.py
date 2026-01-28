@@ -90,8 +90,14 @@ class Trainer(object):
         if len(missing) > 0 or len(unexpected) > 0:
             print(f"Warning: Model loaded with strict=False (Missing: {len(missing)}, Unexpected: {len(unexpected)})")
         self.step = data['step']
-        self.opt.load_state_dict(data['opt'])
-        self.ema.load_state_dict(data['ema'])
+        try:
+            self.opt.load_state_dict(data['opt'])
+            self.ema.load_state_dict(data['ema'])
+        except ValueError as e:
+            print(f"Warning: Optimizer/EMA state mismatch ({e}). Skipping... (Fine for Sampling, Bad for Resuming Training)")
+        except RuntimeError as e:
+            print(f"Warning: EMA state mismatch ({e}). Skipping... (Fine for Sampling)")
+        
         self.milestone = milestone
 
     def train(self):
