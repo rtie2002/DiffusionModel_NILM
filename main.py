@@ -114,23 +114,26 @@ def main():
         try:
             print("🚀 WSL2 Detected: Activating Safe Triton Acceleration...")
             
-            # --- Inductor Safety Configs (Fixes Stride Mismatch) ---
+            import torch._inductor.config
             # This is the critical fix for the "stride mismatch" error
             if hasattr(torch._inductor.config, 'layout_heads'):
                 torch._inductor.config.layout_heads = False 
             if hasattr(torch._inductor.config, 'coordinate_descent_tuning'):
                 torch._inductor.config.coordinate_descent_tuning = True
             
-            # DEEP FIX: Disable optimizations that mess with strides
-            torch._inductor.config.triton.cudagraphs = False # Avoids "primals_113" CPU issues
-            torch._inductor.config.fuse_extrinsic_call = False
-            torch._inductor.config.triton.max_autotune = False
+            # Additional stability flags for RTX 4090
+            if hasattr(torch._inductor.config.triton, 'cudagraphs'):
+                torch._inductor.config.triton.cudagraphs = False 
             
-            # Use 'default'
-            model.model = torch.compile(model.model)
+            # Re-enable compilation for the core Transformer
+            if hasattr(model, 'model'):
+                print("  -> Compiling Transformer core...")
+                model.model = torch.compile(model.model)
+            else:
+                model = torch.compile(model)
             print("  ✓ Triton Core Compilation Ready (Safe Mode).")
         except Exception as e:
-            print(f"  ⚠️ Compilation failed, falling back to Eager: {e}")
+            print(f"  ⚠️ Compilation setup failed, falling back to Eager: {e}")
     else:
         print("💡 Standard Mode: Maximum stability verified.")
     
