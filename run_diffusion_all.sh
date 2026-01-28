@@ -83,9 +83,9 @@ for app in "${APPLIANCES[@]}"; do
         # Calculate dynamic sample number if not specified
         dynamicSampleNum=$SAMPLE_NUM
         if [ "$dynamicSampleNum" -eq 0 ]; then
-            # Extract window size and data path from YAML
-            window=$(grep "window:" "$configPath" | head -n 1 | awk '{print $2}')
-            dataPath=$(grep "data_root:" "$configPath" | head -n 1 | awk '{print $2}' | tr -d "'" | tr -d '"')
+            # Extract window size and data path from YAML (Stripping \r for Windows compatibility)
+            window=$(grep "window:" "$configPath" | head -n 1 | awk '{print $2}' | tr -d '\r')
+            dataPath=$(grep "data_root:" "$configPath" | head -n 1 | awk '{print $2}' | tr -d "'" | tr -d '"' | tr -d '\r')
             
             # Use fallback for window if not found
             if [ -z "$window" ]; then window=512; fi
@@ -93,11 +93,21 @@ for app in "${APPLIANCES[@]}"; do
             if [ -n "$dataPath" ]; then
                 # Handle relative paths properly (remove leading ./)
                 checkPath="${dataPath#./}"
+                
+                # Check original path, then fallback to root if not found
+                # This handles cases where data is moved but YAML isn't updated
+                if [ ! -f "$checkPath" ]; then
+                    filename=$(basename "$checkPath")
+                    if [ -f "$filename" ]; then
+                        checkPath="$filename"
+                    fi
+                fi
+
                 if [ -f "$checkPath" ]; then
                     # Fast line count in Linux
                     totalLines=$(wc -l < "$checkPath")
                     totalPoints=$((totalLines - 1))
-                    # Dynamic SampleNum: (Points/Window) * 2
+                    # Dynamic SampleNum: (Points/Window + 1) * 2 to ensure 200% coverage
                     dynamicSampleNum=$(( (totalPoints / window + 1) * 2 ))
                     echo "  -> Found $totalPoints points in $checkPath. Window size: $window"
                     echo "  -> Dynamic SampleNum: $dynamicSampleNum (200% data)"
