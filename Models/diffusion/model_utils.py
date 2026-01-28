@@ -193,8 +193,8 @@ class AdaLayerNorm(nn.Module):
         self.linear = nn.Linear(n_embd, n_embd * 3)
         
         # HOUSE DISTRIBUTION FIX: Learnable scale for time features
-        # Reduced from 0.1 to 0.05 to prevent square-wave saturation
-        self.label_scale = nn.Parameter(torch.ones(1, 1, n_embd) * 0.05)
+        # This prevents the "afternoon" signal from being drowned by the diffusion timestep
+        self.label_scale = nn.Parameter(torch.ones(1, 1, n_embd) * 0.1)
         
         # DiT-Style Zero Initialization
         # This makes the model initially behave as an identity function
@@ -208,10 +208,8 @@ class AdaLayerNorm(nn.Module):
         emb = self.emb(timestep).unsqueeze(1) # (B, 1, D)
         
         if label_emb is not None:
-            # 🚀 SMOOTHNESS FIX: L2 Normalize the time features
-            # This prevents specific timestamps from "yelling" and causing pulses
-            label_emb = F.normalize(label_emb, p=2, dim=-1)
-            emb = emb + label_emb * self.label_scale 
+            # POINTWISE GUIDANCE with learnable emphasis:
+            emb = emb + label_emb * self.label_scale # Weighted sum to preserve temporal sensitivity
             
         # Generating modulation parameters for every step in the sequence
         emb = self.linear(self.silu(emb)) # (B, L, 3D)

@@ -354,7 +354,7 @@ class DecoderBlock(nn.Module):
         act = nn.GELU() if activate == 'GELU' else GELU2()
 
         self.trend = TrendBlock(n_channel, n_channel, n_embd, n_feat, act=act)
-        self.seasonal = FourierLayer(d_model=n_embd, factor=1) # Reverted to 1 for maximum smoothness
+        self.seasonal = FourierLayer(d_model=n_embd, factor=3) # Increased factor to capture detailed middle waveforms
 
         self.mlp = nn.Sequential(
             nn.Linear(n_embd, mlp_hidden_times * n_embd),
