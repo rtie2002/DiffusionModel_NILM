@@ -2,6 +2,7 @@ import os
 import sys
 import warnings
 import torch
+import torch._inductor.config
 import argparse
 import numpy as np
 from engine.logger import Logger
@@ -114,7 +115,6 @@ def main():
             print("🚀 WSL2 Detected: Activating Safe Triton Acceleration...")
             
             # --- Inductor Safety Configs (Fixes Stride Mismatch) ---
-            import torch._inductor.config
             # This is the critical fix for the "stride mismatch" error
             if hasattr(torch._inductor.config, 'layout_heads'):
                 torch._inductor.config.layout_heads = False 
