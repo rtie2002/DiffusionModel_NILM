@@ -115,13 +115,33 @@ def main():
 
     model = instantiate_from_config(config['model']).to(device)
     
-    # 🚀 STABILITY FIRST: Disabling torch.compile to prevent stride AssertionErrors
-    # The current AgentTransformer architecture's complex views/einops are incompatible 
-    # with the current Triton compiler. We run in Eager mode for 100% reliability.
+    # 🚀 INDUSTRIAL SAFE-TRITON MODE: RTX 4090 Optimized
     if sys.platform != 'win32':
+        print("🚀 WSL2/Linux Detected: Implementing Safe-Triton Performance...")
+        
+        # 1. Global GPU Settings
         torch.backends.cudnn.benchmark = True
         torch.set_float32_matmul_precision('high')
-        print("🚀 Linux Detected: Running in High-Performance Eager Mode (Stable).")
+        
+        # 2. Configure Inductor for Stability (Prevent Stride Errors)
+        try:
+            import torch._inductor.config as inductor_config
+            # Industrial Fix: Disable aggressive layout changes if supported
+            if hasattr(inductor_config, 'layout_heads'):
+                inductor_config.layout_heads = False 
+            # 4090 Optimization: Tune for large L2 cache
+            if hasattr(inductor_config, 'coordinate_descent_tuning'):
+                inductor_config.coordinate_descent_tuning = True
+            
+            print("  -> Compiling Transformer core with Safe-Triton...")
+            # Compile only the heavy Transformer core to avoid diffusion-schedule issues
+            if hasattr(model, 'model'):
+                model.model = torch.compile(model.model, mode='default')
+                print("  ✓ Safe-Triton Core Compilation Ready.")
+            else:
+                model = torch.compile(model, mode='default')
+        except Exception as e:
+            print(f"  ⚠ Safe-Triton failed (Falling back to Eager): {e}")
 
     else:
         print("💡 Windows Detected: Running in Standard Mode.")
