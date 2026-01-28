@@ -221,6 +221,11 @@ class Trainer(object):
                 with torch.inference_mode():
                     with torch.amp.autocast('cuda', dtype=torch.bfloat16):
                         sample = self.ema.ema_model.generate_with_conditions(conditions)
+                
+                # DIAGNOSTIC: Check the month of the first sample in this batch
+                first_window_month = conditions[0, 0, 7].item() # Month sin column
+                print(f"  -> Progress: Sampling from Month features starting at Batch {batch_idx + 1}")
+
             else:
                 # 🚀 RTX 4090 NATIVE SAMPLING BOOST: High-speed BF16
                 with torch.inference_mode():
