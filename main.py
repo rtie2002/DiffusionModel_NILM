@@ -121,12 +121,13 @@ def main():
             if hasattr(torch._inductor.config, 'coordinate_descent_tuning'):
                 torch._inductor.config.coordinate_descent_tuning = True
             
-            # Use 'default' instead of 'max-autotune' for better stability
-            # We compile the INNER model (the Transformer) to avoid Diffusion wrapper issues
-            if hasattr(model, 'model'):
-                model.model = torch.compile(model.model, mode='default')
-            else:
-                model = torch.compile(model, mode='default')
+            # DEEP FIX: Disable optimizations that mess with strides
+            torch._inductor.config.triton.cudagraphs = False # Avoids "primals_113" CPU issues
+            torch._inductor.config.fuse_extrinsic_call = False
+            torch._inductor.config.triton.max_autotune = False
+            
+            # Use 'default'
+            model.model = torch.compile(model.model)
             print("  ✓ Triton Core Compilation Ready (Safe Mode).")
         except Exception as e:
             print(f"  ⚠️ Compilation failed, falling back to Eager: {e}")
