@@ -69,9 +69,10 @@ class TrendBlock(nn.Module):
 
     def forward(self, input):
         b, c, h = input.shape
-        x = self.trend(input).transpose(1, 2)
-        trend_vals = torch.matmul(x.transpose(1, 2), self.poly_space.to(x.device))
-        trend_vals = trend_vals.transpose(1, 2)
+        # Force memory to be contiguous to fix Triton/Inductor stride errors
+        x = self.trend(input).transpose(1, 2).contiguous()
+        trend_vals = torch.matmul(x.transpose(1, 2).contiguous(), self.poly_space.to(x.device))
+        trend_vals = trend_vals.transpose(1, 2).contiguous()
         return trend_vals
 
 
@@ -105,9 +106,9 @@ class FourierLayer(nn.Module):
     def forward(self, x):
         """x: (b, t, d)"""
         b, t, d = x.shape
-        # SPEED OPTIMIZATION: Use float32 for FFT calculation
-        # ComplexHalf is currently very slow on Windows/PyTorch
-        x_freq = torch.fft.rfft(x.float(), dim=1)
+        # Force memory to be contiguous for Inductor-safe FFT
+        x_clean = x.float().contiguous()
+        x_freq = torch.fft.rfft(x_clean, dim=1)
 
         if t % 2 == 0:
             x_freq = x_freq[:, self.low_freq:-1]
@@ -160,9 +161,10 @@ class SeasonBlock(nn.Module):
 
     def forward(self, input):
         b, c, h = input.shape
-        x = self.season(input)
-        season_vals = torch.matmul(x.transpose(1, 2), self.poly_space.to(x.device))
-        season_vals = season_vals.transpose(1, 2)
+        # Force memory to be contiguous before matmul to satisfy Inductor strides
+        x = self.season(input).contiguous()
+        season_vals = torch.matmul(x.transpose(1, 2).contiguous(), self.poly_space.to(x.device))
+        season_vals = season_vals.transpose(1, 2).contiguous()
         return season_vals
 
 
