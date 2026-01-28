@@ -202,8 +202,8 @@ def main():
                 print(f"Generating default number of samples: {num_samples}")
 
         
-        # Call trainer.sample with updated arguments (need to update solver.py next)
-        samples = trainer.sample(num=num_samples, size_every=400, shape=[dataset.window, dataset.var_num], 
+        # Call trainer.sample with updated arguments (1000 samples max per batch for 4090)
+        samples = trainer.sample(num=num_samples, size_every=1000, shape=[dataset.window, dataset.var_num], 
                                 dataset=dataset, ordered=ordered, stride=stride)
         
         if dataset.auto_norm:

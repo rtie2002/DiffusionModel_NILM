@@ -35,18 +35,16 @@ class AgentAttention(nn.Module):
         v_agents = self.v_linear(v)
 
         # Agent Aggregation #Rightside
-        scores1 = torch.matmul(q_agents, k_agents.transpose(-2, -1)) / math.sqrt(hs)
-        scores1 = F.softmax(scores1, dim=-1)
-        context1 = torch.matmul(scores1, v_agents)
+        # Optimized: Flash Attention (SDPA) replaces matmul+softmax+matmul
+        context1 = F.scaled_dot_product_attention(q_agents, k_agents, v_agents)
 
         # Agent Broadcast #leftside
-        scores2 = torch.matmul(q, context1.transpose(-2, -1)) / math.sqrt(hs)
-        scores2 = F.softmax(scores2, dim=-1)
-        context2 = torch.matmul(scores2, context1)
+        # Optimized: Flash Attention (SDPA)
+        context2 = F.scaled_dot_product_attention(q, context1, context1)
 
         context2 = context2.transpose(1, 2).contiguous().view(B, N, nh * hs)
         output = self.dropout(self.out(context2))
-        return output, scores2
+        return output, None # scores2 not available with Flash Attention
 
 
 class TrendBlock(nn.Module):
