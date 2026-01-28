@@ -115,42 +115,63 @@ def main():
 
     model = instantiate_from_config(config['model']).to(device)
     
-    # 🚀 INDUSTRIAL STANDARD OPTIMIZATION: RTX 4090 / Linux Boost
+    # --- 🚀 HIGH STABILITY MODE: RTX 4090 Native (Eager) ---
+    # Disabled torch.compile due to stride compatibility issues with complex Transformer layers.
+    # The 4090 will still run at peak speed via BF16 and Fused Optimizer in solver.py.
     if sys.platform != 'win32':
+<<<<<<< HEAD
         print("🚀 WSL2/Linux Detected: Unlocking Industrial Standard Performance...")
         
         # 1. Global GPU Settings
         torch.backends.cudnn.benchmark = True
         torch.set_float32_matmul_precision('high') # Uses TensorCores for speed
         
-        # 2. Compile Model (Triton)
-        # Structural fixes in agent_transformer.py (vectorization + contiguous) 
-        # should now prevent previous AssertionErrors.
+        # 2. Compile TRANSFORMER CORE ONLY (Inductor)
+        # We compile the internal Transformer engine because that's where the heavy math is.
+        # Compiling the parent 'Diffusion' class often causes stride issues with schedules/indexing.
         try:
-            print("  -> Compiling training model with Triton (Inductor)...")
-            model = torch.compile(model)
+            print("  -> Compiling Transformer core with Triton (Inductor)...")
+            # The model is an instance of 'Diffusion', we want to compile its 'model' attribute (the Transformer)
+            if hasattr(model, 'model'):
+                model.model = torch.compile(model.model)
+            else:
+                model = torch.compile(model)
+            print("  ✓ Triton Core Compilation Ready.")
         except Exception as e:
             print(f"  ⚠ Compile failed (Falling back to Eager): {e}")
 
+=======
+        print("🚀 WSL2 Detected: Running in Native High-Speed Mode (Eager).")
+>>>>>>> parent of 33ac462 (s)
     else:
         print("💡 Windows Detected: Running in Standard Mode.")
     
     # ⚡ EFFICIENCY FIX: Only build the heavy training dataloader if we are actually training.
+    # This prevents creating millions of sliding windows and applying booster/jitter for training 
+    # when we only intended to sample.
     if args.train:
         dataloader_info = build_dataloader(config, args)
     else:
-        dataloader_info = {'dataloader': [], 'dataset': None}
+        # Provide a minimal placeholder to avoid Trainer initialization failure
+        dataloader_info = {
+            'dataloader': [], 
+            'dataset': None
+        }
     
     trainer = Trainer(config=config, args=args, model=model, dataloader=dataloader_info, logger=logger)
 
-    # 3. Also compile the EMA model if on Linux (used for Sampling)
+<<<<<<< HEAD
+    # 3. Also compile the EMA Transformer core if on Linux
     if sys.platform != 'win32':
         try:
-            print("  -> Compiling sampling model (EMA) with Triton...")
-            trainer.ema.ema_model = torch.compile(trainer.ema.ema_model)
+            if hasattr(trainer.ema.ema_model, 'model'):
+                print("  -> Compiling sampling core (EMA) with Triton...")
+                trainer.ema.ema_model.model = torch.compile(trainer.ema.ema_model.model)
         except Exception as e:
             print(f"  ⚠ EMA Compile failed: {e}")
 
+=======
+>>>>>>> parent of 33ac462 (s)
     if args.train:
         trainer.train()
     else:
