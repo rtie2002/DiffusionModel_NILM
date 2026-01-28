@@ -124,6 +124,10 @@ def main():
             if hasattr(torch._inductor.config.triton, 'cudagraphs'):
                 torch._inductor.config.triton.cudagraphs = False 
             
+            # Disable permute fusion (often causes stride mismatch)
+            if hasattr(torch._inductor.config, 'permute_fusion'):
+                torch._inductor.config.permute_fusion = False
+
             # Re-enable compilation for the core Transformer
             if hasattr(model, 'model'):
                 print("  -> Compiling Transformer core...")

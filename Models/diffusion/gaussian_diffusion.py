@@ -158,7 +158,8 @@ class Diffusion(nn.Module):
     
     def output(self, x, t, padding_masks=None):
         # x shape: (B, L, 1+8) = (B, L, 9)
-        trend, season = self.model(x, t, padding_masks=padding_masks)
+        # Force input to be contiguous for Triton compiler safety
+        trend, season = self.model(x.contiguous(), t, padding_masks=padding_masks)
         
         # The model now only predicts the power dimension (1D)
         power_pred = trend + season # (B, L, 1)
