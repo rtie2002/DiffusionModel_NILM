@@ -169,10 +169,6 @@ class Diffusion(nn.Module):
         
         return model_output
 
-    def model_predictions(self, x, t, clip_x_start=False, padding_masks=None):
-        if padding_masks is None:
-            padding_masks = torch.ones(x.shape[0], self.seq_length, dtype=bool, device=x.device)
-
         maybe_clip = partial(torch.clamp, min=-1., max=1.) if clip_x_start else identity
         x_start = self.output(x, t, padding_masks)
         x_start = maybe_clip(x_start)
@@ -343,6 +339,10 @@ class Diffusion(nn.Module):
             fourier_loss = self.loss_fn(torch.real(fft1), torch.real(fft2), reduction='none')\
                            + self.loss_fn(torch.imag(fft1), torch.imag(fft2), reduction='none')
             train_loss +=  self.ff_weight * fourier_loss
+            
+        # 🚀 SMOOTHNESS BOOST: Total Variation Regularization
+        # This explicitly fights the "pulse" issue by smoothing transitions
+        train_loss += 0.1 * tv_loss(model_out_power)
         
         train_loss = reduce(train_loss, 'b ... -> b (...)', 'mean')
         train_loss = train_loss * extract(self.loss_weight, t, train_loss.shape)

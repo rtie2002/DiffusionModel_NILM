@@ -126,12 +126,10 @@ def main():
         # 2. Configure Inductor for Stability (Prevent Stride Errors)
         try:
             import torch._inductor.config as inductor_config
-            # Industrial Fix: Disable aggressive layout changes if supported
-            if hasattr(inductor_config, 'layout_heads'):
-                inductor_config.layout_heads = False 
+            # Industrial Fix: Disable aggressive layout changes that cause AssertionErrors
+            inductor_config.layout_heads = False 
             # 4090 Optimization: Tune for large L2 cache
-            if hasattr(inductor_config, 'coordinate_descent_tuning'):
-                inductor_config.coordinate_descent_tuning = True
+            inductor_config.coordinate_descent_tuning = True
             
             print("  -> Compiling Transformer core with Safe-Triton...")
             # Compile only the heavy Transformer core to avoid diffusion-schedule issues
