@@ -109,36 +109,17 @@ def main():
 
     model = instantiate_from_config(config['model']).to(device)
     
-    # --- 🚀 SAFE TRITON MODE: RTX 4090 Acceleration ---
-    if sys.platform != 'win32' and hasattr(torch, 'compile'):
-        try:
-            print("🚀 WSL2 Detected: Activating Safe Triton Acceleration...")
-            
-            # This is the critical fix for the "stride mismatch" error
-            if hasattr(torch._inductor.config, 'layout_heads'):
-                torch._inductor.config.layout_heads = False 
-            if hasattr(torch._inductor.config, 'coordinate_descent_tuning'):
-                torch._inductor.config.coordinate_descent_tuning = True
-            
-            # Additional stability flags for RTX 4090
-            if hasattr(torch._inductor.config.triton, 'cudagraphs'):
-                torch._inductor.config.triton.cudagraphs = False 
-            
-            # Disable permute fusion (often causes stride mismatch)
-            if hasattr(torch._inductor.config, 'permute_fusion'):
-                torch._inductor.config.permute_fusion = False
-
-            # Re-enable compilation for the core Transformer
-            if hasattr(model, 'model'):
-                print("  -> Compiling Transformer core...")
-                model.model = torch.compile(model.model)
-            else:
-                model = torch.compile(model)
-            print("  ✓ Triton Core Compilation Ready (Safe Mode).")
-        except Exception as e:
-            print(f"  ⚠️ Compilation setup failed, falling back to Eager: {e}")
+    # --- 🚀 STABILITY MODE: RTX 4090 Native (Eager) ---
+    # Disabled torch.compile due to persistent stride compatibility issues.
+    # The system is still heavily accelerated by BF16, Fused Adam, and optimized Batches.
+    if sys.platform != 'win32':
+        print("🚀 WSL2 Detected: Running in Native High-Speed Mode (Eager).")
+        # Enable CUDNN Benchmark for finding best convolution algo
+        torch.backends.cudnn.benchmark = True
+        # Enable TF32 for matmuls (huge speedup on Ampere/Ada)
+        torch.set_float32_matmul_precision('high')
     else:
-        print("💡 Standard Mode: Maximum stability verified.")
+        print("💡 Windows Detected: Running in Standard Mode.")
     
     # ⚡ EFFICIENCY FIX: Only build the heavy training dataloader if we are actually training.
     # This prevents creating millions of sliding windows and applying booster/jitter for training 
