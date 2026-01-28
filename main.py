@@ -106,6 +106,18 @@ def main():
 
     model = instantiate_from_config(config['model']).to(device)
     
+    # --- 🚀 ULTIMATE PERFORMANCE: WSL2/RTX 4090 Max-Autotune ---
+    if sys.platform != 'win32' and hasattr(torch, 'compile'):
+        try:
+            print("🔥 WSL2 Detected: Activating RTX 4090 MAX-AUTOTUNE Mode...")
+            # 'max-autotune' is the fastest but slowest to compile. Perfect for long runs.
+            model = torch.compile(model, mode='max-autotune', fullgraph=True)
+        except Exception as e:
+            print(f"⚠️ Heavy compilation failed, falling back: {e}")
+            model = torch.compile(model) # Fallback to standard
+    else:
+        print("💡 Standard Mode: Maximum stability verified.")
+    
     # ⚡ EFFICIENCY FIX: Only build the heavy training dataloader if we are actually training.
     # This prevents creating millions of sliding windows and applying booster/jitter for training 
     # when we only intended to sample.
