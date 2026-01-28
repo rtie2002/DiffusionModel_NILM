@@ -1,4 +1,13 @@
 import os
+
+# -----------------------------------------------------------------------------
+# ⚡ SILENCE TENSORFLOW VERBOSITY (Must be before any other imports)
+# -----------------------------------------------------------------------------
+# "2" = ERROR only (hides INFO and WARNING)
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
+# Disable oneDNN custom ops messages (fixes "oneDNN custom operations are on" spam)
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0' 
+# -----------------------------------------------------------------------------
 import sys
 import warnings
 import torch
