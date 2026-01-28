@@ -7,7 +7,7 @@ import argparse
 APPLIANCE_SPECS = {
     'kettle': {'max_power': 3998},
     'microwave': {'max_power': 3969},
-    'fridge': {'max_power': 3323},
+    'fridge': {'max_power': 350},
     'dishwasher': {'max_power': 3964},
     'washingmachine': {'max_power': 3999}
 }

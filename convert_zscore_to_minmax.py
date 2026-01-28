@@ -24,8 +24,9 @@ def convert_zscore_to_minmax(file_path, appliance_name, specs):
     mean = specs['mean']
     std = specs['std']
     max_power = specs['max_power']
+    clip_max = specs.get('max_power_clip')
     
-    print(f"  Params: Mean={mean}, Std={std}, MaxPower={max_power}")
+    print(f"  Params: Mean={mean}, Std={std}, MaxPower={max_power}, ClipMax={clip_max}")
     
     # 1. Read CSV
     df = pd.read_csv(file_path)
@@ -65,6 +66,11 @@ def convert_zscore_to_minmax(file_path, appliance_name, specs):
          print("  ✓ Detected Watts/Positive. Skipping Denormalization...")
          watts_data = z_data
 
+    # 4.5 Apply Clipping if defined
+    if clip_max is not None:
+        print(f"  ✓ Clipping power to {clip_max}W (max_power_clip)...")
+        watts_data = np.clip(watts_data, 0, clip_max)
+
     # Metric check
     print(f"  Watts Max: {watts_data.max():.2f}")
     
@@ -72,7 +78,7 @@ def convert_zscore_to_minmax(file_path, appliance_name, specs):
     # Logic: Watts / MaxPower
     minmax_data = watts_data / max_power
     
-    # Clip to [0, 1] (Algorithm 1 does this via clip(upper=max_power) then div)
+    # Final safety clip to [0, 1]
     minmax_data = np.clip(minmax_data, 0, 1.0)
     
     print(f"  MinMax Max: {minmax_data.max():.6f}")
