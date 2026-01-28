@@ -86,7 +86,9 @@ class Trainer(object):
             self.logger.log_info('Resume from {}'.format(str(self.results_folder / f'checkpoint-{milestone}.pt')))
         device = self.device
         data = torch.load(str(self.results_folder / f'checkpoint-{milestone}.pt'), map_location=device)
-        self.model.load_state_dict(data['model'])
+        missing, unexpected = self.model.load_state_dict(data['model'], strict=False)
+        if len(missing) > 0 or len(unexpected) > 0:
+            print(f"Warning: Model loaded with strict=False (Missing: {len(missing)}, Unexpected: {len(unexpected)})")
         self.step = data['step']
         self.opt.load_state_dict(data['opt'])
         self.ema.load_state_dict(data['ema'])
