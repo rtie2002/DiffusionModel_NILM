@@ -467,10 +467,24 @@ class Transformer(nn.Module):
         self.inverse = Conv_MLP(n_embd, n_feat, resid_pdrop=resid_pdrop)
         
         # CONDITION ENCODER (8D -> n_embd)
-        # This takes the 8 time features and creates an embedding to guide AdaLN
+        # Deepened with residual connections for much stronger temporal control
+        # Helps align Hour, Day-of-Week, and Month peaks accurately.
+        class ResMLP(nn.Module):
+            def __init__(self, dim):
+                super().__init__()
+                self.net = nn.Sequential(
+                    nn.Linear(dim, dim),
+                    nn.SiLU(),
+                    nn.Linear(dim, dim)
+                )
+            def forward(self, x):
+                return x + self.net(x)
+
         self.cond_emb_mlp = nn.Sequential(
             nn.Linear(condition_dim, n_embd),
             nn.SiLU(),
+            ResMLP(n_embd),
+            ResMLP(n_embd),
             nn.Linear(n_embd, n_embd)
         )
 
