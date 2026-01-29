@@ -165,7 +165,7 @@ class Trainer(object):
         if self.logger is not None:
             self.logger.log_info('Training done, time: {:.2f}'.format(time.time() - tic))
 
-    def sample(self, num, size_every, shape=None, dataset=None, ordered=True, stride=1):
+    def sample(self, num, size_every, shape=None, dataset=None, ordered=True, stride=1, guidance_scale=1.0):
         if self.logger is not None:
             tic = time.time()
             self.logger.log_info('Begin to sample...')
@@ -176,7 +176,7 @@ class Trainer(object):
         print(f"SAMPLING MODE: {'ORDERED (Sequential)' if ordered else 'RANDOM'}")
         if stride > 1:
             print(f"STRIDE: {stride} (Non-overlapping blocks if stride == window)")
-        print(f"Generating {num} windows in {num_cycle} batches (batch_size={size_every})")
+        print(f"Generating {num} windows in {num_cycle} batches (batch_size={size_every}) | CFG Scale: {guidance_scale}")
         print(f"{'='*70}\n")
 
         # Check if conditional generation is supported
@@ -220,7 +220,7 @@ class Trainer(object):
                 # 🚀 RTX 4090 NATIVE SAMPLING BOOST: High-speed BF16
                 with torch.inference_mode():
                     with torch.amp.autocast('cuda', dtype=torch.bfloat16):
-                        sample = self.ema.ema_model.generate_with_conditions(conditions)
+                        sample = self.ema.ema_model.generate_with_conditions(conditions, guidance_scale=guidance_scale)
                 
                 # DIAGNOSTIC: Check the month of the first sample in this batch
                 first_window_month = conditions[0, 0, 7].item() # Month sin column
@@ -230,7 +230,7 @@ class Trainer(object):
                 # 🚀 RTX 4090 NATIVE SAMPLING BOOST: High-speed BF16
                 with torch.inference_mode():
                     with torch.amp.autocast('cuda', dtype=torch.bfloat16):
-                        sample = self.ema.ema_model.generate_mts(batch_size=windows_this_batch)
+                        sample = self.ema.ema_model.generate_mts(batch_size=windows_this_batch, guidance_scale=guidance_scale)
             
             # Use non_blocking to transfer results back to CPU
             samples = np.row_stack([samples, sample.detach().cpu().numpy()])

@@ -60,6 +60,9 @@ def parse_args():
                         choices=['random', 'ordered', 'ordered_non_overlapping'],
                         help='Sampling mode: random (default), ordered (sequential overlap), or ordered_non_overlapping (sequential non-overlap)')
 
+    parser.add_argument('--guidance_scale', type=float, default=3.0,
+                        help='Classifier-Free Guidance scale. 1.0 = standard, >1.0 = stronger conditioning.')
+
     args = parser.parse_args()
     
     # Get the directory where main.py is located (project root)
@@ -213,7 +216,7 @@ def main():
         
         # Call trainer.sample with updated arguments (1000 samples max per batch for 4090)
         samples = trainer.sample(num=num_samples, size_every=1000, shape=[dataset.window, dataset.var_num], 
-                                dataset=dataset, ordered=ordered, stride=stride)
+                                dataset=dataset, ordered=ordered, stride=stride, guidance_scale=args.guidance_scale)
         
         if dataset.auto_norm:
             # 1. Get shape information from generated samples

@@ -12,11 +12,12 @@ MILESTONE=10
 GPU=0
 PROPORTION=1.0
 SAMPLE_NUM=0
+GUIDANCE=3.0
 
 # Help message
 usage() {
-    echo "Usage: $0 [--train] [--sample] [--milestone M] [--gpu G] [--proportion P] [--sample_num N] [--appliances a,b,c]"
-    echo "Example: $0 --train --sample --appliances fridge,microwave"
+    echo "Usage: $0 [--train] [--sample] [--milestone M] [--gpu G] [--proportion P] [--sample_num N] [--guidance G_SCALE] [--appliances a,b,c]"
+    echo "Example: $0 --train --sample --guidance 3.0 --appliances fridge,microwave"
     exit 1
 }
 
@@ -29,6 +30,7 @@ while [[ "$#" -gt 0 ]]; do
         --gpu) GPU="$2"; shift ;;
         --proportion) PROPORTION="$2"; shift ;;
         --sample_num) SAMPLE_NUM="$2"; shift ;;
+        --guidance) GUIDANCE="$2"; shift ;;
         --appliances) IFS=',' read -ra APPLIANCES <<< "$2"; shift ;;
         *) usage ;;
     esac
@@ -48,6 +50,7 @@ echo "Appliances: ${APPLIANCES[*]}"
 echo "GPU ID: $GPU"
 echo "Milestone: $MILESTONE"
 echo "Proportion: $PROPORTION"
+echo "Guidance Scale: $GUIDANCE"
 echo "===================================================="
 
 for app in "${APPLIANCES[@]}"; do
@@ -125,6 +128,7 @@ for app in "${APPLIANCES[@]}"; do
             --milestone $MILESTONE \
             --sample_num $dynamicSampleNum \
             --sampling_mode "ordered_non_overlapping" \
+            --guidance_scale $GUIDANCE \
             --gpu $GPU
             
         if [ $? -ne 0 ]; then
