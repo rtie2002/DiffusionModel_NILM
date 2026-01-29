@@ -238,6 +238,24 @@ def convert_synthetic_to_zscore(synthetic_minmax_01, appliance_name, real_stats=
         # NON-CLIPPED APPLIANCE: Use linear transformation to match real Z-score range
         if real_stats is not None:
             print(f"[NOT CLIPPED] {appliance_name}: {clip_power}W == {real_max_power}W")
+            
+            # === STEP 1: STRETCH to [0, 1] to compensate for diffusion amplitude loss ===
+            syn_min = synthetic_minmax_01.min()
+            syn_max = synthetic_minmax_01.max()
+            syn_range = syn_max - syn_min
+            
+            print(f"  Original synthetic range: [{syn_min:.4f}, {syn_max:.4f}]")
+            
+            if syn_range > 0 and syn_max < 0.99:
+                # Stretch to [0, 1] to compensate for diffusion loss
+                print(f"  [STRETCH] Compensating for diffusion amplitude loss...")
+                synthetic_stretched = (synthetic_minmax_01 - syn_min) / syn_range
+                print(f"  [STRETCH] After: [{synthetic_stretched.min():.4f}, {synthetic_stretched.max():.4f}]")
+            else:
+                print(f"  No stretch needed (data already spans ~[0, 1])")
+                synthetic_stretched = synthetic_minmax_01
+            
+            # === STEP 2: Linear Transform to match real Z-score range ===
             print(f"  Using linear transformation to real Z-score range")
             
             zscore_min = real_stats['zscore_min']
@@ -245,7 +263,7 @@ def convert_synthetic_to_zscore(synthetic_minmax_01, appliance_name, real_stats=
             zscore_range = zscore_max - zscore_min
             
             # Linear transformation: [0,1] -> [zscore_min, zscore_max]
-            synthetic_zscore = synthetic_minmax_01 * zscore_range + zscore_min
+            synthetic_zscore = synthetic_stretched * zscore_range + zscore_min
             
             print(f"  Mapped [0,1] -> Z-score range [{zscore_min:.4f}, {zscore_max:.4f}]")
         else:
