@@ -177,7 +177,6 @@ class Diffusion(nn.Module):
         if padding_masks is None:
             padding_masks = torch.ones(x.shape[0], self.seq_length, dtype=bool, device=x.device)
 
-        # 定义 clip 函数
         maybe_clip = partial(torch.clamp, min=-1., max=1.) if clip_x_start else identity
 
         # 1. Base prediction (Conditional)
@@ -188,20 +187,17 @@ class Diffusion(nn.Module):
         else:
             # 2. Unconditional prediction for CFG
             x_uncond = x.clone()
-            # 关键：只把输入的条件维度抹零
-            x_uncond[:, :, self.feature_size:] = 0.0
+            x_uncond[:, :, self.feature_size:] = 0.0 # Null condition
             x_start_uncond = self.output(x_uncond, t, padding_masks)
             
-            # 3. CFG 公式严格按论文 Algorithm 2, Eq.(6):
-            # ε̃ = (1+w)ε_cond - w*ε_uncond = ε_cond + w*(ε_cond - ε_uncond)
-            # 由于 x_start 与 ε 是线性关系，公式同样适用于 x_start 空间
+            # 3. Final Guidance Formula: x = x_uncond + guidance_scale * (x_cond - x_uncond)
+            # Match standard: x_start = x_uncond + guidance_scale * (x_start_cond - x_start_uncond)
             x_start = x_start_cond.clone()
             
-            # 只对功率维应用 CFG，保持时间维不变
+            # Linear extrapolation ONLY for power dimension
             power_cond = x_start_cond[:, :, :self.feature_size]
             power_uncond = x_start_uncond[:, :, :self.feature_size]
-            # 正确公式：x_cond + w * (x_cond - x_uncond)
-            x_start[:, :, :self.feature_size] = power_cond + guidance_scale * (power_cond - power_uncond)
+            x_start[:, :, :self.feature_size] = power_uncond + guidance_scale * (power_cond - power_uncond)
 
         x_start = maybe_clip(x_start)
         pred_noise = self.predict_noise_from_start(x, t, x_start)
@@ -450,6 +446,7 @@ class Diffusion(nn.Module):
         target,
         partial_mask=None,
         clip_denoised=True,
+        guidance_scale=1.0,
         model_kwargs=None,
     ):
         """
@@ -461,7 +458,7 @@ class Diffusion(nn.Module):
         for t in tqdm(reversed(range(0, self.num_timesteps)),
                       desc='conditional sampling loop time step', total=self.num_timesteps):
             img = self.p_sample_infill(x=img, t=t, clip_denoised=clip_denoised, target=target,
-                                       partial_mask=partial_mask, guidance_scale=1.0, model_kwargs=model_kwargs)
+                                       partial_mask=partial_mask, guidance_scale=guidance_scale, model_kwargs=model_kwargs)
         
         img[partial_mask] = target[partial_mask]
         return img
