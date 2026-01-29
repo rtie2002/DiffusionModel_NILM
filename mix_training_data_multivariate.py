@@ -203,6 +203,9 @@ def convert_synthetic_to_zscore(synthetic_minmax_01, appliance_name, real_stats=
     - Clipped appliances (clip_power != real_max_power): Use clip_power for denormalization
     - Non-clipped appliances (clip_power == real_max_power): Use linear transformation to real Z-score range
     
+    IMPORTANT: Before linear transform, we STRETCH the synthetic data to exactly [0, 1].
+    This ensures the output Z-score range matches the real data's range exactly.
+    
     Args:
         synthetic_minmax_01: Synthetic data in [0,1] format
         appliance_name: Name of appliance
@@ -238,6 +241,23 @@ def convert_synthetic_to_zscore(synthetic_minmax_01, appliance_name, real_stats=
         # NON-CLIPPED APPLIANCE: Use linear transformation to match real Z-score range
         if real_stats is not None:
             print(f"[NOT CLIPPED] {appliance_name}: {clip_power}W == {real_max_power}W")
+            
+            # === STRETCH STEP: Normalize synthetic data to exactly [0, 1] ===
+            syn_min = synthetic_minmax_01.min()
+            syn_max = synthetic_minmax_01.max()
+            syn_range = syn_max - syn_min
+            
+            if syn_range > 0 and syn_max < 0.99:  # Only stretch if needed
+                print(f"  [STRETCH] Synthetic data range is [{syn_min:.4f}, {syn_max:.4f}]")
+                print(f"  [STRETCH] Normalizing to [0, 1] before Linear Transform...")
+                # Stretch to [0, 1]
+                synthetic_stretched = (synthetic_minmax_01 - syn_min) / syn_range
+                print(f"  [STRETCH] After stretch: [{synthetic_stretched.min():.4f}, {synthetic_stretched.max():.4f}]")
+            else:
+                print(f"  Synthetic data already spans [0, 1], no stretch needed.")
+                synthetic_stretched = synthetic_minmax_01
+            
+            # === LINEAR TRANSFORM ===
             print(f"  Using linear transformation to real Z-score range")
             
             zscore_min = real_stats['zscore_min']
@@ -245,7 +265,7 @@ def convert_synthetic_to_zscore(synthetic_minmax_01, appliance_name, real_stats=
             zscore_range = zscore_max - zscore_min
             
             # Linear transformation: [0,1] -> [zscore_min, zscore_max]
-            synthetic_zscore = synthetic_minmax_01 * zscore_range + zscore_min
+            synthetic_zscore = synthetic_stretched * zscore_range + zscore_min
             
             print(f"  Mapped [0,1] -> Z-score range [{zscore_min:.4f}, {zscore_max:.4f}]")
         else:
