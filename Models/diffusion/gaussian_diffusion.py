@@ -53,6 +53,7 @@ class Diffusion(nn.Module):
             padding_size=None,
             use_ff=True,
             reg_weight=None,
+            cond_drop_prob=0.1, # NEW: Probability of dropping conditioning features for CFG
             **kwargs
     ):
         super(Diffusion, self).__init__()
@@ -61,6 +62,7 @@ class Diffusion(nn.Module):
         self.seq_length = seq_length
         self.feature_size = feature_size
         self.condition_dim = condition_dim  # NEW: Store condition dimension
+        self.cond_drop_prob = cond_drop_prob # NEW: CFG dropout probability
         self.ff_weight = default(reg_weight, math.sqrt(self.seq_length) / 5)
 
         # NEW: Transformer now decouples feature_size (power) and condition_dim (time)
@@ -171,28 +173,52 @@ class Diffusion(nn.Module):
         
         return model_output
 
-    def model_predictions(self, x, t, clip_x_start=False, padding_masks=None):
+    def model_predictions(self, x, t, clip_x_start=False, padding_masks=None, guidance_scale=1.0):
         if padding_masks is None:
             padding_masks = torch.ones(x.shape[0], self.seq_length, dtype=bool, device=x.device)
 
+        # 定义 clip 函数
         maybe_clip = partial(torch.clamp, min=-1., max=1.) if clip_x_start else identity
-        x_start = self.output(x, t, padding_masks)
+
+        # 1. Base prediction (Conditional)
+        x_start_cond = self.output(x, t, padding_masks)
+        
+        if guidance_scale == 1.0:
+            x_start = x_start_cond
+        else:
+            # 2. Unconditional prediction for CFG
+            x_uncond = x.clone()
+            # 关键：只把输入的条件维度抹零
+            x_uncond[:, :, self.feature_size:] = 0.0
+            x_start_uncond = self.output(x_uncond, t, padding_masks)
+            
+            # 3. CFG 公式严格按论文 Algorithm 2, Eq.(6):
+            # ε̃ = (1+w)ε_cond - w*ε_uncond = ε_cond + w*(ε_cond - ε_uncond)
+            # 由于 x_start 与 ε 是线性关系，公式同样适用于 x_start 空间
+            x_start = x_start_cond.clone()
+            
+            # 只对功率维应用 CFG，保持时间维不变
+            power_cond = x_start_cond[:, :, :self.feature_size]
+            power_uncond = x_start_uncond[:, :, :self.feature_size]
+            # 正确公式：x_cond + w * (x_cond - x_uncond)
+            x_start[:, :, :self.feature_size] = power_cond + guidance_scale * (power_cond - power_uncond)
+
         x_start = maybe_clip(x_start)
         pred_noise = self.predict_noise_from_start(x, t, x_start)
         return pred_noise, x_start
 
-    def p_mean_variance(self, x, t, clip_denoised=True):
-        _, x_start = self.model_predictions(x, t)
+    def p_mean_variance(self, x, t, clip_denoised=True, guidance_scale=1.0):
+        _, x_start = self.model_predictions(x, t, guidance_scale=guidance_scale)
         if clip_denoised:
             x_start.clamp_(-1., 1.)
         model_mean, posterior_variance, posterior_log_variance = \
             self.q_posterior(x_start=x_start, x_t=x, t=t)
         return model_mean, posterior_variance, posterior_log_variance, x_start
 
-    def p_sample(self, x, t: int, clip_denoised=True):
+    def p_sample(self, x, t: int, clip_denoised=True, guidance_scale=1.0):
         batched_times = torch.full((x.shape[0],), t, device=x.device, dtype=torch.long)
         model_mean, _, model_log_variance, x_start = \
-            self.p_mean_variance(x=x, t=batched_times, clip_denoised=clip_denoised)
+            self.p_mean_variance(x=x, t=batched_times, clip_denoised=clip_denoised, guidance_scale=guidance_scale)
         
         # CRITICAL FIX: Only add noise to power dimension, not time features!
         if t > 0:
@@ -207,16 +233,16 @@ class Diffusion(nn.Module):
         return pred_img, x_start
 
     @torch.no_grad()
-    def sample(self, shape):
+    def sample(self, shape, guidance_scale=1.0):
         device = self.betas.device
         img = torch.randn(shape, device=device)
         for t in tqdm(reversed(range(0, self.num_timesteps)),
                       desc='sampling loop time step', total=self.num_timesteps):
-            img, _ = self.p_sample(img, t)
+            img, _ = self.p_sample(img, t, guidance_scale=guidance_scale)
         return img
 
     @torch.no_grad()
-    def fast_sample(self, shape, clip_denoised=True):
+    def fast_sample(self, shape, clip_denoised=True, guidance_scale=1.0):
         batch, device, total_timesteps, sampling_timesteps, eta = \
             shape[0], self.betas.device, self.num_timesteps, self.sampling_timesteps, self.eta
 
@@ -229,7 +255,7 @@ class Diffusion(nn.Module):
 
         for time, time_next in tqdm(time_pairs, desc='sampling loop time step'):
             time_cond = torch.full((batch,), time, device=device, dtype=torch.long)
-            pred_noise, x_start, *_ = self.model_predictions(img, time_cond, clip_x_start=clip_denoised)
+            pred_noise, x_start, *_ = self.model_predictions(img, time_cond, clip_x_start=clip_denoised, guidance_scale=guidance_scale)
 
             if time_next < 0:
                 img = x_start
@@ -246,19 +272,20 @@ class Diffusion(nn.Module):
 
         return img
 
-    def generate_mts(self, batch_size=16):
+    def generate_mts(self, batch_size=16, guidance_scale=1.0):
         feature_size, seq_length = self.feature_size, self.seq_length
         sample_fn = self.fast_sample if self.fast_sampling else self.sample
-        return sample_fn((batch_size, seq_length, feature_size))
+        return sample_fn((batch_size, seq_length, feature_size), guidance_scale=guidance_scale)
 
     @torch.no_grad()
-    def generate_with_conditions(self, condition, batch_size=None):
+    def generate_with_conditions(self, condition, batch_size=None, guidance_scale=3.0):
         """
         Generate data with time features preserved (outputs 9 dimensions)
         
         Args:
             condition: (B, seq_length, condition_dim) - Time features to condition on
             batch_size: Optional, inferred from condition if not provided
+            guidance_scale: The strength of Classifier-Free Guidance. Default 3.0.
         
         Returns:
             (B, seq_length, feature_size + condition_dim) - Generated power + time features
@@ -286,7 +313,7 @@ class Diffusion(nn.Module):
 
         # Reverse diffusion process
         for t in pbar:
-            img, _ = self.p_sample(img, t)
+            img, _ = self.p_sample(img, t, guidance_scale=guidance_scale)
             # Force time features to stay as conditions (prevent drift)
             img[:, :, self.feature_size:] = condition
         
@@ -318,10 +345,16 @@ class Diffusion(nn.Module):
         x_power = x_start[:, :, :self.feature_size]  # Extract power (B, seq_length, 1)
         x_condition = x_start[:, :, self.feature_size:]  # Extract conditions (B, seq_length, 8)
         
+        # CFG: Randomly drop condition part
+        if self.cond_drop_prob > 0:
+            # Generate mask: 1 keep, 0 drop
+            keep_mask = torch.bernoulli(torch.ones(x_start.shape[0], 1, 1, device=x_start.device) * (1 - self.cond_drop_prob))
+            x_condition = x_condition * keep_mask
+        
         # Only noise the power part
         noise = default(noise, lambda: torch.randn_like(x_power))
         if target is None:
-            target = x_power
+            target = x_start[:, :, :self.feature_size] # Use original power as target
 
         # Noise sample (only power)
         x_power_noisy = self.q_sample(x_start=x_power, t=t, noise=noise)
@@ -376,7 +409,7 @@ class Diffusion(nn.Module):
         trend, season = self.model(x, t)
         return trend, season
 
-    def fast_sample_infill(self, shape, target, sampling_timesteps, partial_mask=None, clip_denoised=True, model_kwargs=None):
+    def fast_sample_infill(self, shape, target, sampling_timesteps, partial_mask=None, clip_denoised=True, guidance_scale=1.0, model_kwargs=None):
         batch, device, total_timesteps, eta = shape[0], self.betas.device, self.num_timesteps, self.eta
 
         # [-1, 0, 1, 2, ..., T-1] when sampling_timesteps == total_timesteps
@@ -388,7 +421,7 @@ class Diffusion(nn.Module):
 
         for time, time_next in tqdm(time_pairs, desc='conditional sampling loop time step'):
             time_cond = torch.full((batch,), time, device=device, dtype=torch.long)
-            pred_noise, x_start, *_ = self.model_predictions(img, time_cond, clip_x_start=clip_denoised)
+            pred_noise, x_start, *_ = self.model_predictions(img, time_cond, clip_x_start=clip_denoised, guidance_scale=guidance_scale)
 
             if time_next < 0:
                 img = x_start
@@ -428,7 +461,7 @@ class Diffusion(nn.Module):
         for t in tqdm(reversed(range(0, self.num_timesteps)),
                       desc='conditional sampling loop time step', total=self.num_timesteps):
             img = self.p_sample_infill(x=img, t=t, clip_denoised=clip_denoised, target=target,
-                                       partial_mask=partial_mask, model_kwargs=model_kwargs)
+                                       partial_mask=partial_mask, guidance_scale=1.0, model_kwargs=model_kwargs)
         
         img[partial_mask] = target[partial_mask]
         return img
@@ -441,12 +474,13 @@ class Diffusion(nn.Module):
         partial_mask=None,
         x_self_cond=None,
         clip_denoised=True,
+        guidance_scale=1.0,
         model_kwargs=None
     ):
         b, *_, device = *x.shape, self.betas.device
         batched_times = torch.full((x.shape[0],), t, device=x.device, dtype=torch.long)
         model_mean, _, model_log_variance, _ = \
-            self.p_mean_variance(x=x, t=batched_times, x_self_cond=x_self_cond, clip_denoised=clip_denoised)
+            self.p_mean_variance(x=x, t=batched_times, x_self_cond=x_self_cond, clip_denoised=clip_denoised, guidance_scale=guidance_scale)
         noise = torch.randn_like(x) if t > 0 else 0.  # no noise if t == 0
         sigma = (0.5 * model_log_variance).exp()
         pred_img = model_mean + sigma * noise
