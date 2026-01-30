@@ -128,6 +128,9 @@ for app in "${APPLIANCES[@]}"; do
             SAMPLER_TYPE="ddim"
         fi
 
+        echo -e "\n🚀 [SAMPLER MODE]: ${SAMPLER_TYPE^^} Activated (Steps: $TIMESTEPS)"
+        echo "----------------------------------------------------"
+
         python main.py \
             --name "${app}_multivariate" \
             --config "$configPath" \

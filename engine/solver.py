@@ -174,6 +174,7 @@ class Trainer(object):
         
         print(f"\n{'='*70}")
         print(f"SAMPLING MODE: {'ORDERED (Sequential)' if ordered else 'RANDOM'}")
+        print(f"SAMPLER ALGORITHM: {sampler.upper()} ({'Fast PDE Path' if sampler == 'ddim' else 'High Quality SDE Path'})")
         if stride > 1:
             print(f"STRIDE: {stride} (Non-overlapping blocks if stride == window)")
         print(f"Generating {num} windows in {num_cycle} batches (batch_size={size_every}) | CFG Scale: {guidance_scale}")
