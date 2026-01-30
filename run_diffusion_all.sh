@@ -122,6 +122,12 @@ for app in "${APPLIANCES[@]}"; do
             fi
         fi
 
+        # 🚀 自动选择采样算法：步数少时用 ddim，步数多时用 ddpm
+        SAMPLER_TYPE="ddpm"
+        if [ $TIMESTEPS -lt 500 ]; then
+            SAMPLER_TYPE="ddim"
+        fi
+
         python main.py \
             --name "${app}_multivariate" \
             --config "$configPath" \
@@ -131,6 +137,7 @@ for app in "${APPLIANCES[@]}"; do
             --sampling_mode "ordered_non_overlapping" \
             --guidance_scale $GUIDANCE \
             --sampling_timesteps $TIMESTEPS \
+            --sampler $SAMPLER_TYPE \
             --gpu $GPU
             
         if [ $? -ne 0 ]; then
