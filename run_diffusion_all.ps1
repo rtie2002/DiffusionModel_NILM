@@ -6,7 +6,9 @@ param (
     [int]$Milestone = 10, # Note: Milestone is the checkpoint index (e.g., 10 for 20,000 steps with 2,000 save cycle)
     [int]$SampleNum = 0, # Default to 0 to trigger automatic calculation from CSV
     [int]$Gpu = 0,
-    [float]$Proportion = 1.0 # Added: Use to reduce data size if RAM is limited (e.g., 0.5)
+    [float]$Proportion = 1.0, # Added: Use to reduce data size if RAM is limited (e.g., 0.5)
+    [int]$SamplingSteps = 100, # Default to 100 steps (activates DDIM if < 500)
+    [float]$GuidanceScale = 2.5 # Default Guidance Scale
 )
 
 $ErrorActionPreference = "Stop"
@@ -127,7 +129,10 @@ foreach ($app in $Appliances) {
             "--milestone", $Milestone,
             "--sample_num", $dynamicSampleNum,
             "--sampling_mode", "ordered_non_overlapping",
-            "--gpu", $Gpu
+            "--gpu", $Gpu,
+            "--sampling_timesteps", $SamplingSteps,
+            "--sampler", $(if ($SamplingSteps -lt 500) { "ddim" } else { "ddpm" }),
+            "--guidance_scale", $GuidanceScale
         )
 
         Write-Host "Running: python $($sampleArgs -join ' ')" -ForegroundColor Gray

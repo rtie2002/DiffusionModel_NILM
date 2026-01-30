@@ -12,12 +12,13 @@ MILESTONE=10
 GPU=0
 PROPORTION=1.0
 SAMPLE_NUM=0
-GUIDANCE=3.0
+GUIDANCE=2.5
+TIMESTEPS=100
 
 # Help message
 usage() {
-    echo "Usage: $0 [--train] [--sample] [--milestone M] [--gpu G] [--proportion P] [--sample_num N] [--guidance G_SCALE] [--appliances a,b,c]"
-    echo "Example: $0 --train --sample --guidance 3.0 --appliances fridge,microwave"
+    echo "Usage: $0 [--train] [--sample] [--milestone M] [--gpu G] [--proportion P] [--sample_num N] [--guidance G_SCALE] [--sampling_steps S] [--appliances a,b,c]"
+    echo "Example: $0 --train --sample --guidance 2.5 --appliances fridge,microwave"
     exit 1
 }
 
@@ -31,6 +32,7 @@ while [[ "$#" -gt 0 ]]; do
         --proportion) PROPORTION="$2"; shift ;;
         --sample_num) SAMPLE_NUM="$2"; shift ;;
         --guidance) GUIDANCE="$2"; shift ;;
+        --sampling_steps) TIMESTEPS="$2"; shift ;;
         --appliances) IFS=',' read -ra APPLIANCES <<< "$2"; shift ;;
         *) usage ;;
     esac
@@ -121,6 +123,15 @@ for app in "${APPLIANCES[@]}"; do
             fi
         fi
 
+        # 🚀 自动选择采样算法：步数少时用 ddim，步数多时用 ddpm
+        SAMPLER_TYPE="ddpm"
+        if [ $TIMESTEPS -lt 500 ]; then
+            SAMPLER_TYPE="ddim"
+        fi
+
+        echo -e "\n🚀 [SAMPLER MODE]: ${SAMPLER_TYPE^^} Activated (Steps: $TIMESTEPS)"
+        echo "----------------------------------------------------"
+
         python main.py \
             --name "${app}_multivariate" \
             --config "$configPath" \
@@ -129,6 +140,8 @@ for app in "${APPLIANCES[@]}"; do
             --sample_num $dynamicSampleNum \
             --sampling_mode "ordered_non_overlapping" \
             --guidance_scale $GUIDANCE \
+            --sampling_timesteps $TIMESTEPS \
+            --sampler $SAMPLER_TYPE \
             --gpu $GPU
             
         if [ $? -ne 0 ]; then
