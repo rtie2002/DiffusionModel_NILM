@@ -173,32 +173,43 @@ class Diffusion(nn.Module):
         
         return model_output
 
-    def model_predictions(self, x, t, clip_x_start=False, padding_masks=None, guidance_scale=1.0):
+    def model_predictions(self, x, t, clip_x_start=False, padding_masks=None, guidance_scale=1.5):
         if padding_masks is None:
             padding_masks = torch.ones(x.shape[0], self.seq_length, dtype=bool, device=x.device)
 
         maybe_clip = partial(torch.clamp, min=-1., max=1.) if clip_x_start else identity
 
-        # 1. Base prediction (Conditional)
+        # 1. 获取条件预测
         x_start_cond = self.output(x, t, padding_masks)
         
         if guidance_scale == 1.0:
             x_start = x_start_cond
         else:
-            # 2. Unconditional prediction for CFG
+            # 2. 获取无条件预测
             x_uncond = x.clone()
-            x_uncond[:, :, self.feature_size:] = 0.0 # Null condition
+            x_uncond[:, :, self.feature_size:] = 0.0
             x_start_uncond = self.output(x_uncond, t, padding_masks)
             
-            # 3. Final Guidance Formula: x = x_uncond + guidance_scale * (x_cond - x_uncond)
-            # Match standard: x_start = x_uncond + guidance_scale * (x_start_cond - x_start_uncond)
+            # 3. 动态平滑引导 (Adaptive CFG with Per-sample Dynamic Thresholding)
             x_start = x_start_cond.clone()
+            p_cond = x_start_cond[:, :, :self.feature_size]
+            p_uncond = x_start_uncond[:, :, :self.feature_size]
             
-            # Linear extrapolation ONLY for power dimension
-            power_cond = x_start_cond[:, :, :self.feature_size]
-            power_uncond = x_start_uncond[:, :, :self.feature_size]
-            x_start[:, :, :self.feature_size] = power_uncond + guidance_scale * (power_cond - power_uncond)
+            diff = p_cond - p_uncond
+            w = guidance_scale - 1.0
+            p_guided = p_cond + w * diff
+            
+            # --- 🚀 修正版：逐样本波形质量保护 (Per-sample Thresholding) --- 
+            # 这里的 max_val 必须是针对每个 window 独立计算的 (dim=1, 2)
+            # 这样下午的小峰值就不会被早晚高峰的大尖峰给“吸走”能量
+            s = p_guided.abs().flatten(1).max(dim=1)[0] # (B,)
+            s = torch.clamp(s, min=1.0).view(-1, 1, 1)  # (B, 1, 1)
+            
+            p_guided = p_guided / s
+            
+            x_start[:, :, :self.feature_size] = p_guided
 
+        # 采样优化：在这里进行一次平滑，防止波形“断裂”
         x_start = maybe_clip(x_start)
         pred_noise = self.predict_noise_from_start(x, t, x_start)
         return pred_noise, x_start
@@ -477,7 +488,7 @@ class Diffusion(nn.Module):
         b, *_, device = *x.shape, self.betas.device
         batched_times = torch.full((x.shape[0],), t, device=x.device, dtype=torch.long)
         model_mean, _, model_log_variance, _ = \
-            self.p_mean_variance(x=x, t=batched_times, x_self_cond=x_self_cond, clip_denoised=clip_denoised, guidance_scale=guidance_scale)
+            self.p_mean_variance(x=x, t=batched_times, clip_denoised=clip_denoised, guidance_scale=guidance_scale)
         noise = torch.randn_like(x) if t > 0 else 0.  # no noise if t == 0
         sigma = (0.5 * model_log_variance).exp()
         pred_img = model_mean + sigma * noise
