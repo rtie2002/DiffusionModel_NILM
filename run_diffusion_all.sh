@@ -32,6 +32,7 @@ while [[ "$#" -gt 0 ]]; do
         --proportion) PROPORTION="$2"; shift ;;
         --sample_num) SAMPLE_NUM="$2"; shift ;;
         --guidance) GUIDANCE="$2"; shift ;;
+        --sampling_steps) TIMESTEPS="$2"; shift ;;
         --appliances) IFS=',' read -ra APPLIANCES <<< "$2"; shift ;;
         *) usage ;;
     esac
