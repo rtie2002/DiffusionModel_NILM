@@ -480,13 +480,23 @@ class Transformer(nn.Module):
             def forward(self, x):
                 return x + self.net(x)
 
-        self.cond_emb_mlp = nn.Sequential(
-            nn.Linear(condition_dim, n_embd // 2),
-            nn.SiLU(),
-            nn.Linear(n_embd // 2, n_embd),
-            nn.SiLU(),
-            nn.Linear(n_embd, n_embd)
-        )
+        # HIERARCHICAL TEMPORAL ENCODING (HTE)
+        # We split 8 features into 4 specialized experts to avoid "blurring"
+        # Each expert focuses on one specific scale: minute, hour, day, month.
+        def make_small_mlp(in_d, out_d):
+            return nn.Sequential(
+                nn.Linear(in_d, out_d),
+                nn.SiLU(),
+                nn.Linear(out_d, out_d)
+            )
+        
+        chunk_dim = n_embd // 4
+        self.minute_mlp = make_small_mlp(2, chunk_dim)
+        self.hour_mlp   = make_small_mlp(2, chunk_dim)
+        self.dow_mlp    = make_small_mlp(2, chunk_dim)
+        self.month_mlp  = make_small_mlp(2, chunk_dim)
+        
+        self.cond_final_proj = nn.Linear(n_embd, n_embd)
 
         if conv_params is None or conv_params[0] is None:
             if n_feat < 32 and n_channel < 64:
@@ -525,9 +535,17 @@ class Transformer(nn.Module):
         x_power = input[:, :, :self.n_feat]
         x_cond = input[:, :, self.n_feat:]
         
-        # 1. Encode Condition into label_emb
-        # We take the mean or specific pooling to get a global condition vector
-        label_emb = self.cond_emb_mlp(x_cond) # (B, L, n_embd)
+        # 1. Encode Condition into label_emb using Hierarchical Temporal Encoding
+        # input x_cond shape: (B, L, 8)
+        # Features ordering: [min_sin, min_cos, hr_sin, hr_cos, dow_sin, dow_cos, mo_sin, mo_cos]
+        m_emb = self.minute_mlp(x_cond[:, :, 0:2])
+        h_emb = self.hour_mlp(x_cond[:, :, 2:4])
+        d_emb = self.dow_mlp(x_cond[:, :, 4:6])
+        mo_emb = self.month_mlp(x_cond[:, :, 6:8])
+        
+        # Concat the 4 experts and pass through final projection
+        label_emb = torch.cat([m_emb, h_emb, d_emb, mo_emb], dim=-1) # (B, L, n_embd)
+        label_emb = self.cond_final_proj(label_emb)
         
         # 2. Process Power Signal
         emb = self.power_emb(x_power)
