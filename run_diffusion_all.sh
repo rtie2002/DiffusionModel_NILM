@@ -5,7 +5,7 @@
 # ====================================================
 
 # Default values
-APPLIANCES=("fridge" "microwave" "kettle" "dishwasher" "washingmachine")
+APPLIANCES=("microwave" "fridge" "kettle" "dishwasher" "washingmachine")
 TRAIN=false
 SAMPLE=false
 MILESTONE=10
