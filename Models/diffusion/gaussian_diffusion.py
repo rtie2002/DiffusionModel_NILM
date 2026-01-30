@@ -253,7 +253,7 @@ class Diffusion(nn.Module):
         times = (times ** 2) * (total_timesteps - 1)
         
         # 补上起始点并反转
-        times = list(reversed(times.int().unique().tolist()))
+        times = list(reversed(times.int().tolist()))
         # 在末尾加上 -1 代表最后一步直接输出精修后的 x0
         times = times + [-1]
         

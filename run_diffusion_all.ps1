@@ -9,7 +9,7 @@ param (
     [float]$Proportion = 1.0, # Added: Use to reduce data size if RAM is limited (e.g., 0.5)
     [float]$Proportion = 1.0, # Added: Use to reduce data size if RAM is limited (e.g., 0.5)
     [int]$SamplingSteps = 100, # Default to 100 steps (activates DDIM if < 500)
-    [float]$GuidanceScale = 3.0 # Default Guidance Scale
+    [float]$GuidanceScale = 2.5 # Default Guidance Scale
 )
 
 $ErrorActionPreference = "Stop"
