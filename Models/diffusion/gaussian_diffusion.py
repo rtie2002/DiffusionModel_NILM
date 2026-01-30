@@ -185,7 +185,7 @@ class Diffusion(nn.Module):
             # 回归到你确认的最稳健的串行逻辑，不再尝试 Batch 拼接
             x_start_cond = self.output(x, t, padding_masks)
             x_uncond = x.clone()
-            x_uncond[:, :, self.feature_size:] = 0.0
+            x_uncond[:, :, self.feature_size:] = -9.0
             x_start_uncond = self.output(x_uncond, t, padding_masks)
             
             x_start = x_start_cond.clone()
@@ -360,7 +360,8 @@ class Diffusion(nn.Module):
         if self.cond_drop_prob > 0:
             # Generate mask: 1 keep, 0 drop
             keep_mask = torch.bernoulli(torch.ones(x_start.shape[0], 1, 1, device=x_start.device) * (1 - self.cond_drop_prob))
-            x_condition = x_condition * keep_mask
+            # NEW: Use -9.0 as Null Token instead of 0.0 to avoid noon/midnight ambiguity
+            x_condition = torch.where(keep_mask.bool(), x_condition, torch.full_like(x_condition, -9.0))
         
         # Only noise the power part
         noise = default(noise, lambda: torch.randn_like(x_power))

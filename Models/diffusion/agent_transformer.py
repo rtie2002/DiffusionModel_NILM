@@ -481,10 +481,10 @@ class Transformer(nn.Module):
                 return x + self.net(x)
 
         self.cond_emb_mlp = nn.Sequential(
-            nn.Linear(condition_dim, n_embd),
+            nn.Linear(condition_dim, n_embd // 2),
             nn.SiLU(),
-            ResMLP(n_embd),
-            ResMLP(n_embd),
+            nn.Linear(n_embd // 2, n_embd),
+            nn.SiLU(),
             nn.Linear(n_embd, n_embd)
         )
 
