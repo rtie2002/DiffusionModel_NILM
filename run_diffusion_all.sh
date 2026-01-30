@@ -13,10 +13,11 @@ GPU=0
 PROPORTION=1.0
 SAMPLE_NUM=0
 GUIDANCE=3.0
+TIMESTEPS=50
 
 # Help message
 usage() {
-    echo "Usage: $0 [--train] [--sample] [--milestone M] [--gpu G] [--proportion P] [--sample_num N] [--guidance G_SCALE] [--appliances a,b,c]"
+    echo "Usage: $0 [--train] [--sample] [--milestone M] [--gpu G] [--proportion P] [--sample_num N] [--guidance G_SCALE] [--sampling_steps S] [--appliances a,b,c]"
     echo "Example: $0 --train --sample --guidance 3.0 --appliances fridge,microwave"
     exit 1
 }
@@ -129,6 +130,7 @@ for app in "${APPLIANCES[@]}"; do
             --sample_num $dynamicSampleNum \
             --sampling_mode "ordered_non_overlapping" \
             --guidance_scale $GUIDANCE \
+            --sampling_timesteps $TIMESTEPS \
             --gpu $GPU
             
         if [ $? -ne 0 ]; then

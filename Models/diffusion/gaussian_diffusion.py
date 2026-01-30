@@ -245,14 +245,19 @@ class Diffusion(nn.Module):
         
         # 准备条件
         if x_condition is not None:
-             # Ensure x_condition is on correct device
              x_condition = x_condition.to(device)
 
-        # [-1, 0, 1, 2, ..., T-1] when sampling_timesteps == total_timesteps
-        times = torch.linspace(-1, total_timesteps - 1, steps=sampling_timesteps + 1)
-
-        times = list(reversed(times.int().tolist()))
-        time_pairs = list(zip(times[:-1], times[1:]))  # [(T-1, T-2), (T-2, T-3), ..., (1, 0), (0, -1)]
+        # 🚀 极致修正：真正的 DDIM 二次方采样步长
+        # 逻辑：t_i = (i/S)^2 * T，让模型在最后 10% 的时间里花 30% 的精力，找回下午峰值的细节
+        times = torch.linspace(0, 1, steps=sampling_timesteps)
+        times = (times ** 2) * (total_timesteps - 1)
+        
+        # 补上起始点并反转
+        times = list(reversed(times.int().unique().tolist()))
+        # 在末尾加上 -1 代表最后一步直接输出精修后的 x0
+        times = times + [-1]
+        
+        time_pairs = list(zip(times[:-1], times[1:]))  # [(T-1, T-next), ..., (first, -1)]
         img = torch.randn(shape, device=device)
         
         if x_condition is not None:
@@ -281,23 +286,15 @@ class Diffusion(nn.Module):
 
         return img
 
-    def generate_mts(self, batch_size=16, guidance_scale=1.0):
+    def generate_mts(self, batch_size=16, guidance_scale=1.0, sampler='ddpm'):
         feature_size, seq_length = self.feature_size, self.seq_length
-        sample_fn = self.fast_sample if self.fast_sampling else self.sample
+        sample_fn = self.fast_sample if sampler == 'ddim' else self.sample
         return sample_fn((batch_size, seq_length, feature_size), guidance_scale=guidance_scale)
 
     @torch.no_grad()
-    def generate_with_conditions(self, condition, batch_size=None, guidance_scale=3.0):
+    def generate_with_conditions(self, condition, batch_size=None, guidance_scale=3.0, sampler='ddpm'):
         """
-        Generate data with time features preserved (outputs 9 dimensions)
-        
-        Args:
-            condition: (B, seq_length, condition_dim) - Time features to condition on
-            batch_size: Optional, inferred from condition if not provided
-            guidance_scale: The strength of Classifier-Free Guidance. Default 3.0.
-        
-        Returns:
-            (B, seq_length, feature_size + condition_dim) - Generated power + time features
+        Generate data with explicit sampler choice (ddpm or ddim)
         """
         if condition is not None:
             batch_size = condition.shape[0]
@@ -306,27 +303,32 @@ class Diffusion(nn.Module):
             seq_length = self.seq_length
             if batch_size is None:
                 raise ValueError("Either condition or batch_size must be provided")
-        
-        # Initialize noise for full dimensions (power + time features)
-        img = torch.randn(batch_size, seq_length, self.feature_size + self.condition_dim).to(condition.device)
-        
-        # Replace time feature part with actual conditions
-        img[:, :, self.feature_size:] = condition
-        
-        # 🚀 REAL-TIME PROGRESS MONITOR (For RTX 4090 Denoising)
-        from tqdm.auto import tqdm
-        pbar = tqdm(reversed(range(0, self.num_timesteps)), 
-                    total=self.num_timesteps, 
-                    desc='[Denoising Step]', 
-                    leave=False)
 
-        # Reverse diffusion process
-        for t in pbar:
-            img, _ = self.p_sample(img, t, guidance_scale=guidance_scale)
-            # Force time features to stay as conditions (prevent drift)
-            img[:, :, self.feature_size:] = condition
+        shape = (batch_size, seq_length, self.feature_size + self.condition_dim)
+
+        # 🚀 显式采样逻辑切换
+        if sampler == 'ddim':
+            # 模式 A: DDIM (Implicit ODE Trajectory)
+            print(f"✓ Using [DDIM] Sampler with {self.sampling_timesteps} steps")
+            return self.fast_sample(shape=shape, x_condition=condition, guidance_scale=guidance_scale)
         
-        return img  # (B, seq_length, feature_size + condition_dim)
+        else:
+            # 模式 B: DDPM (Standard Markovian Denoising)
+            print(f"✓ Using [DDPM] Sampler with {self.num_timesteps} steps")
+            img = torch.randn(batch_size, seq_length, self.feature_size + self.condition_dim).to(condition.device)
+            img[:, :, self.feature_size:] = condition
+            
+            from tqdm.auto import tqdm
+            pbar = tqdm(reversed(range(0, self.num_timesteps)), 
+                        total=self.num_timesteps, 
+                        desc=f'[DDPM {self.num_timesteps}-Step Rendering]', 
+                        leave=False)
+
+            for t in pbar:
+                img, _ = self.p_sample(img, t, guidance_scale=guidance_scale)
+                img[:, :, self.feature_size:] = condition
+            
+            return img
 
 
 

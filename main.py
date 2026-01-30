@@ -60,8 +60,9 @@ def parse_args():
                         choices=['random', 'ordered', 'ordered_non_overlapping'],
                         help='Sampling mode: random (default), ordered (sequential overlap), or ordered_non_overlapping (sequential non-overlap)')
 
-    parser.add_argument('--guidance_scale', type=float, default=3.0,
-                        help='Classifier-Free Guidance scale. 1.0 = standard, >1.0 = stronger conditioning.')
+    parser.add_argument('--guidance_scale', type=float, default=3.0, help='Guidance scale for Classifier-Free Guidance (default: 3.0)')
+    parser.add_argument('--sampling_timesteps', type=int, default=None, help='Number of sampling timesteps (default: None, use training steps)')
+    parser.add_argument('--sampler', type=str, default='ddpm', choices=['ddpm', 'ddim'], help='Sampler algorithm: ddpm or ddim (default: ddpm)')
 
     args = parser.parse_args()
     
@@ -118,6 +119,11 @@ def main():
 
     logger = Logger(args)
     logger.save_config(config)
+
+    # 🚀 DDIM SPEEDUP: Inject sampling_timesteps if specified in CLI
+    if args.sampling_timesteps is not None:
+        config['model']['params']['sampling_timesteps'] = args.sampling_timesteps
+        print(f"🚀 Speedup Mode Activated: Using DDIM with {args.sampling_timesteps} steps")
 
     model = instantiate_from_config(config['model']).to(device)
     
@@ -216,7 +222,8 @@ def main():
         
         # Call trainer.sample with updated arguments (1000 samples max per batch for 4090)
         samples = trainer.sample(num=num_samples, size_every=1000, shape=[dataset.window, dataset.var_num], 
-                                dataset=dataset, ordered=ordered, stride=stride, guidance_scale=args.guidance_scale)
+                                dataset=dataset, ordered=ordered, stride=stride, guidance_scale=args.guidance_scale,
+                                sampler=args.sampler)
         
         if dataset.auto_norm:
             # 1. Get shape information from generated samples

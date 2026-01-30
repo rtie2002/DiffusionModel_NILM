@@ -165,7 +165,7 @@ class Trainer(object):
         if self.logger is not None:
             self.logger.log_info('Training done, time: {:.2f}'.format(time.time() - tic))
 
-    def sample(self, num, size_every, shape=None, dataset=None, ordered=True, stride=1, guidance_scale=1.0):
+    def sample(self, num, size_every, shape=None, dataset=None, ordered=True, stride=1, guidance_scale=1.0, sampler='ddpm'):
         if self.logger is not None:
             tic = time.time()
             self.logger.log_info('Begin to sample...')
@@ -220,7 +220,7 @@ class Trainer(object):
                 # 🚀 RTX 4090 NATIVE SAMPLING BOOST: High-speed BF16
                 with torch.inference_mode():
                     with torch.amp.autocast('cuda', dtype=torch.bfloat16):
-                        sample = self.ema.ema_model.generate_with_conditions(conditions, guidance_scale=guidance_scale)
+                        sample = self.ema.ema_model.generate_with_conditions(conditions, guidance_scale=guidance_scale, sampler=sampler)
                 
                 # DIAGNOSTIC: Check the month of the first sample in this batch
                 first_window_month = conditions[0, 0, 7].item() # Month sin column
@@ -230,7 +230,7 @@ class Trainer(object):
                 # 🚀 RTX 4090 NATIVE SAMPLING BOOST: High-speed BF16
                 with torch.inference_mode():
                     with torch.amp.autocast('cuda', dtype=torch.bfloat16):
-                        sample = self.ema.ema_model.generate_mts(batch_size=windows_this_batch, guidance_scale=guidance_scale)
+                        sample = self.ema.ema_model.generate_mts(batch_size=windows_this_batch, guidance_scale=guidance_scale, sampler=sampler)
             
             # Use non_blocking to transfer results back to CPU
             samples = np.row_stack([samples, sample.detach().cpu().numpy()])
