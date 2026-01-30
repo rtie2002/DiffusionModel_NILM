@@ -179,18 +179,33 @@ class Diffusion(nn.Module):
 
         maybe_clip = partial(torch.clamp, min=-1., max=1.) if clip_x_start else identity
 
-        # 1. 获取条件预测
-        x_start_cond = self.output(x, t, padding_masks)
-        
         if guidance_scale == 1.0:
+            # 标准模式，一次预测
+            x_start_cond = self.output(x, t, padding_masks)
             x_start = x_start_cond
         else:
-            # 2. 获取无条件预测
+            # 🚀 RTX 4090 并行优化模式：一次 Forward 完成双路预测
+            # 1. 准备无条件输入
             x_uncond = x.clone()
-            x_uncond[:, :, self.feature_size:] = 0.0
-            x_start_uncond = self.output(x_uncond, t, padding_masks)
+            x_uncond[:, :, self.feature_size:] = 0.0 # 抹除时间标签
             
-            # 3. 动态平滑引导 (Adaptive CFG with Per-sample Dynamic Thresholding)
+            # 2. 拼接 Batch (B*2, L, 9)
+            # 这能最大化利用 4090 的并行算力
+            batched_input = torch.cat([x, x_uncond], dim=0)
+            batched_t = torch.cat([t, t], dim=0)
+            
+            if padding_masks is not None:
+                batched_masks = torch.cat([padding_masks, padding_masks], dim=0)
+            else:
+                batched_masks = None
+                
+            # 执行一次 Forward
+            out = self.output(batched_input, batched_t, batched_masks)
+            
+            # 3. 切分结果
+            x_start_cond, x_start_uncond = out.chunk(2, dim=0)
+            
+            # 4. 执行修正后的 Per-sample Dynamic Thresholding 引导
             x_start = x_start_cond.clone()
             p_cond = x_start_cond[:, :, :self.feature_size]
             p_uncond = x_start_uncond[:, :, :self.feature_size]
@@ -199,12 +214,9 @@ class Diffusion(nn.Module):
             w = guidance_scale - 1.0
             p_guided = p_cond + w * diff
             
-            # --- 🚀 修正版：逐样本波形质量保护 (Per-sample Thresholding) --- 
-            # 这里的 max_val 必须是针对每个 window 独立计算的 (dim=1, 2)
-            # 这样下午的小峰值就不会被早晚高峰的大尖峰给“吸走”能量
-            s = p_guided.abs().flatten(1).max(dim=1)[0] # (B,)
-            s = torch.clamp(s, min=1.0).view(-1, 1, 1)  # (B, 1, 1)
-            
+            # 逐样本质量保护
+            s = p_guided.abs().flatten(1).max(dim=1)[0]
+            s = torch.clamp(s, min=1.0).view(-1, 1, 1)
             p_guided = p_guided / s
             
             x_start[:, :, :self.feature_size] = p_guided
