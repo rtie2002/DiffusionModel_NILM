@@ -179,35 +179,25 @@ class Diffusion(nn.Module):
 
         maybe_clip = partial(torch.clamp, min=-1., max=1.) if clip_x_start else identity
 
-        # 1. 获取条件预测
-        x_start_cond = self.output(x, t, padding_masks)
-        
         if guidance_scale == 1.0:
-            x_start = x_start_cond
+            x_start = self.output(x, t, padding_masks)
         else:
-            # 2. 获取无条件预测
+            # 回归到你确认的最稳健的串行逻辑，不再尝试 Batch 拼接
+            x_start_cond = self.output(x, t, padding_masks)
             x_uncond = x.clone()
             x_uncond[:, :, self.feature_size:] = 0.0
             x_start_uncond = self.output(x_uncond, t, padding_masks)
             
-            # 3. 动态平滑引导 (Adaptive CFG with Per-sample Dynamic Thresholding)
             x_start = x_start_cond.clone()
             p_cond = x_start_cond[:, :, :self.feature_size]
             p_uncond = x_start_uncond[:, :, :self.feature_size]
             
-            diff = p_cond - p_uncond
             w = guidance_scale - 1.0
-            p_guided = p_cond + w * diff
+            p_guided = p_cond + w * (p_cond - p_uncond)
             
-            # --- 🚀 修正版：逐样本波形质量保护 (Per-sample Thresholding) --- 
-            # 这里的 max_val 必须是针对每个 window 独立计算的 (dim=1, 2)
-            # 这样下午的小峰值就不会被早晚高峰的大尖峰给“吸走”能量
-            s = p_guided.abs().flatten(1).max(dim=1)[0] # (B,)
-            s = torch.clamp(s, min=1.0).view(-1, 1, 1)  # (B, 1, 1)
-            
-            p_guided = p_guided / s
-            
-            x_start[:, :, :self.feature_size] = p_guided
+            s = p_guided.abs().flatten(1).max(dim=1)[0]
+            s = torch.clamp(s, min=1.0).view(-1, 1, 1)
+            x_start[:, :, :self.feature_size] = p_guided / s
 
         # 采样优化：在这里进行一次平滑，防止波形“断裂”
         x_start = maybe_clip(x_start)
@@ -249,9 +239,14 @@ class Diffusion(nn.Module):
         return img
 
     @torch.no_grad()
-    def fast_sample(self, shape, clip_denoised=True, guidance_scale=1.0):
+    def fast_sample(self, shape, x_condition=None, clip_denoised=True, guidance_scale=1.0):
         batch, device, total_timesteps, sampling_timesteps, eta = \
             shape[0], self.betas.device, self.num_timesteps, self.sampling_timesteps, self.eta
+        
+        # 准备条件
+        if x_condition is not None:
+             # Ensure x_condition is on correct device
+             x_condition = x_condition.to(device)
 
         # [-1, 0, 1, 2, ..., T-1] when sampling_timesteps == total_timesteps
         times = torch.linspace(-1, total_timesteps - 1, steps=sampling_timesteps + 1)
@@ -259,6 +254,9 @@ class Diffusion(nn.Module):
         times = list(reversed(times.int().tolist()))
         time_pairs = list(zip(times[:-1], times[1:]))  # [(T-1, T-2), (T-2, T-3), ..., (1, 0), (0, -1)]
         img = torch.randn(shape, device=device)
+        
+        if x_condition is not None:
+            img[:, :, self.feature_size:] = x_condition
 
         for time, time_next in tqdm(time_pairs, desc='sampling loop time step'):
             time_cond = torch.full((batch,), time, device=device, dtype=torch.long)
@@ -276,6 +274,10 @@ class Diffusion(nn.Module):
             img = x_start * alpha_next.sqrt() + \
                   c * pred_noise + \
                   sigma * noise
+                  
+            # 🚀 强制校准：防止 DDIM 轨迹偏离时间约束
+            if x_condition is not None:
+                img[:, :, self.feature_size:] = x_condition
 
         return img
 
