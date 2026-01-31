@@ -26,7 +26,7 @@ processing:
   # Settings for multivariate_ukdale_preprocess_testing.py
   testing:
     validation_percent: 0  # Typically 0 for testing script
-    testing_percent: 0   # Use 100% of the loaded data for generating test set
+    testing_percent: 100   # Use 100% of the loaded data for generating test set
 
 
 # ====================================================================================================
