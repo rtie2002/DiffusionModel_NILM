@@ -7,7 +7,7 @@ param (
     [int]$SampleNum = 0, # Default to 0 to trigger automatic calculation from CSV
     [int]$Gpu = 0,
     [float]$Proportion = 1.0, # Added: Use to reduce data size if RAM is limited (e.g., 0.5)
-    [int]$SamplingSteps = 100, # Default to 100 steps (activates DDIM if < 500)
+    [int]$SamplingSteps = 2000, # Default to 100 steps (activates DDIM if < 500)
     [float]$GuidanceScale = 2.5 # Default Guidance Scale
 )
 
