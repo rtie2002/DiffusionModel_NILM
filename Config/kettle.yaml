@@ -17,6 +17,11 @@ model:
     resid_pd: 0.0
     kernel_size: 1
     padding_size: 0
+    
+    # ========== STATE-RATIO & GRADIENT LOSS ==========
+    state_ratio_weight: 1.0  # Kettle has sparse ON periods, needs strong penalty
+    on_threshold: -0.7       # Higher threshold for high power peaks
+    gradient_weight: 0.8     # Very sharp edges (rectangular pulses) needed
 
 solver:
   base_lr: 1.0e-4      # Increased to match larger dataset and scheduler

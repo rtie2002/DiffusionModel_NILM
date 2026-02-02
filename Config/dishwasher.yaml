@@ -17,6 +17,30 @@ model:
     resid_pd: 0.0
     kernel_size: 1
     padding_size: 0
+    
+    # ========== STATE-RATIO LOSS (Fix "too few ON periods" problem) ==========
+    # Forces the model to generate the correct proportion of ON/OFF periods
+    # while still training on the FULL dataset to learn proper temporal patterns.
+    # 
+    # state_ratio_weight: Strength of the ON-ratio loss (0.0 = disabled, 1.0 = default)
+    #   - Higher values force stricter adherence to real ON-ratio
+    #   - Recommended: 0.5-2.0 for appliances with sparse ON periods
+    #
+    # on_threshold: Value in normalized [-1,1] space to consider "ON"
+    #   - Dishwasher threshold: 20W real / 3964W max ≈ 0.5% → maps to ~-0.99 in [-1,1]
+    #   - A value of -0.8 means "consider ON if power > 10% of max"
+    # ==========================================================================
+    state_ratio_weight: 1.0  # Enable ON-ratio loss
+    on_threshold: -0.8       # Consider "ON" if normalized value > -0.8 (≈10% of max power)
+    
+    # ========== GRADIENT LOSS (Fix "blurry waveforms" problem) ==========
+    # Forces sharper ON/OFF transitions by comparing temporal derivatives.
+    # 
+    # gradient_weight: Strength of edge sharpness loss (0.0 = disabled, 0.5 = default)
+    #   - Higher values produce sharper but potentially noisier edges
+    #   - Recommended: 0.3-1.0 for appliances with sharp rectangular pulses
+    # ====================================================================
+    gradient_weight: 0.5     # Enable gradient/edge sharpness loss
 
 solver:
   base_lr: 1.0e-4      # Increased to match larger dataset and scheduler

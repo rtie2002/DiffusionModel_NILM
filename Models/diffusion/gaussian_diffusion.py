@@ -54,9 +54,17 @@ class Diffusion(nn.Module):
             use_ff=True,
             reg_weight=None,
             cond_drop_prob=0.1, # NEW: Probability of dropping conditioning features for CFG
+            state_ratio_weight=1.0, # NEW: Weight for ON-ratio loss (fixes "too few ON periods")
+            on_threshold=0.1, # NEW: Threshold in normalized [-1,1] space to consider "ON" (≈10% of max power)
+            gradient_weight=0.5, # NEW: Weight for gradient/edge sharpness loss (fixes blurry transitions)
             **kwargs
     ):
         super(Diffusion, self).__init__()
+        
+        # NEW: State-aware training parameters
+        self.state_ratio_weight = state_ratio_weight
+        self.on_threshold = on_threshold  # In [-1, 1] normalized space
+        self.gradient_weight = gradient_weight  # Edge sharpness loss weight
 
         self.eta, self.use_ff = eta, use_ff
         self.seq_length = seq_length
@@ -394,6 +402,59 @@ class Diffusion(nn.Module):
             fourier_loss = self.loss_fn(torch.real(fft1), torch.real(fft2), reduction='none')\
                            + self.loss_fn(torch.imag(fft1), torch.imag(fft2), reduction='none')
             train_loss +=  self.ff_weight * fourier_loss
+        
+        # ========================================================================
+        # GRADIENT LOSS: Force model to produce sharp ON/OFF transitions
+        # ========================================================================
+        # This addresses the "blurry waveform" problem by comparing the temporal
+        # derivatives (rate of change) between prediction and target.
+        # Sharp transitions in real NILM data have large gradients at edges.
+        # ========================================================================
+        if self.gradient_weight > 0:
+            # Compute temporal gradient (difference between adjacent timesteps)
+            # Shape: (B, L-1, 1)
+            pred_grad = model_out_power[:, 1:, :] - model_out_power[:, :-1, :]
+            target_grad = target[:, 1:, :] - target[:, :-1, :]
+            
+            # L1 loss on gradients (penalize when edges are less sharp)
+            gradient_loss = self.loss_fn(pred_grad, target_grad, reduction='none')
+            
+            # Add to training loss (with appropriate weighting)
+            train_loss[:, 1:, :] += self.gradient_weight * gradient_loss
+        
+        # ========================================================================
+        # STATE-RATIO LOSS: Force model to generate correct ON/OFF period ratio
+        # ========================================================================
+        # This addresses the "too few ON periods" problem by explicitly penalizing
+        # when the predicted ON-ratio differs from the real data's ON-ratio.
+        # 
+        # KEY INSIGHT: We train on the FULL dataset (including OFF periods) to learn
+        # proper temporal patterns, but add this loss to prevent mode collapse toward OFF.
+        # ========================================================================
+        if self.state_ratio_weight > 0:
+            # Use soft sigmoid for differentiable thresholding (smoother gradients)
+            # temperature controls sharpness: lower = sharper but less stable
+            temperature = 0.1
+            
+            # Compute soft ON-probability for each timestep
+            # sigmoid((x - threshold) / temperature) -> 1 if ON, 0 if OFF
+            pred_on_soft = torch.sigmoid((model_out_power - self.on_threshold) / temperature)
+            target_on_soft = torch.sigmoid((target - self.on_threshold) / temperature)
+            
+            # Compute ON-ratio per sample (percentage of timesteps that are ON)
+            # Shape: (B, 1)
+            pred_on_ratio = pred_on_soft.mean(dim=(1, 2))  # Average over L and feature dims
+            target_on_ratio = target_on_soft.mean(dim=(1, 2))
+            
+            # L1 loss on ratios (penalize when ON-ratio differs)
+            state_ratio_loss = F.l1_loss(pred_on_ratio, target_on_ratio)
+            
+            # Scale and add to training loss
+            # Note: This is a scalar loss (already reduced), so we add it after reduction
+            train_loss = reduce(train_loss, 'b ... -> b (...)', 'mean')
+            train_loss = train_loss * extract(self.loss_weight, t, train_loss.shape)
+            
+            return train_loss.mean() + self.state_ratio_weight * state_ratio_loss
         
         train_loss = reduce(train_loss, 'b ... -> b (...)', 'mean')
         train_loss = train_loss * extract(self.loss_weight, t, train_loss.shape)

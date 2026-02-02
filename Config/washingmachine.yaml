@@ -17,6 +17,11 @@ model:
     resid_pd: 0.0
     kernel_size: 1
     padding_size: 0
+    
+    # ========== STATE-RATIO & GRADIENT LOSS ==========
+    state_ratio_weight: 1.5  # Crucial for learning long complex cycles
+    on_threshold: -0.8       # Standard threshold
+    gradient_weight: 0.3     # Patterns can be complex, not just rectangular
 
 solver:
   base_lr: 1.0e-4      # Increased to match larger dataset and scheduler

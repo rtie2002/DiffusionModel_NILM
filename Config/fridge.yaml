@@ -17,6 +17,11 @@ model:
     resid_pd: 0.0
     kernel_size: 1
     padding_size: 0
+    
+    # ========== STATE-RATIO & GRADIENT LOSS ==========
+    state_ratio_weight: 0.5  # Fridge runs continuously, less penalty needed
+    on_threshold: -0.9       # Lower threshold as fridge power is consistent but can be low relative to max
+    gradient_weight: 0.2     # Soft edges are acceptable for fridge compressor cycles
 
 solver:
   base_lr: 1.0e-4      # Increased to match larger dataset and scheduler

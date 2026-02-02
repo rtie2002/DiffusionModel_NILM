@@ -17,6 +17,11 @@ model:
     resid_pd: 0.0
     kernel_size: 1
     padding_size: 0
+    
+    # ========== STATE-RATIO & GRADIENT LOSS ==========
+    state_ratio_weight: 1.0  # Microwave has sparse usage
+    on_threshold: -0.8       # Standard threshold
+    gradient_weight: 0.5     # Sharp transitions
 
 solver:
   base_lr: 1.0e-4      # Increased to match larger dataset and scheduler
