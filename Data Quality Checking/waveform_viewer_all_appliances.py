@@ -1,15 +1,15 @@
 """
 Waveform Viewer for ALL Appliances - Real vs Synthetic NILM Data
 
-Displays all 5 appliances simultaneously in a grid layout with
-overlaid real (red) and synthetic (blue) waveforms for comparison.
+Displays all 5 appliances simultaneously in a SPLIT grid layout:
+- Top Row: Real Data (Red)
+- Bottom Row: Synthetic Data (Blue)
 
 Features:
-- All appliances displayed at once (5 subplots)
-- Overlaid real vs synthetic waveforms
+- 2x5 Grid Layout (10 plots)
+- Vertical alignment for direct comparison
+- Synchronized Y-axis scales for fair comparison
 - Interactive navigation (Previous/Next/Random)
-- Zoom In/Out controls
-- Save figure option
 """
 
 import os
@@ -26,7 +26,7 @@ REAL_DATA_DIR = os.path.join(BASE_DIR, "Data", "datasets", "real_distributions")
 SYNTHETIC_DATA_DIR = os.path.join(BASE_DIR, "Data", "datasets", "synthetic_processed")
 
 APPLIANCES = ["dishwasher", "fridge", "kettle", "microwave", "washingmachine"]
-APPLIANCE_LABELS = ["(a) Dishwasher", "(b) Fridge", "(c) Kettle", "(d) Microwave", "(e) Washing Machine"]
+APPLIANCE_LABELS = ["Dishwasher", "Fridge", "Kettle", "Microwave", "Washing Machine"]
 WINDOW_SIZE = 480  # Default window size (8 hours at 1-min resolution)
 
 
@@ -35,8 +35,10 @@ class AllAppliancesViewer:
         self.window_size = WINDOW_SIZE
         self.start_idx = 0
         self.data = {}  # {appliance: {'real': df, 'synthetic': df}}
+        self.y_limits = {}  # {appliance: max_val} to sync y-axis
         self.fig = None
-        self.axes = None
+        self.axes_real = []
+        self.axes_synth = []
         self.buttons = []
         
     def load_all_data(self):
@@ -50,20 +52,28 @@ class AllAppliancesViewer:
             synthetic_file = os.path.join(SYNTHETIC_DATA_DIR, f"{appliance}_multivariate.csv")
             
             self.data[appliance] = {'real': None, 'synthetic': None}
+            max_val = 0
             
             # Load real data
             if os.path.exists(real_file):
-                self.data[appliance]['real'] = pd.read_csv(real_file)
-                print(f"  {appliance:15} - Real: {len(self.data[appliance]['real']):>8} samples", end="")
+                df = pd.read_csv(real_file)
+                self.data[appliance]['real'] = df
+                max_val = max(max_val, df[appliance].max())
+                print(f"  {appliance:15} - Real: {len(df):>8} samples", end="")
             else:
                 print(f"  {appliance:15} - Real: NOT FOUND", end="")
                 
             # Load synthetic data
             if os.path.exists(synthetic_file):
-                self.data[appliance]['synthetic'] = pd.read_csv(synthetic_file)
-                print(f" | Synthetic: {len(self.data[appliance]['synthetic']):>8} samples")
+                df = pd.read_csv(synthetic_file)
+                self.data[appliance]['synthetic'] = df
+                max_val = max(max_val, df[appliance].max())
+                print(f" | Synthetic: {len(df):>8} samples")
             else:
                 print(f" | Synthetic: NOT FOUND")
+            
+            # Store max value for y-axis scaling (add 10% buffering)
+            self.y_limits[appliance] = max_val * 1.1
         
         print(f"\n{'='*60}")
         print("   All data loaded successfully!")
@@ -77,84 +87,73 @@ class AllAppliancesViewer:
         return data.iloc[start_idx:end_idx]
     
     def plot_all_appliances(self):
-        """Create a grid of plots showing all appliances with overlaid waveforms."""
+        """Create a 2x5 grid of plots (Top: Real, Bottom: Synthetic)."""
         # Close existing figure if any
         if self.fig is not None:
             plt.close(self.fig)
         
-        # Create figure with 2 rows x 3 columns grid (5 appliances + 1 for controls info)
-        self.fig = plt.figure(figsize=(18, 10))
-        self.fig.suptitle(f'Real vs Synthetic Waveform Comparison - All Appliances\n'
+        # Create figure with 2 rows x 5 columns
+        self.fig = plt.figure(figsize=(20, 10))
+        self.fig.suptitle(f'Real (Top) vs Synthetic (Bottom) Comparison\n'
                          f'(Samples {self.start_idx} to {self.start_idx + self.window_size})', 
-                         fontsize=14, fontweight='bold')
+                         fontsize=16, fontweight='bold')
         
-        # Create 2x3 grid of subplots
-        self.axes = []
-        positions = [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1)]  # Grid positions for 5 appliances
+        self.axes_real = []
+        self.axes_synth = []
+        
+        # Create subplots
+        # Row 1 (Top): Real Data
+        # Row 2 (Bottom): Synthetic Data
         
         for i, (appliance, label) in enumerate(zip(APPLIANCES, APPLIANCE_LABELS)):
-            row, col = positions[i]
-            ax = self.fig.add_subplot(2, 3, i + 1)
-            self.axes.append(ax)
+            # Real Plot (Top Row)
+            ax_real = self.fig.add_subplot(2, 5, i + 1)
+            self.axes_real.append(ax_real)
             
-            # Get data for this appliance
+            # Synthetic Plot (Bottom Row)
+            ax_synth = self.fig.add_subplot(2, 5, i + 6)
+            self.axes_synth.append(ax_synth)
+            
+            # Common Y-limit for this appliance
+            y_max = self.y_limits.get(appliance, 1.0)
+            
+            # --- Plot Real Data ---
             real_data = self.data[appliance]['real']
-            synth_data = self.data[appliance]['synthetic']
-            
-            power_col = appliance
-            
             real_window = self.get_window_data(real_data, self.start_idx, self.window_size)
+            
+            if real_window is not None and len(real_window) > 0:
+                vals = real_window[appliance].values
+                ax_real.plot(np.arange(len(vals)), vals, color='red', linewidth=1.0)
+                ax_real.text(0.05, 0.9, f"Mean: {np.mean(vals):.3f}", transform=ax_real.transAxes, fontsize=8)
+            
+            ax_real.set_title(f"{label}\n(Real Origin)", fontsize=10, fontweight='bold', color='darkred')
+            ax_real.set_ylim(0, y_max)
+            ax_real.grid(True, alpha=0.3)
+            ax_real.set_xticks([]) # Hide x-ticks for top row
+            
+            # --- Plot Synthetic Data ---
+            synth_data = self.data[appliance]['synthetic']
             synth_window = self.get_window_data(synth_data, self.start_idx, self.window_size)
             
-            # Plot both waveforms overlaid
-            if real_window is not None and len(real_window) > 0:
-                real_power = real_window[power_col].values
-                time_idx = np.arange(len(real_power))
-                ax.plot(time_idx, real_power, color='red', linewidth=1.0, 
-                       label='Real', alpha=0.9)
-            
             if synth_window is not None and len(synth_window) > 0:
-                synth_power = synth_window[power_col].values
-                time_idx = np.arange(len(synth_power))
-                ax.plot(time_idx, synth_power, color='blue', linewidth=1.0, 
-                       label='Synthetic', alpha=0.8)
+                vals = synth_window[appliance].values
+                ax_synth.plot(np.arange(len(vals)), vals, color='blue', linewidth=1.0)
+                ax_synth.text(0.05, 0.9, f"Mean: {np.mean(vals):.3f}", transform=ax_synth.transAxes, fontsize=8)
             
-            # Style the subplot
-            ax.set_xlabel('Time (samples)', fontsize=9)
-            ax.set_ylabel('Power', fontsize=9)
-            ax.set_title(label, fontsize=11, fontweight='bold')
-            ax.legend(loc='upper right', fontsize=8)
-            ax.grid(True, alpha=0.3, linestyle='--')
-            ax.set_xlim(0, self.window_size)
-        
-        # Add info panel in the 6th subplot position
-        ax_info = self.fig.add_subplot(2, 3, 6)
-        ax_info.axis('off')
-        info_text = (
-            "Controls:\n"
-            "─────────────────────\n"
-            "← Previous: Move back\n"
-            "→ Next: Move forward\n"
-            "🎲 Random: Random position\n"
-            "Zoom In: Smaller window\n"
-            "Zoom Out: Larger window\n"
-            "💾 Save: Save as PNG\n"
-            "\n"
-            "Legend:\n"
-            "─────────────────────\n"
-            "🔴 Red = Real Data\n"
-            "🔵 Blue = Synthetic Data\n"
-            f"\nWindow Size: {self.window_size} samples\n"
-            f"Start Index: {self.start_idx}"
-        )
-        ax_info.text(0.1, 0.9, info_text, transform=ax_info.transAxes, fontsize=11,
-                    verticalalignment='top', fontfamily='monospace',
-                    bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.9, edgecolor='gray'))
+            ax_synth.set_title(f"(Synthetic)", fontsize=10, fontweight='bold', color='darkblue')
+            ax_synth.set_ylim(0, y_max) # Sync Y-axis with Real
+            ax_synth.grid(True, alpha=0.3)
+            ax_synth.set_xlabel("Time (samples)", fontsize=8)
+            
+            # Add Y-label only to the first column
+            if i == 0:
+                ax_real.set_ylabel("Power", fontsize=10)
+                ax_synth.set_ylabel("Power", fontsize=10)
         
         # Add navigation buttons
         self._add_navigation_buttons()
         
-        plt.tight_layout(rect=[0, 0.08, 1, 0.95])
+        plt.tight_layout(rect=[0, 0.08, 1, 0.92])
         plt.show()
     
     def _add_navigation_buttons(self):
@@ -192,7 +191,7 @@ class AllAppliancesViewer:
             self._update_all_plots()
         
         def on_random(event):
-            # Find the min length across all appliances (to ensure valid data for all)
+            # Find the min length across all appliances
             min_len = float('inf')
             for appliance in APPLIANCES:
                 if self.data[appliance]['real'] is not None:
@@ -205,15 +204,15 @@ class AllAppliancesViewer:
                 self._update_all_plots()
         
         def on_zoom_in(event):
-            self.window_size = max(60, self.window_size // 2)  # Min 1 hour
+            self.window_size = max(60, self.window_size // 2)
             self._update_all_plots()
         
         def on_zoom_out(event):
-            self.window_size = min(2880, self.window_size * 2)  # Max 2 days
+            self.window_size = min(2880, self.window_size * 2)
             self._update_all_plots()
         
         def on_save(event):
-            filename = f"all_appliances_comparison_{self.start_idx}_{self.window_size}.png"
+            filename = f"split_comparison_{self.start_idx}_{self.window_size}.png"
             save_path = os.path.join(BASE_DIR, "Data Quality Checking", filename)
             self.fig.savefig(save_path, dpi=150, bbox_inches='tight')
             print(f"Saved: {save_path}")
@@ -225,64 +224,70 @@ class AllAppliancesViewer:
         btn_zoom_out.on_clicked(on_zoom_out)
         btn_save.on_clicked(on_save)
         
-        # Store button references to prevent garbage collection
+        # Store button references
         self.buttons = [btn_prev, btn_next, btn_random, btn_zoom_in, btn_zoom_out, btn_save]
     
     def _update_all_plots(self):
-        """Update all subplot plots with current settings."""
-        for i, (appliance, label) in enumerate(zip(APPLIANCES, APPLIANCE_LABELS)):
-            ax = self.axes[i]
-            ax.clear()
+        """Update all 10 subplots."""
+        for i, appliance in enumerate(APPLIANCES):
+            ax_real = self.axes_real[i]
+            ax_synth = self.axes_synth[i]
             
-            # Get data for this appliance
+            ax_real.clear()
+            ax_synth.clear()
+            
+            y_max = self.y_limits.get(appliance, 1.0)
+            label = APPLIANCE_LABELS[i]
+            
+            # --- Real ---
             real_data = self.data[appliance]['real']
-            synth_data = self.data[appliance]['synthetic']
-            
-            power_col = appliance
-            
             real_window = self.get_window_data(real_data, self.start_idx, self.window_size)
+            
+            if real_window is not None and len(real_window) > 0:
+                vals = real_window[appliance].values
+                ax_real.plot(np.arange(len(vals)), vals, color='red', linewidth=1.0)
+                ax_real.text(0.05, 0.9, f"Mean: {np.mean(vals):.3f}", transform=ax_real.transAxes, fontsize=8)
+            
+            ax_real.set_title(f"{label}\n(Real Origin)", fontsize=10, fontweight='bold', color='darkred')
+            ax_real.set_ylim(0, y_max)
+            ax_real.grid(True, alpha=0.3)
+            ax_real.set_xticks([])
+            
+            # --- Synthetic ---
+            synth_data = self.data[appliance]['synthetic']
             synth_window = self.get_window_data(synth_data, self.start_idx, self.window_size)
             
-            # Plot both waveforms overlaid
-            if real_window is not None and len(real_window) > 0:
-                real_power = real_window[power_col].values
-                time_idx = np.arange(len(real_power))
-                ax.plot(time_idx, real_power, color='red', linewidth=1.0, 
-                       label='Real', alpha=0.9)
-            
             if synth_window is not None and len(synth_window) > 0:
-                synth_power = synth_window[power_col].values
-                time_idx = np.arange(len(synth_power))
-                ax.plot(time_idx, synth_power, color='blue', linewidth=1.0, 
-                       label='Synthetic', alpha=0.8)
+                vals = synth_window[appliance].values
+                ax_synth.plot(np.arange(len(vals)), vals, color='blue', linewidth=1.0)
+                ax_synth.text(0.05, 0.9, f"Mean: {np.mean(vals):.3f}", transform=ax_synth.transAxes, fontsize=8)
             
-            # Style the subplot
-            ax.set_xlabel('Time (samples)', fontsize=9)
-            ax.set_ylabel('Power', fontsize=9)
-            ax.set_title(label, fontsize=11, fontweight='bold')
-            ax.legend(loc='upper right', fontsize=8)
-            ax.grid(True, alpha=0.3, linestyle='--')
-            ax.set_xlim(0, self.window_size)
-        
-        # Update title
-        self.fig.suptitle(f'Real vs Synthetic Waveform Comparison - All Appliances\n'
+            ax_synth.set_title(f"(Synthetic)", fontsize=10, fontweight='bold', color='darkblue')
+            ax_synth.set_ylim(0, y_max)
+            ax_synth.grid(True, alpha=0.3)
+            ax_synth.set_xlabel("Time (samples)", fontsize=8)
+            
+            if i == 0:
+                ax_real.set_ylabel("Power", fontsize=10)
+                ax_synth.set_ylabel("Power", fontsize=10)
+
+        self.fig.suptitle(f'Real (Top) vs Synthetic (Bottom) Comparison\n'
                          f'(Samples {self.start_idx} to {self.start_idx + self.window_size})', 
-                         fontsize=14, fontweight='bold')
-        
+                         fontsize=16, fontweight='bold')
         self.fig.canvas.draw_idle()
 
 
 def main():
-    """Main function to run the all-appliances viewer."""
+    """Main function."""
     print("\n" + "=" * 60)
-    print("   NILM Waveform Viewer - ALL APPLIANCES")
-    print("   Real vs Synthetic Data Comparison (Overlaid)")
+    print("   NILM Waveform Viewer - SPLIT VIEW")
+    print("   Real (Top) vs Synthetic (Bottom)")
     print("=" * 60)
     
     viewer = AllAppliancesViewer()
     viewer.load_all_data()
     
-    # Parse command line arguments if provided
+    # Parse command line arguments
     if len(sys.argv) > 1:
         try:
             viewer.start_idx = int(sys.argv[1])
@@ -298,7 +303,6 @@ def main():
     print(f"\nStarting viewer with:")
     print(f"  - Start Index: {viewer.start_idx}")
     print(f"  - Window Size: {viewer.window_size} samples")
-    print("\nUse the buttons to navigate, zoom, and save figures.")
     
     viewer.plot_all_appliances()
 
