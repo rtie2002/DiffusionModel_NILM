@@ -121,12 +121,22 @@ def main():
             last_real_p = None
             last_fake_p = None
 
-            for real_p, _ in train_loader:
+            for i, (real_p, _) in enumerate(train_loader):
                 real_p = real_p.to(device); bs = real_p.size(0)
 
                 # Train Discriminator
                 opt_D.zero_grad()
                 z = torch.randn(bs, 100).to(device); fake_p = G(z)
+                
+                # DEBUG: Check shapes and contents once
+                if epoch == 1 and i == 0:
+                     print(f"DEBUG: real_p shape: {real_p.shape}")
+                     print(f"DEBUG: fake_p shape: {fake_p.shape}")
+                     
+                if torch.isnan(fake_p).any():
+                    print(f"❌ Error: Generator produced NaNs at epoch {epoch}!")
+                    break
+
                 loss_d = (criterion(D(real_p), torch.full((bs,1), 0.9).to(device)) + criterion(D(fake_p.detach()), torch.zeros(bs,1).to(device))) / 2
                 loss_d.backward(); opt_D.step()
 
