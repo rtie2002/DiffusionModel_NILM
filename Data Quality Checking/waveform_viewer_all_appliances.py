@@ -21,7 +21,10 @@ from matplotlib.widgets import Button
 import random
 
 # ==================== Configuration ====================
-BASE_DIR = r"C:\Users\Raymond Tie\Desktop\DiffusionModel_NILM"
+# Using relative paths for better portability across different machines
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(SCRIPT_DIR)  # Project root
+
 REAL_DATA_DIR = os.path.join(BASE_DIR, "Data", "datasets", "real_distributions")
 SYNTHETIC_DATA_DIR = os.path.join(BASE_DIR, "Data", "datasets", "synthetic_processed")
 
