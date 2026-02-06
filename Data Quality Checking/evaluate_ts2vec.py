@@ -42,8 +42,12 @@ except ImportError:
 
 # ==================== Configuration ====================
 REAL_DATA_DIR = os.path.join(PROJECT_ROOT, "Data", "datasets", "real_distributions")
-SYNTHETIC_DATA_DIR = os.path.join(PROJECT_ROOT, "Data", "datasets", "synthetic_processed")
-RESULTS_DIR = os.path.join(PROJECT_ROOT, "Data Quality Checking", "ts2vec_results")
+
+# Allow override via environment variables for comparing different baselines
+SYNTHETIC_DATA_DIR = os.environ.get('SYNTHETIC_DATA_DIR_OVERRIDE', 
+                                     os.path.join(PROJECT_ROOT, "Data", "datasets", "synthetic_processed"))
+RESULTS_DIR = os.environ.get('RESULTS_DIR_OVERRIDE',
+                              os.path.join(PROJECT_ROOT, "Data Quality Checking", "ts2vec_results"))
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
 APPLIANCES = ["dishwasher", "fridge", "kettle", "microwave", "washingmachine"]
@@ -113,7 +117,7 @@ def train_ts2vec(train_data, input_dims, output_dims=320, device='cuda'):
     )
     
     print("Training TS2Vec...")
-    loss_log = model.fit(train_data, n_epochs=20, verbose=True)
+    loss_log = model.fit(train_data, n_epochs=100, verbose=True)
     return model, loss_log
 
 def calculate_fid(real_embeddings, synth_embeddings):
