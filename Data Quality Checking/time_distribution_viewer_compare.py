@@ -37,9 +37,12 @@ plt.rcParams.update({
     'axes.axisbelow': True,
 })
 
-# Data folder paths
-REAL_DATA_FOLDER = r"C:\Users\Raymond Tie\Desktop\DiffusionModel_NILM\Data\datasets\real_distributions"
-SYNTHETIC_DATA_FOLDER = r"C:\Users\Raymond Tie\Desktop\DiffusionModel_NILM\Data\datasets\synthetic_processed"
+# Data folder paths using relative paths for cross-device compatibility
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+
+REAL_DATA_FOLDER = os.path.join(PROJECT_ROOT, "Data", "datasets", "real_distributions")
+SYNTHETIC_DATA_FOLDER = os.path.join(PROJECT_ROOT, "Data", "datasets", "synthetic_processed")
 
 # Appliance names (order for display)
 APPLIANCES = ['dishwasher', 'fridge', 'kettle', 'microwave', 'washingmachine']
