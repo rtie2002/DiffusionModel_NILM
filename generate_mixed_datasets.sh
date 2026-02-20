@@ -51,21 +51,25 @@ for APPLIANCE in "${APPLIANCES[@]}"; do
             --no-shuffle
 
         # 2. Shuffled Cases (Various Window Sizes)
-        # ----------------------------------------------------------------
-        for window in "${WINDOW_SIZES[@]}"; do
-            echo "[Processing] $APPLIANCE | Mode: Shuffled | Window: $window | Injection: ${REAL_ROWS}+${syn_rows}"
-            
-            # Generate suffix like: 200k+20k_shuffled_w10
-            SUFFIX="${REAL_K}k+${SYN_K}k_shuffled_w${window}"
-            
-            python mix_training_data_multivariate.py \
-                --appliance "$APPLIANCE" \
-                --real_rows $REAL_ROWS \
-                --synthetic_rows $syn_rows \
-                --suffix "$SUFFIX" \
-                --shuffle \
-                --window_size $window
-        done
+        # Skip shuffling if there is no synthetic data (Baseline Case)
+        if [ "$syn_rows" -gt 0 ]; then
+            for window in "${WINDOW_SIZES[@]}"; do
+                echo "[Processing] $APPLIANCE | Mode: Shuffled | Window: $window | Injection: ${REAL_ROWS}+${syn_rows}"
+                
+                # Generate suffix like: 200k+20k_shuffled_w10
+                SUFFIX="${REAL_K}k+${SYN_K}k_shuffled_w${window}"
+                
+                python mix_training_data_multivariate.py \
+                    --appliance "$APPLIANCE" \
+                    --real_rows $REAL_ROWS \
+                    --synthetic_rows $syn_rows \
+                    --suffix "$SUFFIX" \
+                    --shuffle \
+                    --window_size $window
+            done
+        else
+            echo "[Skipping] Shuffled modes for $APPLIANCE (Zero synthetic rows)"
+        fi
     done
 done
 
