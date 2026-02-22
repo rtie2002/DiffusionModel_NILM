@@ -383,9 +383,10 @@ else:
 if not os.path.exists(save_name):
         os.makedirs(save_name)
 
-np.save('D:/Diffusion-TS-main/AugLPN_NILM-main/results/EASYS2S/draw/'+f'20-{applianceName}pred.npy', savepred)
-np.save('D:/Diffusion-TS-main/AugLPN_NILM-main/results/EASYS2S/draw/'+f'{applianceName}groundtruth.npy', savegt)
-np.save('D:/Diffusion-TS-main/AugLPN_NILM-main/results/EASYS2S/draw/'+f'{applianceName}groundmains.npy', savemains)
+# Removed hardcoded D:/ paths as they cause crashes on Linux
+# np.save('D:/Diffusion-TS-main/AugLPN_NILM-main/results/EASYS2S/draw/'+f'20-{applianceName}pred.npy', savepred)
+# np.save('D:/Diffusion-TS-main/AugLPN_NILM-main/results/EASYS2S/draw/'+f'{applianceName}groundtruth.npy', savegt)
+# np.save('D:/Diffusion-TS-main/AugLPN_NILM-main/results/EASYS2S/draw/'+f'{applianceName}groundmains.npy', savemains)
 
 
 

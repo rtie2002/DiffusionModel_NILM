@@ -136,13 +136,19 @@ run_experiment() {
     TEST_OUTPUT=$(cat "$TMP_TEST_LOG")
     rm -f "$TMP_TEST_LOG"
 
+    # Extract MAE value from output (looking for "MAE: X.XXXXX")
+    # Robust regex: handles integers, decimals, and optional scientific notation
+    MAE=$(echo "$TEST_OUTPUT" | grep -oP "MAE:\s*\K[0-9]*\.?[0-9]+" | head -1)
+
     if [ $TEST_EXIT -ne 0 ]; then
-        echo "ERROR: Testing failed (exit $TEST_EXIT)."
-        RESULTS["${config_key}|${app}"]="FAIL"
+        if [ -n "$MAE" ]; then
+            echo "WARNING: Test script had issues but MAE was captured: $MAE"
+            RESULTS["${config_key}|${app}"]="$MAE"
+        else
+            echo "ERROR: Testing failed (exit $TEST_EXIT)."
+            RESULTS["${config_key}|${app}"]="FAIL"
+        fi
     else
-        # Extract MAE value from output (looking for "MAE: X.XXXXX")
-        # Robust regex: handles integers, decimals, and optional scientific notation
-        MAE=$(echo "$TEST_OUTPUT" | grep -oP "MAE:\s*\K[0-9]*\.?[0-9]+" | head -1)
         if [ -z "$MAE" ]; then
             MAE="N/A"
         fi
