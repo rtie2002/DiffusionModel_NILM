@@ -147,6 +147,42 @@ run_experiment() {
 }
 
 # ==============================================================================
+# --- Helper: Print current MAE Summary Table ---
+print_summary_table() {
+    local col_w=14   # column width per appliance
+    echo ""
+    echo "================================================================"
+    echo "  MAE SUMMARY TABLE (Current Progress)"
+    echo "================================================================"
+
+    # Header row
+    local header="Configuration                  "
+    for app in "${APPLIANCES[@]}"; do
+        printf -v col "%-${col_w}s" "${app}"
+        header+="| ${col}"
+    done
+    echo "$header"
+
+    # Separator
+    local sep=""
+    local sep_len=$(( ${#header} ))
+    printf -v sep '%*s' "$sep_len" ''
+    echo "${sep// /-}"
+
+    # Data rows
+    for config_key in "${CONFIG_ORDER[@]}"; do
+        printf "%-31s" "$config_key"
+        for app in "${APPLIANCES[@]}"; do
+            local val="${RESULTS["${config_key}|${app}"]:-...}"
+            printf "| %-${col_w}s" "$val"
+        done
+        echo ""
+    done
+
+    echo "${sep// /-}"
+    echo ""
+}
+
 # Main Experiment Loop
 # ==============================================================================
 echo "Processing appliances: ${APPLIANCES[*]}"
@@ -168,6 +204,7 @@ for syn_k in "${SYN_K_CASES[@]}"; do
     for app in "${APPLIANCES[@]}"; do
         TRAIN_FILENAME="${app}_training_${REAL_K}+${syn_k}_ordered"
         run_experiment "$app" "$TRAIN_FILENAME" "$ORIGIN_MODEL" "$CONFIG_KEY"
+        print_summary_table
     done
 
     # 2. Shuffled Cases (skip for 0k baseline)
@@ -180,47 +217,14 @@ for syn_k in "${SYN_K_CASES[@]}"; do
             for app in "${APPLIANCES[@]}"; do
                 TRAIN_FILENAME="${app}_training_${REAL_K}+${syn_k}_shuffled_w${window}"
                 run_experiment "$app" "$TRAIN_FILENAME" "$ORIGIN_MODEL" "$CONFIG_KEY"
+                print_summary_table
             done
         done
     fi
 
 done
 
-# ==============================================================================
-# Print MAE Summary Table
-# ==============================================================================
-COL_W=14   # column width per appliance
-
-echo ""
-echo "================================================================"
-echo "  MAE SUMMARY TABLE"
-echo "================================================================"
-
-# Header row
-HEADER="Configuration                  "
-for app in "${APPLIANCES[@]}"; do
-    printf -v COL "%-${COL_W}s" "${app}"
-    HEADER+="| ${COL}"
-done
-echo "$HEADER"
-
-# Separator
-SEP=""
-SEP_LEN=$(( ${#HEADER} ))
-printf -v SEP '%*s' "$SEP_LEN" ''
-echo "${SEP// /-}"
-
-# Data rows
-for config_key in "${CONFIG_ORDER[@]}"; do
-    printf "%-31s" "$config_key"
-    for app in "${APPLIANCES[@]}"; do
-        val="${RESULTS["${config_key}|${app}"]:-N/A}"
-        printf "| %-${COL_W}s" "$val"
-    done
-    echo ""
-done
-
-echo "${SEP// /-}"
-echo ""
+print_summary_table
+echo "DONE: All experiments finished."
 echo "All experiments completed."
 echo "================================================================"
