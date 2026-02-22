@@ -13,6 +13,18 @@
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_ROOT"
 
+# Use the full Python path from the nilm_main conda env to avoid
+# "No module named tensorflow" errors when conda is not activated in subshells
+PYTHON="/home/raymond/miniconda3/envs/nilm_main/bin/python3"
+
+# Sanity check
+if [ ! -f "$PYTHON" ]; then
+    echo "ERROR: Python not found at $PYTHON"
+    echo "Please update PYTHON variable in this script."
+    exit 1
+fi
+echo "Using Python: $PYTHON"
+
 # --- Appliances ---
 if [ "$1" == "all" ] || [ -z "$1" ]; then
     APPLIANCES=("fridge" "microwave" "kettle" "dishwasher" "washingmachine")
@@ -72,7 +84,7 @@ run_experiment() {
     # --- TRAIN ---
     echo "[TRAIN]"
     cd "$NILM_DIR"
-    python3 EasyS2S_train.py \
+    $PYTHON EasyS2S_train.py \
         --appliance_name "$app" \
         --n_epoch $EPOCHS \
         --batchsize $BATCH_SIZE \
@@ -89,7 +101,7 @@ run_experiment() {
 
     # --- TEST: capture output to parse MAE ---
     echo "[TEST]"
-    TEST_OUTPUT=$(python3 EasyS2S_test.py \
+    TEST_OUTPUT=$($PYTHON EasyS2S_test.py \
         --appliance_name "$app" \
         --datadir "$DATA_DIR" \
         --train_filename "$train_filename" 2>&1)
