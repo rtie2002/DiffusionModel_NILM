@@ -90,11 +90,16 @@ def get_model(appliance, input_tensor, window_length, transfer_dense=False, tran
     #     # Pass the file handle in as a lambda function to make it callable
     #     model_def.summary(print_fn=lambda x: fh.write(x + '\n'))
 
-    # Check weights slice
+    # Check weights slice (for transfer learning verification)
+    # Must initialize the variable before reading it
     cnn1_weights = None
     for v in tf.trainable_variables():
         if v.name == 'conv1d_1/kernel:0':
-            cnn1_weights = session.run(v)
+            try:
+                session.run(tf.variables_initializer([v]))
+                cnn1_weights = session.run(v)
+            except Exception:
+                cnn1_weights = None
     return model_def, cnn1_weights
 
 def get_model1(appliance, input_tensor, window_length, transfer_dense=False, transfer_cnn=False,
