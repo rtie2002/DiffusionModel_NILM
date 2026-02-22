@@ -231,6 +231,7 @@ windowlength = 600
 offset = int(0.5 * (windowlength - 1.0))
 
 test_set_x, test_set_y, ground_truth = load_dataset(loadname_test)
+log(f"DEBUG: Ground Truth Z-score (first 10): {ground_truth[:10]}")
 sess = tf.InteractiveSession()
 
 # Dictonary containing the dataset input and target
@@ -348,26 +349,32 @@ sess.close()
 
 # ------------------------------------------ metric evaluation----------------------------------------------------------
 sample_second = 6.0  # sample time is 6 seconds
-on_off_metric = nm.recall_precision_accuracy_f1(prediction.flatten(), ground_truth.flatten(),threshold)
-# log("============ Recall: {}".format(on_off_metric[0]))
-# log("============ Precision: {}".format(on_off_metric[1]))
-# log("============ Accuracy: {}".format(on_off_metric[2]))
-# log("============ F1 Score: {}".format(on_off_metric[4]))
+ground_truth_flat = ground_truth.flatten()
 
+# Print Raw (No EMA) MAE first
+raw_mae = nm.get_abs_error(ground_truth_flat, noEMAprediction.flatten())[0]
+print(f"\n[RAW] MAE: {raw_mae:.4f}")
+
+# Loop through different alpha values for EMA to find the best one
+print("\n=== EMA Smoothing Results (Trying different alpha) ===")
+for test_alpha in [0.99, 0.95, 0.9, 0.7, 0.5, 0.1]:
+    ema_pred, _ = conditional_ema(noEMAprediction.flatten(), threshold, alpha=test_alpha)
+    ema_mae = nm.get_abs_error(ground_truth_flat, ema_pred)[0]
+    print(f"Alpha {test_alpha}: MAE = {ema_mae:.4f}")
+
+# Keep the original metric calculation for the summary table (using raw prediction for now)
+prediction = noEMAprediction # Default to raw
+on_off_metric = nm.recall_precision_accuracy_f1(prediction.flatten(), ground_truth_flat, threshold)
+
+print("\n--- Final Results (using Raw) ---")
 print("============ Recall: {}".format(on_off_metric[0]))
 print("============ Precision: {}".format(on_off_metric[1]))
 print("============ Accuracy: {}".format(on_off_metric[2]))
 print("============ F1 Score: {}".format(on_off_metric[3]))
 
-# log('F1:{0}'.format(nm.get_F1(ground_truth.flatten(), prediction.flatten(), threshold)))
-# log('NDE:{0}'.format(nm.get_nde(ground_truth.flatten(), prediction.flatten())))
-# print("============")
 print('\nMAE: {:}\n    -std: {:}\n    -min: {:}\n    -max: {:}\n    -q1: {:}\n    -median: {:}\n    -q2: {:}\n'
-    .format(*nm.get_abs_error(ground_truth.flatten(), prediction.flatten())))
-print('SAE: {:}'.format(nm.get_sae(ground_truth.flatten(), prediction.flatten(), sample_second)))
-
-print('appha:',tempalpha)
-# log('Energy per Day: {:}'.format(nm.get_Epd(ground_truth.flatten(), prediction.flatten(), sample_second)))
+    .format(*nm.get_abs_error(ground_truth_flat, prediction.flatten())))
+print('SAE: {:}'.format(nm.get_sae(ground_truth_flat, prediction.flatten(), sample_second)))
 
 
 # ----------------------------------------------- save results ---------------------------------------------------------
