@@ -5,6 +5,8 @@
 # Purpose: Automate training + testing for all 21 dataset combinations,
 #          for all 5 appliances (105 experiments total).
 #          Displays a formatted MAE summary table at the end.
+#          NOTE: Python scripts are now configured to ignore extra columns (2-10) 
+#                and strictly use Column 0 (Mains) as input.
 # Usage:
 #   bash run_all_easys2s_experiments.sh           # all appliances
 #   bash run_all_easys2s_experiments.sh fridge    # single appliance

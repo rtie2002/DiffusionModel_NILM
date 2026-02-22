@@ -969,8 +969,8 @@ class ChunkS2S_Slider_Multivariate(object):
                                    header=self.header)
 
                 np_array = np.array(data)
-                # Input: Aggregate (0) + 8 features (2-10). Target: Appliance (1)
-                inputs = np.concatenate([np_array[:, 0:1], np_array[:, 2:]], axis=1)
+                # Input: Aggregate (0). Target: Appliance (1)
+                inputs = np_array[:, 0:1]
                 targets = np_array[:, 1]
 
                 max_batchsize = inputs.shape[0] - self.length + 1
@@ -1000,7 +1000,8 @@ class ChunkS2S_Slider_Multivariate(object):
                                      )
 
             np_array = np.array(data_frame)
-            inputs = np.concatenate([np_array[:, 0:1], np_array[:, 2:]], axis=1)
+            # Input: Aggregate (0). Target: Appliance (1)
+            inputs = np_array[:, 0:1]
             targets = np_array[:, 1]
 
             max_batchsize = inputs.shape[0] - self.length + 1

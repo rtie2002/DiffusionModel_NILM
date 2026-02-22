@@ -167,8 +167,8 @@ def load_dataset(filename, header=0):
     # test_set_x = np.round(np.array(data_frame.iloc[:, 0], float), 5)
     
     np_array = np.array(data_frame)
-    # Aggregate (0) + 8 features (2-10).
-    test_set_x = np.concatenate([np_array[:, 0:1], np_array[:, 2:]], axis=1)
+    # Aggregate (0) ONLY.
+    test_set_x = np_array[:, 0:1]
     test_set_x = np.array(test_set_x, float)
 
     test_set_y = np.round(np.array(data_frame.iloc[:, 1], float), 5)
@@ -250,7 +250,7 @@ test_provider = DoubleSourceProvider4_Multivariate(nofWindows=args.nosOfWindows,
 
 # TensorFlow placeholders
 x = tf.placeholder(tf.float32,
-                   shape=[None, windowlength, 9],
+                   shape=[None, windowlength, 1],
                    name='x')
 
 # y_ = tf.placeholder(tf.float32,
@@ -258,7 +258,7 @@ x = tf.placeholder(tf.float32,
 #                     name='y_')
 
 # -------------------------------- Keras Network - from model.py -------------------------------------
-inp = Input(shape=(windowlength, 9))
+inp = Input(shape=(windowlength, 1))
 
 model, _= get_model(args.appliance_name,
                   inp,

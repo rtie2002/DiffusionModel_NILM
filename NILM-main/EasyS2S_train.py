@@ -205,7 +205,7 @@ val_provider = ChunkS2S_Slider_Multivariate(filename=validation_path,
 # TensorFlow placeholders
 
 x = tf.placeholder(tf.float32,
-                   shape=[None, windowlength, 9],
+                   shape=[None, windowlength, 1],
                    name='x')
 
 y_ = tf.placeholder(tf.float32,
@@ -214,7 +214,7 @@ y_ = tf.placeholder(tf.float32,
 
 # -------------------------------- Keras Network - from model.py -----------------------------------------
 sess = tf.InteractiveSession()
-inp = Input(shape=(windowlength, 9))
+inp = Input(shape=(windowlength, 1))
 model, cnn_check_weights = get_model(args.appliance_name,   #seq2seq model
                       inp,  # 预定义
                       windowlength,
