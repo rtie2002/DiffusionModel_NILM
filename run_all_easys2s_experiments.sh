@@ -141,8 +141,8 @@ run_experiment() {
         RESULTS["${config_key}|${app}"]="FAIL"
     else
         # Extract MAE value from output (looking for "MAE: X.XXXXX")
-        # Fixed regex: handle both "MAE: 1.23" and "[INFO] MAE: 1.23"
-        MAE=$(echo "$TEST_OUTPUT" | grep -oP "MAE:\s*\K[0-9]+\.[0-9]+" | head -1)
+        # Robust regex: handles integers, decimals, and optional scientific notation
+        MAE=$(echo "$TEST_OUTPUT" | grep -oP "MAE:\s*\K[0-9]*\.?[0-9]+" | head -1)
         if [ -z "$MAE" ]; then
             MAE="N/A"
         fi

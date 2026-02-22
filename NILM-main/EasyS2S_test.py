@@ -21,7 +21,7 @@ import pandas as pd
 import argparse
 from Arguments import *
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  #-1
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 TrainNum=0
 TrainPercent='20'
@@ -371,7 +371,7 @@ print('appha:',tempalpha)
 
 
 # ----------------------------------------------- save results ---------------------------------------------------------
-savemains = test_set_x.flatten() * aggregate_std + aggregate_mean
+savemains = test_set_x[:, 0].flatten() * aggregate_std + aggregate_mean
 savegt = ground_truth
 savepred = prediction.flatten()
 savenoemapred=noEMAprediction.flatten()
