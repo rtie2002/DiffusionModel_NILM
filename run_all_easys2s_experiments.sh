@@ -25,10 +25,35 @@ if [ ! -f "$PYTHON" ]; then
 fi
 echo "Using Python: $PYTHON"
 
-# Disable XLA JIT to avoid "libdevice not found" GPU compilation errors.
-# TF will still use the GPU via CUDA directly — just no XLA kernel fusion.
-export TF_XLA_FLAGS="--tf_xla_auto_jit=0"
-export XLA_FLAGS=""
+# Fix: Find libdevice.10.bc for XLA BatchNorm GPU kernel compilation
+# TF looks in nvidia pip-package path — try to detect and set it explicitly
+NILM_MAIN_PY_SITE="$($PYTHON -c 'import site; print(site.getsitepackages()[0])')"
+LIBDEVICE_CANDIDATES=(
+    "$NILM_MAIN_PY_SITE/nvidia/cuda_nvcc"
+    "/usr/local/cuda/lib64"
+    "/usr/local/cuda-12.2"
+    "/usr/local/cuda-12"
+    "/usr/local/cuda-11.8"
+)
+CUDA_DATA_DIR=""
+for candidate in "${LIBDEVICE_CANDIDATES[@]}"; do
+    if [ -f "$candidate/nvvm/libdevice/libdevice.10.bc" ]; then
+        CUDA_DATA_DIR="$candidate"
+        echo "Found libdevice at: $CUDA_DATA_DIR"
+        break
+    fi
+done
+
+if [ -n "$CUDA_DATA_DIR" ]; then
+    export XLA_FLAGS="--xla_gpu_cuda_data_dir=$CUDA_DATA_DIR"
+    echo "Set XLA_FLAGS=$XLA_FLAGS"
+else
+    echo "WARNING: libdevice.10.bc not found. BatchNorm may fail on GPU."
+    echo "Run: find /home/raymond/miniconda3/envs/nilm_main -name 'libdevice.10.bc'"
+    echo "Then set XLA_FLAGS manually in this script."
+    # Last resort: force CPU for BatchNorm by disabling GPU JIT
+    export TF_XLA_FLAGS="--tf_xla_auto_jit=0"
+fi
 
 # --- Appliances ---
 if [ "$1" == "all" ] || [ -z "$1" ]; then
