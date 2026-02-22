@@ -312,7 +312,13 @@ def custompredictS2SX(sess,
 
         feed_dict = {x: X_out,}  # X_out为1000个1*599
         output = sess.run(y_op, feed_dict=feed_dict)
-        output_array = np.array(output[0]).reshape(-1, output_length)  #让np.array(output[0])变成只有599列，行自动计算
+        
+        # Safe handling for both List and Array returns
+        if isinstance(output, list) or isinstance(output, tuple):
+            output_array = np.array(output[0]).reshape(-1, output_length)
+        else:
+            output_array = np.array(output).reshape(-1, output_length)
+            
         if not idx:
             output_container = output_array
         else:

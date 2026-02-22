@@ -187,14 +187,16 @@ for filename in os.listdir(args.datadir + appliance_name):
 
 
 log('File for test: ' + test_filename)
-# loadname_test = args.datadir + appliance_name + '/' + test_filename
+# Dynamically construct test path using args.datadir
 if(originHome):
-    # loadname_test = f'dataset_preprocess/created_data/UK_DALE/{applianceName}/{applianceName}_test_.csv'
-    # loadname_test = f'dataset_preprocess/created_data/{datasetName}/{applianceName}/{applianceName}_test_.csv'
-    loadname_test = f'dataset_preprocess/created_data/{datasetName}/{applianceName}/{applianceName}_test_.csv'
+    loadname_test = args.datadir + appliance_name + '/' + appliance_name + '_test_.csv'
 else:
-    loadname_test = f'dataset_preprocess/created_data/{datasetName}/{applianceName}/{applianceName}_test_home1Small_.csv'
-# loadname_test = args.datadir + appliance_name + '/' + test_filename
+    loadname_test = args.datadir + appliance_name + '/' + appliance_name + '_test_home1Small_.csv'
+
+# Check if the constructed path exists, if not, use the filename found by scanning the dir
+if not os.path.exists(loadname_test):
+    loadname_test = args.datadir + appliance_name + '/' + test_filename
+
 log('Loading from: ' + loadname_test)
 
 # offset parameter from windowlenght
@@ -352,9 +354,9 @@ else:
 if not os.path.exists(save_name):
         os.makedirs(save_name)
 
-np.save('D:/Diffusion-TS-main/AugLPN_NILM-main/results/EASYS2S/draw/'+f'20-{applianceName}pred.npy', savepred)
-np.save('D:/Diffusion-TS-main/AugLPN_NILM-main/results/EASYS2S/draw/'+f'{applianceName}groundtruth.npy', savegt)
-np.save('D:/Diffusion-TS-main/AugLPN_NILM-main/results/EASYS2S/draw/'+f'{applianceName}groundmains.npy', savemains)
+# np.save('D:/Diffusion-TS-main/AugLPN_NILM-main/results/EASYS2S/draw/'+f'20-{applianceName}pred.npy', savepred)
+# np.save('D:/Diffusion-TS-main/AugLPN_NILM-main/results/EASYS2S/draw/'+f'{applianceName}groundtruth.npy', savegt)
+# np.save('D:/Diffusion-TS-main/AugLPN_NILM-main/results/EASYS2S/draw/'+f'{applianceName}groundmains.npy', savemains)
 
 
 

@@ -159,14 +159,12 @@ log('Training dataset: ' + training_path)
 
 print(args.datadir)
 
-# Looking for the validation set
-for filename in os.listdir(args.datadir + appliance_name):
-    if "validation" in filename:
-        val_filename = filename
-        log(val_filename)
+# Looking for the validation set in the parent directory
+validation_path = args.datadir + appliance_name + '_validation_.csv'
+if not os.path.exists(validation_path):
+    # Fallback: check inside the appliance folder if not found in root
+    validation_path = args.datadir + appliance_name + '/' + appliance_name + '_validation_.csv'
 
-# path for validation data
-validation_path = args.datadir + appliance_name + '/' + val_filename
 log('Validation dataset: ' + validation_path)
 
 # offset parameter from window length
