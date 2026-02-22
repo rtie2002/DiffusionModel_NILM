@@ -171,35 +171,49 @@ appliance_name = args.appliance_name
 log('Appliance target is: ' + appliance_name)
 
 # Looking for the selected test set
-for filename in os.listdir(args.datadir + appliance_name):
-        if args.test_type == 'train' and 'TRAIN' in filename.upper():
-            test_filename = filename
-            break
-        elif args.test_type == 'uk' and 'UK' in filename.upper():
-            test_filename = filename
-            break
-        elif args.test_type == 'redd' and 'REDD' in filename.upper():
-            test_filename = filename
-            break
-        elif args.test_type == 'test' and 'TEST' in\
-                filename.upper() and 'TRAIN' not in filename.upper() and 'UK' not in filename.upper():
-            test_filename = filename
-            break
-        elif args.test_type == 'val' and 'VALIDATION' in filename.upper():
-            test_filename = filename
-            break
+# Looking for the selected test set
+test_filename = f"{appliance_name}_test_.csv" # Default guess
+search_dir = args.datadir 
+
+# 1. First, search in the parent directory (matches shell script)
+found = False
+for filename in os.listdir(search_dir):
+    if args.test_type == 'test' and 'TEST' in filename.upper() and appliance_name.upper() in filename.upper() and 'TRAIN' not in filename.upper():
+        test_filename = filename
+        found = True
+        break
+    elif args.test_type == 'val' and 'VALIDATION' in filename.upper() and appliance_name.upper() in filename.upper():
+        test_filename = filename
+        found = True
+        break
+
+# 2. If not found in parent, check the appliance sub-directory
+if not found:
+    alt_search_dir = args.datadir + appliance_name + '/'
+    if os.path.exists(alt_search_dir):
+        for filename in os.listdir(alt_search_dir):
+            if args.test_type == 'test' and 'TEST' in filename.upper() and 'TRAIN' not in filename.upper():
+                test_filename = filename
+                search_dir = alt_search_dir # Update search dir
+                found = True
+                break
+            elif args.test_type == 'val' and 'VALIDATION' in filename.upper():
+                test_filename = filename
+                search_dir = alt_search_dir
+                found = True
+                break
 
 
 log('File for test: ' + test_filename)
-# Dynamically construct test path using args.datadir
+# Dynamically construct test path
 if(originHome):
-    loadname_test = args.datadir + appliance_name + '/' + appliance_name + '_test_.csv'
+    loadname_test = args.datadir + test_filename
 else:
     loadname_test = args.datadir + appliance_name + '/' + appliance_name + '_test_home1Small_.csv'
 
-# Check if the constructed path exists, if not, use the filename found by scanning the dir
+# Final check: if the file isn't in root, check the sub-directory we scanned
 if not os.path.exists(loadname_test):
-    loadname_test = args.datadir + appliance_name + '/' + test_filename
+    loadname_test = search_dir + test_filename
 
 log('Loading from: ' + loadname_test)
 
