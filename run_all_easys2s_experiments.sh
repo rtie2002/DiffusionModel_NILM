@@ -25,6 +25,11 @@ if [ ! -f "$PYTHON" ]; then
 fi
 echo "Using Python: $PYTHON"
 
+# Disable XLA JIT to avoid "libdevice not found" GPU compilation errors.
+# TF will still use the GPU via CUDA directly — just no XLA kernel fusion.
+export TF_XLA_FLAGS="--tf_xla_auto_jit=0"
+export XLA_FLAGS=""
+
 # --- Appliances ---
 if [ "$1" == "all" ] || [ -z "$1" ]; then
     APPLIANCES=("fridge" "microwave" "kettle" "dishwasher" "washingmachine")
