@@ -143,6 +143,10 @@ def get_arguments():
                         type=int,
                         default=None,
                         help='for debugging porpose should be helpful to crop the test dataset size')
+    parser.add_argument('--train_filename',
+                        type=str,
+                        default=None,
+                        help='Specific name of the training CSV file (used to align with training script)')
     return parser.parse_args()
 
 

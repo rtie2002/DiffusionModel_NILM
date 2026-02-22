@@ -129,6 +129,10 @@ def get_arguments():
                         type=int,
                         default=5 * 10 ** 5,
                         help='Maximum number of rows of csv dataset can handle without loading in chunks')
+    parser.add_argument('--train_filename',
+                        type=str,
+                        default=None,
+                        help='Specific name of the training CSV file (without extension)')
     return parser.parse_args()
 
 
@@ -153,8 +157,10 @@ else:
     # trainfile = 'LongCleanCombinedMicroWave_fileEight'
 
 # path for training data
-# training_path = args.datadir + appliance_name + '/' + appliance_name + '_training_' + '.csv'
-training_path = args.datadir + appliance_name + '/' + trainfile + '.csv'
+if args.train_filename:
+    training_path = args.datadir + appliance_name + '/' + args.train_filename + '.csv'
+else:
+    training_path = args.datadir + appliance_name + '/' + trainfile + '.csv'
 log('Training dataset: ' + training_path)
 
 print(args.datadir)
