@@ -188,7 +188,12 @@ print_summary_table() {
         printf "%-31s" "$config_key"
         for app in "${APPLIANCES[@]}"; do
             local val="${RESULTS["${config_key}|${app}"]:-...}"
-            printf "| %-${col_w}s" "$val"
+            # If val is a number (contains a dot or is purely digits), format to 2 decimal places
+            if [[ "$val" =~ ^[0-9]*\.?[0-9]+$ ]]; then
+                printf "| %-14.2f" "$val"
+            else
+                printf "| %-14s" "$val"
+            fi
         done
         echo ""
     done
