@@ -195,35 +195,34 @@ if args.test_file:
          loadname_test = args.datadir + appliance_name + '/' + args.test_file + '.csv'
          test_filename = args.test_file
 else:
-    # Looking for the selected test set
-    for filename in os.listdir(args.datadir + appliance_name):
-            if args.test_type == 'train' and 'TRAIN' in filename.upper():
-                test_filename = filename
-                break
-            elif args.test_type == 'uk' and 'UK' in filename.upper():
-                test_filename = filename
-                break
-            elif args.test_type == 'redd' and 'REDD' in filename.upper():
-                test_filename = filename
-                break
-            elif args.test_type == 'test' and 'TEST' in\
-                    filename.upper() and 'TRAIN' not in filename.upper() and 'UK' not in filename.upper():
-                test_filename = filename
-                break
-            elif args.test_type == 'val' and 'VALIDATION' in filename.upper():
-                test_filename = filename
-                break
+    # Default test file: {appliance_name}_test_.csv
+    test_filename = f"{appliance_name}_test_.csv"
+    loadname_test = os.path.join(args.datadir, test_filename)
+    if not os.path.exists(loadname_test):
+        loadname_test = os.path.join(args.datadir, appliance_name, test_filename)
+    
+    if not os.path.exists(loadname_test):
+         # Try to find any file with 'TEST' in the name as a last resort
+         search_dir = os.path.join(args.datadir, appliance_name)
+         if os.path.exists(search_dir):
+             for f in os.listdir(search_dir):
+                 if 'TEST' in f.upper() and f.endswith('.csv'):
+                     test_filename = f
+                     loadname_test = os.path.join(search_dir, f)
+                     break
+         
+    if not os.path.exists(loadname_test):
+        # Final fallback: look in datadir root for anything matching
+        for f in os.listdir(args.datadir):
+             if appliance_name in f and 'test' in f.lower() and f.endswith('.csv'):
+                 test_filename = f
+                 loadname_test = os.path.join(args.datadir, f)
+                 break
 
+    if not os.path.exists(loadname_test):
+        raise FileNotFoundError(f"Could not find test file for {appliance_name} in {args.datadir}")
 
     log('File for test: ' + test_filename)
-    # loadname_test = args.datadir + appliance_name + '/' + test_filename
-    if(originHome):
-        # loadname_test = f'dataset_preprocess/created_data/UK_DALE/{applianceName}/{applianceName}_test_.csv'
-        # loadname_test = f'dataset_preprocess/created_data/{datasetName}/{applianceName}/{applianceName}_test_.csv'
-        loadname_test = f'dataset_preprocess/created_data/{datasetName}/{applianceName}/{applianceName}_test_.csv'
-    else:
-        loadname_test = f'dataset_preprocess/created_data/{datasetName}/{applianceName}/{applianceName}_test_home1Small_.csv'
-# loadname_test = args.datadir + appliance_name + '/' + test_filename
 log('Loading from: ' + loadname_test)
 
 # offset parameter from windowlenght

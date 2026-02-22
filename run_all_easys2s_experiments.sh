@@ -124,18 +124,24 @@ run_experiment() {
 
     # --- TEST: capture output to parse MAE ---
     echo "[TEST]"
-    TEST_OUTPUT=$($PYTHON EasyS2S_test.py \
+    TMP_TEST_LOG="/tmp/easys2s_test_$$.log"
+    # Execute and show output in real-time while logging to file
+    $PYTHON EasyS2S_test.py \
         --appliance_name "$app" \
         --datadir "$DATA_DIR" \
-        --train_filename "$train_filename" 2>&1)
-    echo "$TEST_OUTPUT"
+        --train_filename "$train_filename" 2>&1 | tee "$TMP_TEST_LOG"
+    
+    # Capture the exit code of the Python script (first in pipe)
+    TEST_EXIT=${PIPESTATUS[0]}
+    TEST_OUTPUT=$(cat "$TMP_TEST_LOG")
+    rm -f "$TMP_TEST_LOG"
 
-    TEST_EXIT=$?
     if [ $TEST_EXIT -ne 0 ]; then
         echo "ERROR: Testing failed (exit $TEST_EXIT)."
         RESULTS["${config_key}|${app}"]="FAIL"
     else
-        # Extract MAE value from output (line: "MAE: X.XXXXX")
+        # Extract MAE value from output (looking for "MAE: X.XXXXX")
+        # Fixed regex: handle both "MAE: 1.23" and "[INFO] MAE: 1.23"
         MAE=$(echo "$TEST_OUTPUT" | grep -oP "MAE:\s*\K[0-9]+\.[0-9]+" | head -1)
         if [ -z "$MAE" ]; then
             MAE="N/A"
