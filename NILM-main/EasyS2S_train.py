@@ -167,14 +167,13 @@ log('Training dataset: ' + training_path)
 
 print(args.datadir)
 
-# Looking for the validation set
-for filename in os.listdir(args.datadir + appliance_name):
-    if "validation" in filename:
-        val_filename = filename
-        log(val_filename)
-
-# path for validation data
-validation_path = args.datadir + appliance_name + '/' + val_filename
+# Validation file is at datadir/{appliance}_validation_.csv (one level up from subfolder)
+validation_path = args.datadir + appliance_name + '_validation_.csv'
+if not os.path.exists(validation_path):
+    raise FileNotFoundError(
+        f"Validation file not found: {validation_path}\n"
+        f"Expected: {args.datadir}{{appliance}}_validation_.csv"
+    )
 log('Validation dataset: ' + validation_path)
 
 # offset parameter from window length
@@ -378,7 +377,10 @@ writer = tf.summary.FileWriter('./tensorboard_test')
 writer.add_graph(sess.graph)
 log('TensorBoard infos in ./tensorboard_test')
 ###############################################     Save path depending on the training behaviour
-if not args.transfer_model and args.transfer_cnn:
+if args.train_filename:
+    # Use the specific filename to create a unique model directory
+    save_path = args.save_dir + '/' + args.train_filename + '_model'
+elif not args.transfer_model and args.transfer_cnn:
     save_path = args.save_dir + '/easy1_' + appliance_name + '_transf_' + args.cnn + '_pointnet_model'
 else:
     if originModel:

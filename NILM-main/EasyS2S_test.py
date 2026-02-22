@@ -147,6 +147,10 @@ def get_arguments():
                         type=str,
                         default=None,
                         help='Specific path or name of the testing file')
+    parser.add_argument('--train_filename',
+                        type=str,
+                        default=None,
+                        help='The training filename used for the model we want to load')
     return parser.parse_args()
 
 
@@ -265,7 +269,10 @@ model, _= get_model(args.appliance_name,
 sess.run(tf.global_variables_initializer())
 
 # Load path depending on the model kind
-if args.transfer:
+if args.train_filename:
+    # Load the specific model directory named after the training file
+    param_file = args.trained_model_dir + '/' + args.train_filename + '_model'
+elif args.transfer:
     print('arg.transfer'.format(args.transfer))
     param_file = args.trained_model_dir+'/easy1_' + appliance_name + '_transf_' + args.cnn + '_pointnet_model'
 else:

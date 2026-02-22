@@ -279,7 +279,7 @@ def convert_synthetic_to_zscore(synthetic_minmax_01, appliance_name, real_stats=
     return synthetic_zscore
 
 
-def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, output_suffix="mixed", shuffle=True, window_size=None):
+def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, output_suffix="mixed", shuffle=True):
     """
     Mix real and synthetic multivariate data
     
@@ -410,9 +410,8 @@ def mix_data(appliance_name, real_rows, synthetic_rows, real_path=None, output_s
     print("\n=== Mixing and Shuffling ===")
     
     # Window-based shuffling
-    if window_size is not None:
-        pass # use the passed argument
-    elif CONFIG:
+    # Window-based shuffling
+    if CONFIG:
         window_size = CONFIG['mixing'].get('window_size', 600)
     else:
         window_size = 600 # 6000 points ~ 1.5h roughly, standard chunk
@@ -479,12 +478,8 @@ if __name__ == '__main__':
                         help='Path to real data CSV')
     parser.add_argument('--suffix', type=str, default=None,
                         help='Output file suffix (default: {real}k+{syn}k)')
-    parser.add_argument('--shuffle', action='store_true',
-                        help='Enable window shuffling (overrides config)')
     parser.add_argument('--no-shuffle', action='store_true',
-                        help='Disable window shuffling (overrides config)')
-    parser.add_argument('--window_size', type=int, default=None,
-                        help='Window size for shuffling (default from config)')
+                        help='Disable window shuffling (keep sequential order)')
     
     args = parser.parse_args()
     
@@ -536,17 +531,14 @@ if __name__ == '__main__':
         args.suffix = f'{real_k}k+{syn_k}k'
     
     # Determine shuffle logic:
-    # 1. Use --shuffle if passed explicitly
-    # 2. Use --no-shuffle if passed explicitly
-    # 3. Default to config value (or True if config missing)
-    if args.shuffle:
-        should_shuffle = True
-    elif args.no_shuffle:
-        should_shuffle = False
-    elif CONFIG and 'mixing' in CONFIG:
-        should_shuffle = CONFIG['mixing'].get('shuffle', True)
-    else:
-        should_shuffle = True
+    # 1. Default to config value (or True if config missing)
+    # 2. CLI flag --no-shuffle overrides to False
+    config_shuffle_default = True
+    if CONFIG and 'mixing' in CONFIG:
+        config_shuffle_default = CONFIG['mixing'].get('shuffle', True)
+    
+    # If user explicitly passed --no-shuffle, force False. Otherwise use config.
+    should_shuffle = False if args.no_shuffle else config_shuffle_default
 
     if not should_shuffle:
         print("-> Shuffling DISABLED (via Config or CLI)")
@@ -558,7 +550,6 @@ if __name__ == '__main__':
         synthetic_rows=args.synthetic_rows,
         real_path=args.real_path,
         output_suffix=args.suffix,
-        shuffle=should_shuffle,
-        window_size=args.window_size if args.window_size else None
+        shuffle=should_shuffle
     )
 
