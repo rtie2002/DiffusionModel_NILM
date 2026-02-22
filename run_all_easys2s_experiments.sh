@@ -90,6 +90,9 @@ run_experiment() {
     echo ""
     echo "------------------------------------------------------------"
     echo " APP: $app | $config_key | originModel=$origin_model"
+    echo " Training file:   $DATA_DIR$app/$train_filename.csv"
+    echo " Validation file: $DATA_DIR${app}_validation_.csv"
+    echo " Testing file:    $DATA_DIR${app}_test_.csv"
     echo "------------------------------------------------------------"
 
     # Patch Python files
