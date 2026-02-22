@@ -274,7 +274,7 @@ def custompredictX(sess,
 
         feed_dict = {x: X_out,}
         output = sess.run(y_op, feed_dict=feed_dict)
-        output_array = np.array(output[0]).reshape(-1, output_length)
+        output_array = np.array(output).reshape(-1, output_length)
         output_container.append(output_array)
 
     test = np.vstack(output_container)
@@ -312,7 +312,7 @@ def custompredictS2SX(sess,
 
         feed_dict = {x: X_out,}  # X_out为1000个1*599
         output = sess.run(y_op, feed_dict=feed_dict)
-        output_array = np.array(output[0]).reshape(-1, output_length)  #让np.array(output[0])变成只有599列，行自动计算
+        output_array = np.array(output).reshape(-1, output_length)  #让np.array(output[0])变成只有599列，行自动计算
         if not idx:
             output_container = output_array
         else:
@@ -368,7 +368,7 @@ def custompredict_fcn(sess,
 
         feed_dict = {x: X_out,}
         output = sess.run(y_op, feed_dict=feed_dict)
-        output_array = np.array(output[0]).reshape(-1, output_length)
+        output_array = np.array(output).reshape(-1, output_length)
         output_container.append(output_array)
 
     test = np.vstack(output_container)
@@ -407,7 +407,7 @@ def custompredictS2SXmedian(sess,
 
         feed_dict = {x: X_out,}
         output = sess.run(y_op, feed_dict=feed_dict)
-        output_array = np.array(output[0]).reshape(-1, output_length)
+        output_array = np.array(output).reshape(-1, output_length)
         if not idx:
             output_container = output_array
         else:
