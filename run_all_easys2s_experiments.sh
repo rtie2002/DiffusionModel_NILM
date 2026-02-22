@@ -41,6 +41,10 @@ else
     echo "Training will likely fail on BatchNorm GPU kernels."
 fi
 
+# Suppress noisy TF C++ warnings (ptxas not found, driver fallback, etc.)
+# 0=all, 1=no INFO, 2=no INFO/WARNING, 3=errors only
+export TF_CPP_MIN_LOG_LEVEL=2
+
 # --- Appliances ---
 if [ "$1" == "all" ] || [ -z "$1" ]; then
     APPLIANCES=("fridge" "microwave" "kettle" "dishwasher" "washingmachine")
