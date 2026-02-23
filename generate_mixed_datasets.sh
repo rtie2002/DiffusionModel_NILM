@@ -34,18 +34,22 @@ for APPLIANCE in "${APPLIANCES[@]}"; do
 
     for syn_rows in "${SYN_ROWS_CASES[@]}"; do
         
-        # 1. Ordered Case / Baseline Case
+        # Determine if this is the baseline case
+        if [ "$syn_rows" -eq 0 ]; then
+            TAG="[BASELINE]"
+            SUFFIX_TYPE="baseline"
+        else
+            TAG="[PROCESSING]"
+            SUFFIX_TYPE="ordered"
+        fi
+
+        # 1. Ordered Case (or Baseline)
         # ----------------------------------------------------------------
         REAL_K=$((REAL_ROWS / 1000))
         SYN_K=$((syn_rows / 1000))
-
-        if [ "$syn_rows" -eq 0 ]; then
-            echo ">>> [BASELINE CASE] $APPLIANCE | 200k Real Only"
-            SUFFIX="${REAL_K}k_baseline"
-        else
-            echo "[Processing] $APPLIANCE | Injection: ${REAL_ROWS}+${syn_rows} | Mode: Ordered"
-            SUFFIX="${REAL_K}k+${SYN_K}k_ordered"
-        fi
+        SUFFIX="${REAL_K}k+${SYN_K}k_${SUFFIX_TYPE}"
+        
+        echo "$TAG $APPLIANCE | Injection: ${REAL_K}k+${SYN_K}k | Mode: $SUFFIX_TYPE"
         
         python mix_training_data_multivariate_v2.py \
             --appliance "$APPLIANCE" \
