@@ -37,7 +37,7 @@ for APPLIANCE in "${APPLIANCES[@]}"; do
         # Determine if this is the baseline case
         if [ "$syn_rows" -eq 0 ]; then
             TAG="[BASELINE]"
-            SUFFIX_TYPE="baseline"
+            SUFFIX_TYPE="ordered"
         else
             TAG="[PROCESSING]"
             SUFFIX_TYPE="ordered"
