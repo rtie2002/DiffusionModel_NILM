@@ -143,7 +143,7 @@ for syn_k in "${SYN_K_CASES[@]}"; do
     if [[ ! " ${CONFIG_ORDER[*]} " =~ " ${CONFIG_KEY} " ]]; then CONFIG_ORDER+=("$CONFIG_KEY"); fi
     
     for app in "${APPLIANCES[@]}"; do
-        TRAIN_SUFFIX="ordered"; [ "$syn_k" == "0k" ] && TRAIN_SUFFIX="baseline"
+        TRAIN_SUFFIX="ordered"
         TRAIN_FILENAME="${app}_training_${REAL_K}+${syn_k}_${TRAIN_SUFFIX}"
         run_experiment "$app" "$TRAIN_FILENAME" "$ORIGIN_MODEL" "$CONFIG_KEY"
         print_summary_table
