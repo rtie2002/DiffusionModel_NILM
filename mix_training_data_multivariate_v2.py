@@ -181,6 +181,17 @@ if __name__ == '__main__':
     parser.add_argument('--real_rows', type=int, default=200000)
     parser.add_argument('--synthetic_rows', type=int, default=200000)
     parser.add_argument('--suffix', type=str, default="200k+200k_bg_v2")
+    parser.add_argument('--shuffle', action='store_true', help='Enable window shuffling')
+    parser.add_argument('--no-shuffle', action='store_false', dest='shuffle', help='Disable window shuffling')
+    parser.set_defaults(shuffle=True)
+    parser.add_argument('--window_size', type=int, default=600, help='Window size for slicing and shuffling')
     args = parser.parse_args()
     
-    mix_data_v2(args.appliance, args.real_rows, args.synthetic_rows, suffix=args.suffix)
+    mix_data_v2(
+        appliance_name=args.appliance, 
+        real_rows=args.real_rows, 
+        synthetic_rows=args.synthetic_rows, 
+        suffix=args.suffix,
+        shuffle=args.shuffle,
+        window_size=args.window_size
+    )
