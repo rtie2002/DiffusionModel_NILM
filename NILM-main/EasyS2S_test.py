@@ -147,6 +147,9 @@ def get_arguments():
                         type=str,
                         default=None,
                         help='Specific name of the training CSV file (used to align with training script)')
+    parser.add_argument('--origin_model', type=str2bool, default=False)
+    parser.add_argument('--dataset_name', type=str, default='UK_DALE')
+    parser.add_argument('--train_percent', type=str, default='20')
     return parser.parse_args()
 
 
@@ -260,18 +263,21 @@ model, _= get_model(args.appliance_name,
 sess.run(tf.global_variables_initializer())
 
 # Load path depending on the model kind
-if args.transfer:
+current_origin_model = args.origin_model
+current_dataset_name = args.dataset_name
+current_train_percent = args.train_percent
+
+if args.train_filename:
+    param_file = args.trained_model_dir + '/' + args.train_filename + '_model'
+elif args.transfer:
     print('arg.transfer'.format(args.transfer))
-    param_file = args.trained_model_dir+'/easy1_' + appliance_name + '_transf_' + args.cnn + '_pointnet_model'
+    param_file = args.trained_model_dir+'/easy1_' + applianceName + '_transf_' + args.cnn + '_pointnet_model'
 else:
     print('arg.transfer'.format(args.transfer))
-    if (originModel):
-        param_file = args.trained_model_dir + f'/easy{TrainNum}_{datasetName}' + args.appliance_name + f'{TrainPercent}_pointnet_model'
-        # param_file = args.trained_model_dir + f'/easy{TrainNum}_{datasetName}' + args.appliance_name + f'{TrainPercent}_maeloss_model'
-        #param_file = args.trained_model_dir + f'/easy{TrainNum}_{datasetName}' + args.appliance_name + f'{TrainPercent}_abdata_model'
+    if (current_origin_model):
+        param_file = args.trained_model_dir + f'/easy{TrainNum}_{current_dataset_name}' + args.appliance_name + f'{current_train_percent}_pointnet_model'
     else:
-        param_file = args.trained_model_dir + f'/easy{TrainNum}_{datasetName}' + args.appliance_name + f'Combine{TrainPercent}_pointnet_model'
-        # param_file = args.trained_model_dir + f'/easy{TrainNum}_{datasetName}' + args.appliance_name + f'Combine{TrainPercent}_abdata_model'
+        param_file = args.trained_model_dir + f'/easy{TrainNum}_{current_dataset_name}' + args.appliance_name + f'Combine{current_train_percent}_pointnet_model'
 # Loading weigths
 log('Model file: {}'.format(param_file))
 weights_loader(model, param_file)

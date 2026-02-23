@@ -133,6 +133,9 @@ def get_arguments():
                         type=str,
                         default=None,
                         help='Specific name of the training CSV file (without extension)')
+    parser.add_argument('--origin_model', type=str2bool, default=False)
+    parser.add_argument('--dataset_name', type=str, default='UK_DALE')
+    parser.add_argument('--train_percent', type=str, default='20')
     return parser.parse_args()
 
 
@@ -149,12 +152,15 @@ sess = tf.InteractiveSession()
 # the appliance to train on
 appliance_name = args.appliance_name
 
-if originModel:
-    trainfile = f'{applianceName}_{TrainPercent}training_'
+# Priority: args.origin_model overrides the hardcoded originModel
+current_origin_model = args.origin_model
+current_dataset_name = args.dataset_name
+current_train_percent = args.train_percent
+
+if current_origin_model:
+    trainfile = f'{appliance_name}_{current_train_percent}training_'
 else:
-    #trainfile=f'{datasetName}Combined{applianceName}_fileEight'
-    trainfile = f'{datasetName}Combined{applianceName}_file{TrainPercent}' #20
-    # trainfile = 'LongCleanCombinedMicroWave_fileEight'
+    trainfile = f'{current_dataset_name}Combined{appliance_name}_file{current_train_percent}' #20
 
 # path for training data
 if args.train_filename:
@@ -380,11 +386,10 @@ if args.train_filename:
 elif not args.transfer_model and args.transfer_cnn:
     save_path = args.save_dir + '/easy1_' + appliance_name + '_transf_' + args.cnn + '_pointnet_model'
 else:
-    if originModel:
-        save_path = args.save_dir + f'/easy{TrainNum}_{datasetName}' + appliance_name + f'{TrainPercent}_pointnet_model'
+    if current_origin_model:
+        save_path = args.save_dir + f'/easy{TrainNum}_{current_dataset_name}' + appliance_name + f'{current_train_percent}_pointnet_model'
     else:
-        # save_path = args.save_dir + f'/easy{TrainNum}_{datasetName}' + appliance_name + 'CombineEight5_pointnet_model'
-        save_path = args.save_dir + f'/easy{TrainNum}_{datasetName}' + appliance_name + f'Combine{TrainPercent}_pointnet_model'
+        save_path = args.save_dir + f'/easy{TrainNum}_{current_dataset_name}' + appliance_name + f'Combine{current_train_percent}_pointnet_model'
 
 if not os.path.exists(save_path):
     os.makedirs(save_path)
