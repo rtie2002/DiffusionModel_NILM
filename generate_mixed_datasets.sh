@@ -43,7 +43,7 @@ for APPLIANCE in "${APPLIANCES[@]}"; do
         SYN_K=$((syn_rows / 1000))
         SUFFIX="${REAL_K}k+${SYN_K}k_ordered"
         
-        python mix_training_data_multivariate.py \
+        python mix_training_data_multivariate_v2.py \
             --appliance "$APPLIANCE" \
             --real_rows $REAL_ROWS \
             --synthetic_rows $syn_rows \
