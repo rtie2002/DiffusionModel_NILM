@@ -374,7 +374,10 @@ writer = tf.summary.FileWriter('./tensorboard_test')
 writer.add_graph(sess.graph)
 log('TensorBoard infos in ./tensorboard_test')
 ###############################################     Save path depending on the training behaviour
-if not args.transfer_model and args.transfer_cnn:
+if args.train_filename:
+    # Use the specific filename to create a unique model directory
+    save_path = args.save_dir + '/' + args.train_filename + '_model'
+elif not args.transfer_model and args.transfer_cnn:
     save_path = args.save_dir + '/easy1_' + appliance_name + '_transf_' + args.cnn + '_pointnet_model'
 else:
     if originModel:
