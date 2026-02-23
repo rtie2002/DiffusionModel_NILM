@@ -59,7 +59,7 @@ for APPLIANCE in "${APPLIANCES[@]}"; do
                 # Generate suffix like: 200k+20k_shuffled_w10
                 SUFFIX="${REAL_K}k+${SYN_K}k_shuffled_w${window}"
                 
-                python mix_training_data_multivariate.py \
+                python mix_training_data_multivariate_v2.py \
                     --appliance "$APPLIANCE" \
                     --real_rows $REAL_ROWS \
                     --synthetic_rows $syn_rows \
