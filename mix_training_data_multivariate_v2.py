@@ -100,7 +100,7 @@ def extract_real_background_pool(appliance_name, real_path, window_size=600):
     print(f"  Extracted {len(pool)} background windows (size {window_size})")
     return pool
 
-def mix_data_v2(appliance_name, real_rows, synthetic_rows, real_path=None, suffix="v2", shuffle=True):
+def mix_data_v2(appliance_name, real_rows, synthetic_rows, real_path=None, suffix="v2", shuffle=True, window_size=600):
     print(f"\n{'='*60}\nNILM Mixed Dataset Construction v2 (Background Injection)\n{'='*60}")
     
     # 1. Load Real Data
@@ -110,7 +110,6 @@ def mix_data_v2(appliance_name, real_rows, synthetic_rows, real_path=None, suffi
     real_subset = real_df.iloc[:real_rows].copy()
     
     # 2. Extract Background Pool from Real Data (OFF periods)
-    window_size = 600
     bg_pool = extract_real_background_pool(appliance_name, real_path, window_size)
     
     # 3. Load Synthetic Appliance Power
