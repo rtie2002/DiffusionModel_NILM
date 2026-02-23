@@ -134,42 +134,33 @@ print_summary_table() {
     echo "${sep// /-}"; echo ""
 }
 
-# Pre-populate CONFIG_ORDER for a consistent table structure
+# Main Loop
 for syn_k in "${SYN_K_CASES[@]}"; do
-    if [ "$syn_k" == "0k" ]; then
-        CONFIG_ORDER+=("200k+${syn_k} | Baseline    ")
-    else
-        CONFIG_ORDER+=("200k+${syn_k} | Ordered     ")
-        for window in "${WINDOW_SIZES[@]}"; do
-            CONFIG_ORDER+=("200k+${syn_k} | Shuffled w${window} ")
-        done
-    fi
-done
+    ORIGIN_MODEL="False"; [ "$syn_k" == "0k" ] && ORIGIN_MODEL="True"
 
-# Main Loop: Process one appliance fully before moving to the next
-for app in "${APPLIANCES[@]}"; do
-    for syn_k in "${SYN_K_CASES[@]}"; do
-        ORIGIN_MODEL="False"; [ "$syn_k" == "0k" ] && ORIGIN_MODEL="True"
-
-        # 1. Ordered Case (or Baseline)
-        CONFIG_KEY="200k+${syn_k} | Ordered     "
-        [ "$syn_k" == "0k" ] && CONFIG_KEY="200k+${syn_k} | Baseline    "
-        
+    # 1. Ordered Case (or Baseline)
+    CONFIG_KEY="200k+${syn_k} | Ordered     "; [ "$syn_k" == "0k" ] && CONFIG_KEY="200k+${syn_k} | Baseline    "
+    if [[ ! " ${CONFIG_ORDER[*]} " =~ " ${CONFIG_KEY} " ]]; then CONFIG_ORDER+=("$CONFIG_KEY"); fi
+    
+    for app in "${APPLIANCES[@]}"; do
         TRAIN_SUFFIX="ordered"
         TRAIN_FILENAME="${app}_training_${REAL_K}+${syn_k}_${TRAIN_SUFFIX}"
         run_experiment "$app" "$TRAIN_FILENAME" "$ORIGIN_MODEL" "$CONFIG_KEY"
         print_summary_table
+    done
 
-        # 2. Shuffled Cases
-        if [ "$syn_k" != "0k" ]; then
-            for window in "${WINDOW_SIZES[@]}"; do
-                CONFIG_KEY="200k+${syn_k} | Shuffled w${window} "
+    # 2. Shuffled Cases
+    if [ "$syn_k" != "0k" ]; then
+        for window in "${WINDOW_SIZES[@]}"; do
+            CONFIG_KEY="200k+${syn_k} | Shuffled w${window} "
+            if [[ ! " ${CONFIG_ORDER[*]} " =~ " ${CONFIG_KEY} " ]]; then CONFIG_ORDER+=("$CONFIG_KEY"); fi
+            for app in "${APPLIANCES[@]}"; do
                 TRAIN_FILENAME="${app}_training_${REAL_K}+${syn_k}_shuffled_w${window}"
                 run_experiment "$app" "$TRAIN_FILENAME" "$ORIGIN_MODEL" "$CONFIG_KEY"
                 print_summary_table
             done
-        fi
-    done
+        done
+    fi
 done
 
 print_summary_table
