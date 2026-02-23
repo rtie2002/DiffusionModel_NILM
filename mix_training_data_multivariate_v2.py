@@ -88,8 +88,8 @@ def extract_real_background_pool(appliance_name, real_path, window_size=600):
     bg_w = agg_w - app_w
     bg_w = np.maximum(bg_w, 0) # Physical constraint
     
-    # Identify "OFF" periods of target appliance (threshold 5W)
-    is_off = app_w < 5.0
+    # Identify "OFF" periods of target appliance (threshold 15W to accommodate standby/noise)
+    is_off = app_w < 15.0
     
     # Slice into windows of background power where appliance is largely OFF
     pool = []
@@ -97,6 +97,12 @@ def extract_real_background_pool(appliance_name, real_path, window_size=600):
         if np.mean(is_off[i : i + window_size]) > 0.95: # 95% of window is OFF
             pool.append(bg_w[i : i + window_size])
     
+    # FALLBACK: If no clean windows found (typical for always-on appliances like Fridge)
+    if len(pool) == 0:
+        print(f"  WARNING: No clean OFF-periods found (<15W). Falling back to random background sampling...")
+        for i in range(0, len(bg_w) - window_size, window_size):
+            pool.append(bg_w[i : i + window_size])
+
     print(f"  Extracted {len(pool)} background windows (size {window_size})")
     return pool
 
