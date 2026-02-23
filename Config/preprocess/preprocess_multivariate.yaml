@@ -127,7 +127,7 @@ appliances:
 # Purpose: Parameters for selecting "effective" windows of data used to train the Diffusion Model.
 
 algorithm1:
-  window_length: 10          # Number of samples to keep BEFORE and AFTER an event
+  window_length: 50          # Number of samples to keep BEFORE and AFTER an event
   remove_spikes: true        # Enable/Disable pre-cleaning of isolated spikes
   spike_window: 5            # Window size for detecting spikes
   spike_threshold: 3.0       # Multiplier (value > 3.0 * median = spike)
