@@ -123,42 +123,43 @@ def mix_data_v2(appliance_name, real_rows, synthetic_rows, real_path=None, suffi
     syn_app_w, syn_time_features = load_synthetic_appliance(appliance_name, synthetic_dir)
     
     # 4. Construct Synthetic Sequence using Background Injection
-    print(f"Constructing Synthetic Section ({synthetic_rows} rows)...")
-    num_windows = (synthetic_rows + window_size - 1) // window_size
+    actual_syn_rows = min(synthetic_rows, len(syn_app_w)) if synthetic_rows > 0 else 0
     
-    syn_agg_final = []
-    syn_app_final = []
-    syn_time_final = []
-    
-    spec = APPLIANCE_SPECS[appliance_name]
-    
-    for i in range(num_windows):
-        start = i * window_size
-        end = min(start + window_size, len(syn_app_w))
-        if start >= len(syn_app_w): break
+    if actual_syn_rows > 0:
+        print(f"Constructing Synthetic Section ({actual_syn_rows} rows)...")
+        num_windows = (actual_syn_rows + window_size - 1) // window_size
         
-        curr_win_size = end - start
+        syn_agg_final = []
+        syn_app_final = []
+        syn_time_final = []
         
-        # Take Synthetic Appliance (ỹ_target)
-        ỹ_target = syn_app_w[start:end]
+        spec = APPLIANCE_SPECS[appliance_name]
         
-        # Sample Real Background (x_bg)
-        x_bg = random.choice(bg_pool)[:curr_win_size]
-        
-        # Construct Hybrid Aggregate (x̃ = x_bg + ỹ_target)
-        x_syn = x_bg + ỹ_target
-        
-        # Convert back to Z-score for storage
-        syn_agg_final.extend((x_syn - AGG_MEAN) / AGG_STD)
-        syn_app_final.extend((ỹ_target - spec['mean']) / spec['std'])
-        syn_time_final.append(syn_time_features[start:end])
+        for i in range(num_windows):
+            start = i * window_size
+            end = min(start + window_size, len(syn_app_w))
+            if start >= len(syn_app_w) or len(syn_agg_final) >= actual_syn_rows: break
+            
+            curr_win_size = end - start
+            ỹ_target = syn_app_w[start:end]
+            x_bg = random.choice(bg_pool)[:curr_win_size]
+            x_syn = x_bg + ỹ_target
+            
+            syn_agg_final.extend((x_syn - AGG_MEAN) / AGG_STD)
+            syn_app_final.extend((ỹ_target - spec['mean']) / spec['std'])
+            syn_time_final.append(syn_time_features[start:end])
 
-    syn_time_final = np.concatenate(syn_time_final, axis=0)
-    
-    # Create Synthetic DataFrame
-    syn_df = pd.DataFrame(syn_time_final, columns=real_df.columns[2:])
-    syn_df.insert(0, real_df.columns[0], syn_agg_final[:len(syn_df)])
-    syn_df.insert(1, real_df.columns[1], syn_app_final[:len(syn_df)])
+        syn_time_final = np.concatenate(syn_time_final, axis=0)
+        
+        # Create Synthetic DataFrame
+        syn_df = pd.DataFrame(syn_time_final, columns=real_df.columns[2:])
+        syn_df.insert(0, real_df.columns[0], syn_agg_final[:len(syn_df)])
+        syn_df.insert(1, real_df.columns[1], syn_app_final[:len(syn_df)])
+        # Truncate to exact rows
+        syn_df = syn_df.iloc[:actual_syn_rows]
+    else:
+        print("Skipping synthetic construction (Baseline mode).")
+        syn_df = pd.DataFrame(columns=real_df.columns)
     
     # 5. Combine and Window Shuffle
     print("Finalizing Hybrid Dataset...")
