@@ -85,13 +85,13 @@ class DetectionConfig:
 
 DETECTION_CONFIG = {
     'washingmachine': DetectionConfig(
-        strategy='threshold',
+        strategy='threshold',   # Capture ONLY the core high-power phase
         edge_threshold=30,
         density_window=50,
         density_min_events=2,
-        power_threshold=1800,   # Raised to 1800W for cleaner start
-        min_gap_steps=10,       # VERY tight - won't bridge different cycles
-        min_duration_steps=30,
+        power_threshold=1800,   # Absolute threshold to ignore pre-wash agitation
+        min_gap_steps=0,        # Zero gap tolerance - force cleanest spikes
+        min_duration_steps=30,  
         max_event_length=4000,
     ),
     'dishwasher': DetectionConfig(
@@ -255,7 +255,12 @@ def load_and_build_events(appliance_name: str):
     print(f"  Flattened: {len(full_power):,} steps ({N} windows × 600)")
 
     # Detect events using per-appliance strategy
-    segs = detect_synthetic_events(full_power, appliance_name)
+    # ADDED: Pre-filtering for washing machines to ensure they start at the high pulse
+    process_power = full_power.copy()
+    if appliance_name == 'washingmachine':
+        process_power[process_power < 1000] = 0  # Hard-wipe anything below 1kW before detection
+    
+    segs = detect_synthetic_events(process_power, appliance_name)
 
     cfg = DETECTION_CONFIG.get(appliance_name, DETECTION_CONFIG['kettle'])
     max_len = cfg.max_event_length
