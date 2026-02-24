@@ -88,22 +88,51 @@ def extract_real_background_pool(appliance_name, real_path, window_size=600):
     bg_w = agg_w - app_w
     bg_w = np.maximum(bg_w, 0) # Physical constraint
     
-    # Identify "OFF" periods of target appliance (threshold 15W to accommodate standby/noise)
-    is_off = app_w < 15.0
+    # -------------------------------------------------------------
+    # Use Algorithm 1 logic to perfectly identify true OFF periods
+    # -------------------------------------------------------------
+    import os
+    if CONFIG and appliance_name in CONFIG['appliances']:
+        x_threshold = CONFIG['appliances'][appliance_name]['on_power_threshold']
+        l_window = CONFIG['algorithm1']['window_length']
+    else:
+        x_threshold = 15.0
+        l_window = 100
+        
+    power_sequence = app_w.copy()
     
-    # Slice into windows of background power where appliance is largely OFF
+    # 1. Identify ON points
+    is_on_event = power_sequence >= x_threshold
+    
+    # 2. Expand ON points by l_window (Algorithm 1 logic)
+    # Using np.convolve to dilate True values backwards and forwards by l_window
+    kernel_size = l_window * 2 + 1
+    kernel = np.ones(kernel_size)
+    expanded_on = np.convolve(is_on_event.astype(float), kernel, mode='same') > 0
+    
+    # 3. True OFF periods are the inverse of expanded ON periods
+    is_off_period = ~expanded_on
+    
+    # Slice into windows of background power where appliance is 100% safely OFF
     pool = []
     for i in range(0, len(bg_w) - window_size, window_size):
-        if np.mean(is_off[i : i + window_size]) > 0.95: # 95% of window is OFF
+        if np.all(is_off_period[i : i + window_size]): 
             pool.append(bg_w[i : i + window_size])
     
-    # FALLBACK: If no clean windows found (typical for always-on appliances like Fridge)
+    # FALLBACK: 如果连 Algorithm 1 过滤后也找不到绝对干净的窗口
     if len(pool) == 0:
-        print(f"  WARNING: No clean OFF-periods found (<15W). Falling back to random background sampling...")
+        print(f"  WARNING: 找不到符合 Algorithm 1 绝对强力过滤的背景窗口，正在选择该段期间【最大峰值功率最低】的窗口...")
+        scored_windows = []
         for i in range(0, len(bg_w) - window_size, window_size):
-            pool.append(bg_w[i : i + window_size])
+            max_app_power = np.max(app_w[i : i + window_size])
+            scored_windows.append((max_app_power, bg_w[i : i + window_size]))
+            
+        # 按照目标电器最大功率从小到大排序，拿最安静的前 50 组当背景
+        scored_windows.sort(key=lambda x: x[0])
+        pool = [w[1] for w in scored_windows[:50]]
+        print(f"  Fallback selected max appliances power in background: {[round(w[0],2) for w in scored_windows[:5]]} Watts")
 
-    print(f"  Extracted {len(pool)} background windows (size {window_size})")
+    print(f"  Extracted {len(pool)} background windows (size {window_size}) using Algorithm 1 filtering")
     return pool
 
 def mix_data_v2(appliance_name, real_rows, synthetic_rows, real_path=None, suffix="v2", shuffle=True, window_size=600):
