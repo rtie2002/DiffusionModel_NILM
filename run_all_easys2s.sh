@@ -137,15 +137,15 @@ print_summary_table() {
     echo "  MAE SUMMARY TABLE (Current Progress)"
     echo "================================================================"
     local header="Configuration                  "
-    for app in "${APPLIANCES[@]}"; do
-        printf -v col "%-${col_w}s" "${app}"; header+="| ${col}"
+    for local_app in "${APPLIANCES[@]}"; do
+        printf -v col "%-${col_w}s" "${local_app}"; header+="| ${col}"
     done
     echo "$header"
     local sep=""; local sep_len=${#header}; printf -v sep '%*s' "$sep_len" ''; echo "${sep// /-}"
     for config_key in "${CONFIG_ORDER[@]}"; do
         printf "%-31s" "$config_key"
-        for app in "${APPLIANCES[@]}"; do
-            local val="${RESULTS["${config_key}|${app}"]:-...}"
+        for local_app in "${APPLIANCES[@]}"; do
+            local val="${RESULTS["${config_key}|${local_app}"]:-...}"
             if [[ "$val" =~ ^[0-9]*\.?[0-9]+$ ]]; then printf "| %-14.2f" "$val"
             else printf "| %-14s" "$val"; fi
         done
