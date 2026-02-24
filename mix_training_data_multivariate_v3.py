@@ -80,17 +80,19 @@ class DetectionConfig:
     power_threshold: float  # [threshold] fallback simple threshold
     min_gap_steps: int      # merge gaps shorter than this
     min_duration_steps: int # discard segments shorter than this
+    max_event_length: int   # split events longer than this into chunks
 
 
 DETECTION_CONFIG = {
     'washingmachine': DetectionConfig(
         strategy='density',
-        edge_threshold=30,      # 30W jump = meaningful phase transition
-        density_window=50,      # 5-min window for event counting
-        density_min_events=2,   # ≥2 jumps per 5-min window → active
-        power_threshold=20,     # fallback
-        min_gap_steps=150,      # merge gaps ≤ 15 min (intra-cycle pauses)
-        min_duration_steps=100, # discard events < 10 min
+        edge_threshold=30,
+        density_window=50,
+        density_min_events=2,
+        power_threshold=20,
+        min_gap_steps=150,
+        min_duration_steps=100,
+        max_event_length=600,   # cap at 1 window = ensures many units for even spread
     ),
     'dishwasher': DetectionConfig(
         strategy='density',
@@ -100,6 +102,7 @@ DETECTION_CONFIG = {
         power_threshold=10,
         min_gap_steps=120,
         min_duration_steps=80,
+        max_event_length=800,
     ),
     'fridge': DetectionConfig(
         strategy='threshold',
@@ -109,6 +112,7 @@ DETECTION_CONFIG = {
         power_threshold=50,
         min_gap_steps=60,
         min_duration_steps=20,
+        max_event_length=300,
     ),
     'kettle': DetectionConfig(
         strategy='threshold',
@@ -118,6 +122,7 @@ DETECTION_CONFIG = {
         power_threshold=200,
         min_gap_steps=5,
         min_duration_steps=5,
+        max_event_length=200,
     ),
     'microwave': DetectionConfig(
         strategy='threshold',
@@ -127,6 +132,7 @@ DETECTION_CONFIG = {
         power_threshold=200,
         min_gap_steps=5,
         min_duration_steps=5,
+        max_event_length=100,
     ),
 }
 
@@ -231,7 +237,8 @@ def detect_synthetic_events(power: np.ndarray, appliance_name: str
 def load_and_build_events(appliance_name: str):
     """
     Load .npy [N, 600, C], flatten to continuous sequence,
-    run event detection, return list of event dicts.
+    run event detection, split long events into max_event_length chunks,
+    return list of event dicts.
     """
     npy_path = Path('synthetic_data_multivariate') / f'ddpm_fake_{appliance_name}_multivariate.npy'
     if not npy_path.exists():
@@ -243,15 +250,34 @@ def load_and_build_events(appliance_name: str):
 
     # Flatten to continuous sequence
     N            = data.shape[0]
-    full_power   = (data[:, :, 0] * spec['max_power']).reshape(-1)   # [N*600] Watts
-    full_time    = data[:, :, 1:].reshape(-1, data.shape[2] - 1)     # [N*600, 8]
+    full_power   = (data[:, :, 0] * spec['max_power']).reshape(-1)
+    full_time    = data[:, :, 1:].reshape(-1, data.shape[2] - 1)
     print(f"  Flattened: {len(full_power):,} steps ({N} windows × 600)")
 
-    # Detect events
+    # Detect events using per-appliance strategy
     segs = detect_synthetic_events(full_power, appliance_name)
 
-    events = [{'power': full_power[s:e], 'time': full_time[s:e], 'length': e-s}
-              for s, e in segs]
+    cfg = DETECTION_CONFIG.get(appliance_name, DETECTION_CONFIG['kettle'])
+    max_len = cfg.max_event_length
+
+    # Convert to event dicts AND split any event exceeding max_event_length
+    events = []
+    for s, e in segs:
+        pos = s
+        while pos < e:
+            chunk_end = min(pos + max_len, e)
+            chunk_len = chunk_end - pos
+            events.append({
+                'power':  full_power[pos:chunk_end],
+                'time':   full_time [pos:chunk_end],
+                'length': chunk_len,
+            })
+            pos = chunk_end
+
+    total_rows = sum(ev['length'] for ev in events)
+    print(f"  After chunking (max={max_len}): {len(events)} units, "
+          f"total={total_rows:,} rows, "
+          f"avg={total_rows//max(len(events),1)} steps/unit")
     return events
 
 
