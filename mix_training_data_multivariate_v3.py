@@ -85,14 +85,14 @@ class DetectionConfig:
 
 DETECTION_CONFIG = {
     'washingmachine': DetectionConfig(
-        strategy='threshold',   # Capture the core high-power heating block
+        strategy='threshold',
         edge_threshold=30,
         density_window=50,
         density_min_events=2,
-        power_threshold=1500,   # Start at the heating phase (>1500W)
-        min_gap_steps=80,       # Bridge small gaps within the heating pulses
+        power_threshold=1800,   # Raised to 1800W for cleaner start
+        min_gap_steps=10,       # VERY tight - won't bridge different cycles
         min_duration_steps=30,
-        max_event_length=4000,  # Keep the WHOLE heating cycle together (unbroken)
+        max_event_length=4000,
     ),
     'dishwasher': DetectionConfig(
         strategy='density',
@@ -263,13 +263,22 @@ def load_and_build_events(appliance_name: str):
     # Convert to event dicts AND split any event exceeding max_event_length
     events = []
     for s, e in segs:
-        pos = s
-        while pos < e:
-            chunk_end = min(pos + max_len, e)
+        # Tight Cropping: Ensure the extracted slice starts and ends AT the actual thresholded pulse
+        evt_power = full_power[s:e]
+        on_indices = np.where(evt_power >= cfg.power_threshold)[0]
+        if len(on_indices) == 0: continue
+        
+        # New tight boundaries within the flattened sequence
+        tight_s = s + on_indices[0]
+        tight_e = s + on_indices[-1] + 1
+        
+        pos = tight_s
+        actual_e = tight_e
+        while pos < actual_e:
+            chunk_end = min(pos + max_len, actual_e)
             chunk_len = chunk_end - pos
             events.append({
-                'power':  full_power[pos:chunk_end],
-                'time':   full_time [pos:chunk_end],
+                'power':  full_power[pos:chunk_end],   # Watts
                 'length': chunk_len,
             })
             pos = chunk_end
