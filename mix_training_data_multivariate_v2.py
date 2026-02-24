@@ -135,7 +135,7 @@ def extract_real_background_pool(appliance_name, real_path, window_size=600):
     print(f"  Extracted {len(pool)} background windows (size {window_size}) using Algorithm 1 filtering")
     return pool
 
-def mix_data_v2(appliance_name, real_rows, synthetic_rows, real_path=None, suffix="v2", shuffle=True, window_size=600):
+def mix_data_v2(appliance_name, real_rows, synthetic_rows, real_path=None, suffix="v2", shuffle=True, window_size=600, full_shuffle=False):
     print(f"\n{'='*60}\nNILM Mixed Dataset Construction v2 (Background Injection)\n{'='*60}")
     
     # 1. Load Real Data
@@ -198,8 +198,14 @@ def mix_data_v2(appliance_name, real_rows, synthetic_rows, real_path=None, suffi
     real_windows = to_windows(real_subset, window_size)
     syn_windows = to_windows(syn_df, window_size)
     
-    if shuffle:
-        # Shuffle only synthetic windows
+    if full_shuffle:
+        # Scenario: Full Shuffle (Real and Synthetic mixed and randomized)
+        print("Applying FULL SHUFFLE (Real + Synthetic)...")
+        all_windows = real_windows + syn_windows
+        random.shuffle(all_windows)
+    elif shuffle:
+        # Scenario: Mixed Shuffle (Real kept in order, Synthetic windows randomized)
+        print("Applying PARTIAL SHUFFLE (Synthetic only)...")
         random.shuffle(syn_windows)
         
         # Keep real windows in order, randomly inject synthetic windows
@@ -208,6 +214,7 @@ def mix_data_v2(appliance_name, real_rows, synthetic_rows, real_path=None, suffi
             insert_loc = random.randint(0, len(all_windows))
             all_windows.insert(insert_loc, syn_win)
     else:
+        print("No shuffle (Ordered mode)...")
         all_windows = real_windows + syn_windows
     
     final_df = pd.concat(all_windows, ignore_index=True)
@@ -227,9 +234,10 @@ if __name__ == '__main__':
     parser.add_argument('--real_rows', type=int, default=200000)
     parser.add_argument('--synthetic_rows', type=int, default=200000)
     parser.add_argument('--suffix', type=str, default="200k+200k_bg_v2")
-    parser.add_argument('--shuffle', action='store_true', help='Enable window shuffling')
-    parser.add_argument('--no-shuffle', action='store_false', dest='shuffle', help='Disable window shuffling')
+    parser.add_argument('--shuffle', action='store_true', help='Enable window shuffling (synthetic only)')
+    parser.add_argument('--no-shuffle', action='store_false', dest='shuffle')
     parser.set_defaults(shuffle=True)
+    parser.add_argument('--full-shuffle', action='store_true', help='Shuffle BOTH real and synthetic windows together')
     parser.add_argument('--window_size', type=int, default=600, help='Window size for slicing and shuffling')
     args = parser.parse_args()
     
@@ -239,5 +247,6 @@ if __name__ == '__main__':
         synthetic_rows=args.synthetic_rows, 
         suffix=args.suffix,
         shuffle=args.shuffle,
-        window_size=args.window_size
+        window_size=args.window_size,
+        full_shuffle=args.full_shuffle
     )

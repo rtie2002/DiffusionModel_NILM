@@ -32,7 +32,7 @@ REAL_ROWS=200000
 SYN_ROWS_CASES=(0 20000 100000 200000 400000)
 
 # Window Sizes for Shuffling (v2 strategy)
-WINDOW_SIZES=(10 50 100 6000)
+WINDOW_SIZES=(600 6000)
 
 for APPLIANCE in "${APPLIANCES[@]}"; do
     echo "================================================================"
@@ -72,7 +72,8 @@ for APPLIANCE in "${APPLIANCES[@]}"; do
             # 2. Shuffled Cases — v2 (Various Window Sizes)
             # ----------------------------------------------------------------
             for window in "${WINDOW_SIZES[@]}"; do
-                echo "[v2 Shuffled] $APPLIANCE | Window: $window | Injection: ${REAL_K}k+${SYN_K}k"
+                # A) Partial Shuffle (Real kept order)
+                echo "[v2 Partial Shuffle] $APPLIANCE | Window: $window | Injection: ${REAL_K}k+${SYN_K}k"
                 SUFFIX="${REAL_K}k+${SYN_K}k_shuffled_w${window}"
                 
                 python mix_training_data_multivariate_v2.py \
@@ -81,6 +82,18 @@ for APPLIANCE in "${APPLIANCES[@]}"; do
                     --synthetic_rows $syn_rows \
                     --suffix "$SUFFIX" \
                     --shuffle \
+                    --window_size $window
+
+                # B) Full Shuffle (Everything randomized)
+                echo "[v2 Full Shuffle] $APPLIANCE | Window: $window | Injection: ${REAL_K}k+${SYN_K}k"
+                SUFFIX="${REAL_K}k+${SYN_K}k_full_shuffled_w${window}"
+                
+                python mix_training_data_multivariate_v2.py \
+                    --appliance "$APPLIANCE" \
+                    --real_rows $REAL_ROWS \
+                    --synthetic_rows $syn_rows \
+                    --suffix "$SUFFIX" \
+                    --full-shuffle \
                     --window_size $window
             done
 

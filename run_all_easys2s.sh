@@ -57,7 +57,7 @@ fi
 # --- Experiment Parameters ---
 REAL_K="200k"
 SYN_K_CASES=("0k" "20k" "100k" "200k" "400k")
-WINDOW_SIZES=("50" "100" "6000") # w10 removed for execution
+WINDOW_SIZES=("600" "6000") # Focusing on large windows
 EPOCHS=100
 BATCH_SIZE=2048   # Increased for speed on RTX 4090
 TRAIN_PERCENT="20"
@@ -167,7 +167,8 @@ for syn_k in "${SYN_K_CASES[@]}"; do
     else
         CONFIG_ORDER+=("200k+${syn_k} | Ordered     ")
         for window in "${WINDOW_SIZES[@]}"; do
-            CONFIG_ORDER+=("200k+${syn_k} | Shuffled w${window} ")
+            CONFIG_ORDER+=("200k+${syn_k} | Partial S-w${window}")
+            CONFIG_ORDER+=("200k+${syn_k} | Full S-w${window}   ")
         done
         CONFIG_ORDER+=("200k+${syn_k} | Event Even  ")
     fi
@@ -192,8 +193,15 @@ for app in "${APPLIANCES[@]}"; do
         if [ "$syn_k" != "0k" ]; then
             # v2: Shuffled Windows
             for window in "${WINDOW_SIZES[@]}"; do
-                CONFIG_KEY="200k+${syn_k} | Shuffled w${window} "
+                # A) Partial Shuffle
+                CONFIG_KEY="200k+${syn_k} | Partial S-w${window}"
                 TRAIN_FILENAME="${app}_training_${REAL_K}+${syn_k}_shuffled_w${window}"
+                run_experiment "$app" "$TRAIN_FILENAME" "$ORIGIN_MODEL" "$CONFIG_KEY"
+                print_summary_table
+
+                # B) Full Shuffle
+                CONFIG_KEY="200k+${syn_k} | Full S-w${window}   "
+                TRAIN_FILENAME="${app}_training_${REAL_K}+${syn_k}_full_shuffled_w${window}"
                 run_experiment "$app" "$TRAIN_FILENAME" "$ORIGIN_MODEL" "$CONFIG_KEY"
                 print_summary_table
             done
