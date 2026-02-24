@@ -85,12 +85,12 @@ class DetectionConfig:
 
 DETECTION_CONFIG = {
     'washingmachine': DetectionConfig(
-        strategy='threshold',   # Capture ONLY the core high-power phase
+        strategy='threshold',   # Balanced: Precise start + complete tail
         edge_threshold=30,
         density_window=50,
         density_min_events=2,
-        power_threshold=1800,   # Absolute threshold to ignore pre-wash agitation
-        min_gap_steps=0,        # Zero gap tolerance - force cleanest spikes
+        power_threshold=500,    # Detect the whole block (starting at 500W pulses)
+        min_gap_steps=150,      # Keep the block together
         min_duration_steps=30,  
         max_event_length=4000,
     ),
@@ -249,26 +249,9 @@ def load_and_build_events(appliance_name: str):
     spec = APPLIANCE_SPECS[appliance_name]
 
     # Flatten to continuous sequence
-    N            = data.shape[0]
-    full_power   = (data[:, :, 0] * spec['max_power']).reshape(-1)
-    
-    # --- NUCLEAR OPTION FOR WASHING MACHINE ---
-    # To satisfy "Correct Waveform": Hard-wipe absolutely everything below 1500W 
-    # at the source. This ensures agitation tails never even enter the detection pipeline.
-    if appliance_name == 'washingmachine':
-        print("  Applying Zero-Thresholding (<1500W) to source data...")
-        full_power[full_power < 1500] = 0
-    
-    full_time    = data[:, :, 1:].reshape(-1, data.shape[2] - 1)
-    print(f"  Flattened: {len(full_power):,} steps ({N} windows × 600)")
-
     # Detect events using per-appliance strategy
-    # ADDED: Pre-filtering for washing machines to ensure they start at the high pulse
-    process_power = full_power.copy()
-    if appliance_name == 'washingmachine':
-        process_power[process_power < 1000] = 0  # Hard-wipe anything below 1kW before detection
-    
-    segs = detect_synthetic_events(process_power, appliance_name)
+    # (Removed the nuclear 1500W wipe to preserve data diversity)
+    segs = detect_synthetic_events(full_power, appliance_name)
 
     cfg = DETECTION_CONFIG.get(appliance_name, DETECTION_CONFIG['kettle'])
     max_len = cfg.max_event_length
@@ -276,28 +259,33 @@ def load_and_build_events(appliance_name: str):
     # Convert to event dicts AND split any event exceeding max_event_length
     events = []
     for s, e in segs:
-        # Since we hard-wiped full_power above, s and e are already guaranteed 
-        # to bound only high-power pulses.
-        pos = s
-        while pos < e:
-            chunk_end = min(pos + max_len, e)
+        evt_power = full_power[s:e]
+        
+        # ── Refined Cropping ──
+        # Focus: Ensure the HEAD is the 1500W spike, but keep the TAIL > 500W
+        on_high = np.where(evt_power >= 1500)[0]
+        if len(on_high) == 0: continue
+        
+        # Trim the START to the first high pulse
+        tight_s = s + on_high[0]
+        # Keep the END as detected by the 500W threshold
+        tight_e = e 
+        
+        pos = tight_s
+        actual_e = tight_e
+        while pos < actual_e:
+            chunk_end = min(pos + max_len, actual_e)
             chunk_len = chunk_end - pos
             
             p_slice = full_power[pos:chunk_end].copy()
-            # Double check: ensure the chunk itself doesn't start with 0s
-            on_indices = np.where(p_slice >= 1500)[0]
-            if len(on_indices) == 0:
+            # If it's the very first chunk of this event, ensure it's not a tiny sliver
+            if len(p_slice) < 10: 
                 pos = chunk_end
                 continue
                 
-            # Final Tight Crop of the chunk
-            actual_start = on_indices[0]
-            actual_end   = on_indices[-1] + 1
-            final_p      = p_slice[actual_start:actual_end]
-            
             events.append({
-                'power':  final_p,
-                'length': len(final_p),
+                'power':  p_slice,
+                'length': len(p_slice),
             })
             pos = chunk_end
 
