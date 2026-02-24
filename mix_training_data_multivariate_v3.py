@@ -282,8 +282,13 @@ def load_and_build_events(appliance_name: str):
         while pos < actual_e:
             chunk_end = min(pos + max_len, actual_e)
             chunk_len = chunk_end - pos
+            
+            p_slice = full_power[pos:chunk_end].copy()
+            if appliance_name == 'washingmachine':
+                p_slice[p_slice < 1000] = 0  # CRITICAL: Hard-wipe the agitation noise from the actual data slice
+                
             events.append({
-                'power':  full_power[pos:chunk_end],   # Watts
+                'power':  p_slice,   # Watts
                 'length': chunk_len,
             })
             pos = chunk_end
