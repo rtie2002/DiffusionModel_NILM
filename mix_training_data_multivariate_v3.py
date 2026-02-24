@@ -1,23 +1,21 @@
 # -*- coding: utf-8 -*-
 """
-NILM Data Mixing Script v3 (Event-Based Injection)
-====================================================
-Key improvement over v2:
-  - v2 sliced synthetic data into FIXED windows (w10, w50, w100, w600) and shuffled them.
-    This BREAKS the physical continuity of appliance ON-periods (e.g., a kettle boiling
-    cycle gets chopped into meaningless fragments).
-  - v3 uses Algorithm 1 logic to detect complete ON-period EVENTS in the synthetic data,
-    treats each event as an indivisible atomic block, and injects these complete events
-    into the real data stream at random positions.
+NILM Data Mixing Script v3 (Evenly-Spaced OFF-Period Injection)
+================================================================
+Key improvement:
+  - This script identifies all "True OFF" segments in the real data (using Algorithm 1 logic)
+    and distributes synthetic events EVENLY across these segments.
+  - This ensures synthetic data never overlaps with real ON-periods and is
+    spread uniformly throughout the dataset's available "quiet time".
 
 Logic:
-  1. Load Synthetic Target Appliance power (ỹ_target) in Watts
-  2. Detect ON-period events in synthetic data using Algorithm 1 (threshold + l_window expansion)
-  3. Extract each event as a complete block (including quiet context before/after)
-  4. Extract REAL Background Power (X_bg = X_total - Y_target) from certified OFF periods
-  5. For each synthetic event block: X_syn_event = random(X_bg) + ỹ_event
-  6. Randomly inject these complete synthetic event blocks into the real data stream
-  7. Save combined dataset
+  1. Load Real Data and identify "True OFF" periods (Algorithm 1 inverse).
+  2. Load Synthetic Target Appliance power and detect events (Algorithm 1).
+  3. Detect contiguous OFF segments in the real data.
+  4. Calculate total OFF duration and distribute N synthetic events 
+     proportionally across these segments.
+  5. Within each OFF segment, place events at equal intervals.
+  6. Save combined dataset.
 
 Usage:
     python mix_training_data_multivariate_v3.py --appliance kettle --real_rows 200000 --synthetic_rows 200000
@@ -67,46 +65,22 @@ def load_synthetic_appliance(appliance_name, synthetic_dir):
     """Load synthetic [0,1] power and convert to Watts"""
     npy_path = Path(synthetic_dir) / f'ddpm_fake_{appliance_name}_multivariate.npy'
     if not npy_path.exists():
-        # Try fallback path
         npy_path = Path(f'OUTPUT/{appliance_name}_512/ddpm_fake_{appliance_name}_512.npy')
     
     print(f"Loading synthetic data from: {npy_path}")
     data = np.load(npy_path)
-    # Extract power column (index 0) and flatten
     power_01 = data[:, :, 0].reshape(-1)
-    
-    # Convert to Watts
     spec = APPLIANCE_SPECS[appliance_name]
     power_watts = power_01 * spec['max_power']
-    return power_watts, data[:, :, 1:].reshape(-1, 8)  # Return Watts, TimeFeatures
+    return power_watts, data[:, :, 1:].reshape(-1, 8) 
 
 
-def extract_real_background_pool(appliance_name, real_path, bg_window_size=600):
-    """
-    Extract periods where the target appliance is OFF to create a background power pool.
-    Uses Algorithm 1 inverse logic: certified OFF = NOT(expanded ON regions).
-    Background = Total Aggregate - Target Appliance
-    """
-    print(f"Extracting Real Background Pool for {appliance_name}...")
-    df = pd.read_csv(real_path)
-    
-    # Columns: 0=Agg, 1=Appliance
-    agg_z = df.iloc[:, 0].values
+def get_off_periods_mask(appliance_name, df):
+    """Get boolean mask identifying where target appliance is strictly OFF."""
     app_z = df.iloc[:, 1].values
-    
-    # Agg Z -> Watts
-    agg_w = agg_z * AGG_STD + AGG_MEAN
-    # App Z -> Watts
     spec = APPLIANCE_SPECS[appliance_name]
     app_w = app_z * spec['std'] + spec['mean']
     
-    # Background Power (Everything except target appliance)
-    bg_w = agg_w - app_w
-    bg_w = np.maximum(bg_w, 0)  # Physical constraint
-    
-    # -------------------------------------------------------------
-    # Use Algorithm 1 logic to perfectly identify true OFF periods
-    # -------------------------------------------------------------
     if CONFIG and appliance_name in CONFIG['appliances']:
         x_threshold = CONFIG['appliances'][appliance_name]['on_power_threshold']
         l_window = CONFIG['algorithm1']['window_length']
@@ -114,45 +88,14 @@ def extract_real_background_pool(appliance_name, real_path, bg_window_size=600):
         x_threshold = 15.0
         l_window = 100
         
-    # 1. Identify ON points
     is_on_event = app_w >= x_threshold
-    
-    # 2. Expand ON points by l_window (Algorithm 1 logic)
     kernel_size = l_window * 2 + 1
     kernel = np.ones(kernel_size)
     expanded_on = np.convolve(is_on_event.astype(float), kernel, mode='same') > 0
-    
-    # 3. True OFF periods are the inverse of expanded ON periods
-    is_off_period = ~expanded_on
-    
-    # Slice into windows of background power where appliance is 100% safely OFF
-    pool = []
-    for i in range(0, len(bg_w) - bg_window_size, bg_window_size):
-        if np.all(is_off_period[i : i + bg_window_size]): 
-            pool.append(bg_w[i : i + bg_window_size])
-    
-    # FALLBACK
-    if len(pool) == 0:
-        print(f"  WARNING: 找不到符合 Algorithm 1 绝对强力过滤的背景窗口，正在选择【最大峰值功率最低】的窗口...")
-        scored_windows = []
-        for i in range(0, len(bg_w) - bg_window_size, bg_window_size):
-            max_app_power = np.max(app_w[i : i + bg_window_size])
-            scored_windows.append((max_app_power, bg_w[i : i + bg_window_size]))
-        scored_windows.sort(key=lambda x: x[0])
-        pool = [w[1] for w in scored_windows[:50]]
-        print(f"  Fallback max appliance power in background: {[round(w[0],2) for w in scored_windows[:5]]} Watts")
-
-    print(f"  Extracted {len(pool)} background windows (size {bg_window_size}) using Algorithm 1 filtering")
-    return pool
+    return ~expanded_on
 
 
 def detect_synthetic_events(syn_power_watts, appliance_name):
-    """
-    Use Algorithm 1 logic to detect complete ON-period events in the synthetic data.
-    
-    Returns a list of (start_idx, end_idx) tuples, each representing one complete
-    appliance activation event (including l_window context before and after).
-    """
     if CONFIG and appliance_name in CONFIG['appliances']:
         x_threshold = CONFIG['appliances'][appliance_name]['on_power_threshold']
         l_window = CONFIG['algorithm1']['window_length']
@@ -161,237 +104,181 @@ def detect_synthetic_events(syn_power_watts, appliance_name):
         l_window = 100
     
     n = len(syn_power_watts)
-    
-    # 1. Identify ON points
     is_on = syn_power_watts >= x_threshold
-    
-    # 2. Expand ON points by l_window
     kernel_size = l_window * 2 + 1
     kernel = np.ones(kernel_size)
     expanded_on = np.convolve(is_on.astype(float), kernel, mode='same') > 0
     
-    # 3. Find contiguous ON regions (each region = one complete event)
     events = []
     in_event = False
     event_start = 0
-    
     for i in range(n):
         if expanded_on[i] and not in_event:
-            # Start of a new event
             event_start = i
             in_event = True
         elif not expanded_on[i] and in_event:
-            # End of current event
             events.append((event_start, i))
             in_event = False
-    
-    # Handle case where last event extends to end of data
-    if in_event:
-        events.append((event_start, n))
-    
-    # Print statistics
-    event_lengths = [e - s for s, e in events]
-    if event_lengths:
-        print(f"  Detected {len(events)} synthetic ON-period events")
-        print(f"  Event lengths: min={min(event_lengths)}, max={max(event_lengths)}, "
-              f"mean={np.mean(event_lengths):.0f}, total_rows={sum(event_lengths)}")
-    else:
-        print(f"  WARNING: No ON-period events detected in synthetic data!")
-    
+    if in_event: events.append((event_start, n))
     return events
 
 
-def assemble_background_for_event(event_length, bg_pool, bg_window_size=600):
-    """
-    Assemble a continuous background noise sequence of exactly `event_length` steps
-    by stitching together random windows from the background pool.
-    """
-    bg_sequence = []
-    remaining = event_length
-    
-    while remaining > 0:
-        bg_window = random.choice(bg_pool)
-        chunk = bg_window[:min(remaining, len(bg_window))]
-        bg_sequence.append(chunk)
-        remaining -= len(chunk)
-    
-    return np.concatenate(bg_sequence)[:event_length]
+def extract_background_from_df(df, appliance_name):
+    """Calculate background power from a dataframe segment."""
+    agg_z = df.iloc[:, 0].values
+    app_z = df.iloc[:, 1].values
+    agg_w = agg_z * AGG_STD + AGG_MEAN
+    spec = APPLIANCE_SPECS[appliance_name]
+    app_w = app_z * spec['std'] + spec['mean']
+    bg_w = agg_w - app_w
+    return np.maximum(bg_w, 0)
 
 
-def mix_data_v3(appliance_name, real_rows, synthetic_rows, real_path=None, suffix="v3", shuffle=True):
-    print(f"\n{'='*60}\nNILM Mixed Dataset Construction v3 (Event-Based Injection)\n{'='*60}")
+def mix_data_v3(appliance_name, real_rows, synthetic_rows, real_path=None, suffix="v3"):
+    print(f"\n{'='*60}\nNILM Mixed Dataset Construction v3 (Evenly-Spaced OFF Injection)\n{'='*60}")
     
-    # 1. Load Real Data
+    # 1. Load Data
     if real_path is None:
         real_path = f'created_data/UK_DALE/{appliance_name}_training_.csv'
-    real_df = pd.read_csv(real_path)
-    real_subset = real_df.iloc[:real_rows].copy()
+    real_df = pd.read_csv(real_path).iloc[:real_rows].copy()
     
-    # 2. Extract Background Pool from Real Data (OFF periods)
-    bg_pool = extract_real_background_pool(appliance_name, real_path)
+    # 2. Identify contiguous OFF segments in Real Data
+    is_off_mask = get_off_periods_mask(appliance_name, real_df)
+    off_segments = []
+    in_seg = False
+    start = 0
+    for i in range(len(is_off_mask)):
+        if is_off_mask[i] and not in_seg:
+            start = i; in_seg = True
+        elif not is_off_mask[i] and in_seg:
+            off_segments.append((start, i)); in_seg = False
+    if in_seg: off_segments.append((start, len(is_off_mask)))
     
-    # 3. Load Synthetic Appliance Power
-    synthetic_dir = CONFIG['paths']['synthetic_dir'] if CONFIG else 'synthetic_data_multivariate'
-    syn_app_w, syn_time_features = load_synthetic_appliance(appliance_name, synthetic_dir)
+    total_off_len = sum(e - s for s, e in off_segments)
+    print(f"Total rows: {len(real_df)}, Total OFF periods: {total_off_len} rows, OFF segments count: {len(off_segments)}")
+
+    # 3. Load and prepare Synthetic Events
+    syn_app_w, syn_time_features = load_synthetic_appliance(appliance_name, 'synthetic_data_multivariate')
+    syn_events_raw = detect_synthetic_events(syn_app_w, appliance_name)
     
-    # 4. Detect ON-period events in synthetic data using Algorithm 1 logic
-    print(f"\nDetecting ON-period events in synthetic data...")
-    events = detect_synthetic_events(syn_app_w, appliance_name)
-    
-    if len(events) == 0:
-        print("ERROR: No events detected. Cannot proceed with event-based injection.")
-        return
-    
-    # 5. Select events to meet synthetic_rows target
     actual_syn_rows = min(synthetic_rows, len(syn_app_w)) if synthetic_rows > 0 else 0
+    if actual_syn_rows <= 0:
+        print("Baseline mode - No synthetic data to inject.")
+        real_df.to_csv(f'created_data/UK_DALE/{appliance_name}/{appliance_name}_training_{suffix}.csv', index=False)
+        return
+
+    # Select enough events for target rows
+    selected_events = []
+    current_rows = 0
+    while current_rows < actual_syn_rows:
+        for s, e in syn_events_raw:
+            length = min(e - s, actual_syn_rows - current_rows)
+            selected_events.append((s, s + length))
+            current_rows += length
+            if current_rows >= actual_syn_rows: break
     
-    if actual_syn_rows > 0:
-        print(f"\nConstructing Synthetic Section (target: {actual_syn_rows} rows)...")
-        spec = APPLIANCE_SPECS[appliance_name]
-        
-        # Shuffle events and select until we reach the target row count
-        event_indices = list(range(len(events)))
-        random.shuffle(event_indices)
-        
-        syn_event_dfs = []
-        total_syn_rows_used = 0
-        events_used = 0
-        
-        for evt_idx in event_indices:
-            if total_syn_rows_used >= actual_syn_rows:
-                break
-            
-            start, end = events[evt_idx]
-            event_len = end - start
-            
-            # Cap if adding this event would exceed the target
-            if total_syn_rows_used + event_len > actual_syn_rows:
-                event_len = actual_syn_rows - total_syn_rows_used
-                end = start + event_len
-            
-            # Extract synthetic appliance power for this event
-            ỹ_event = syn_app_w[start:end]
-            time_event = syn_time_features[start:end]
-            
-            # Assemble matching background noise
-            x_bg = assemble_background_for_event(event_len, bg_pool)
-            
-            # Construct synthetic aggregate: X_syn = X_bg + ỹ_target
-            x_syn = x_bg + ỹ_event
-            
-            # Normalize back to Z-score format (matching real data format)
-            agg_z = (x_syn - AGG_MEAN) / AGG_STD
-            app_z = (ỹ_event - spec['mean']) / spec['std']
-            
-            # Create event DataFrame
-            event_df = pd.DataFrame(time_event, columns=real_df.columns[2:])
-            event_df.insert(0, real_df.columns[0], agg_z)
-            event_df.insert(1, real_df.columns[1], app_z)
-            
-            syn_event_dfs.append(event_df)
-            total_syn_rows_used += event_len
-            events_used += 1
-        
-        # If we still haven't reached the target (not enough events), cycle through again
-        cycle_count = 0
-        while total_syn_rows_used < actual_syn_rows and cycle_count < 10:
-            cycle_count += 1
-            random.shuffle(event_indices)
-            for evt_idx in event_indices:
-                if total_syn_rows_used >= actual_syn_rows:
-                    break
-                start, end = events[evt_idx]
-                event_len = min(end - start, actual_syn_rows - total_syn_rows_used)
-                end = start + event_len
-                
-                ỹ_event = syn_app_w[start:end]
-                time_event = syn_time_features[start:end]
-                x_bg = assemble_background_for_event(event_len, bg_pool)
-                x_syn = x_bg + ỹ_event
-                
-                agg_z = (x_syn - AGG_MEAN) / AGG_STD
-                app_z = (ỹ_event - spec['mean']) / spec['std']
-                
-                event_df = pd.DataFrame(time_event, columns=real_df.columns[2:])
-                event_df.insert(0, real_df.columns[0], agg_z)
-                event_df.insert(1, real_df.columns[1], app_z)
-                
-                syn_event_dfs.append(event_df)
-                total_syn_rows_used += event_len
-                events_used += 1
-        
-        print(f"  Events used: {events_used}, Total synthetic rows: {total_syn_rows_used}")
-    else:
-        print("Skipping synthetic construction (Baseline mode).")
-        syn_event_dfs = []
+    num_events = len(selected_events)
+    print(f"Injecting {num_events} events across {total_off_len} OFF-period rows.")
+
+    # 4. Distribute events across OFF segments
+    # Each segment gets a share of events proportional to its length
+    segment_event_counts = []
+    for s, e in off_segments:
+        count = int(np.round(num_events * (e - s) / total_off_len))
+        segment_event_counts.append(count)
     
-    # 6. Combine real data and synthetic event blocks
-    print("Finalizing Hybrid Dataset...")
+    # Adjust to match exact num_events due to rounding
+    diff = num_events - sum(segment_event_counts)
+    if diff != 0:
+        # Adjustment: add/sub from largest segments
+        indices = np.argsort([e - s for s, e in off_segments])[::-1]
+        for i in range(abs(diff)):
+            segment_event_counts[indices[i % len(indices)]] += (1 if diff > 0 else -1)
+
+    # 5. Build final sequence by injecting into segments
+    # We will build a list of dataframes (Segments and Events)
+    final_parts = []
+    event_ptr = 0
+    spec = APPLIANCE_SPECS[appliance_name]
     
-    if shuffle and len(syn_event_dfs) > 0:
-        # Keep real data as one continuous block, inject synthetic events at random positions
-        # Split real data into segments at random cut points to create injection slots
-        n_events = len(syn_event_dfs)
+    curr_real_idx = 0
+    for seg_idx, (seg_start, seg_end) in enumerate(off_segments):
+        # Add real data BEFORE this OFF segment
+        if seg_start > curr_real_idx:
+            final_parts.append(real_df.iloc[curr_real_idx : seg_start])
         
-        # Generate n_events random cut points in the real data
-        real_len = len(real_subset)
-        cut_points = sorted(random.sample(range(1, real_len), min(n_events, real_len - 1)))
+        # Process this OFF segment
+        seg_len = seg_end - seg_start
+        seg_df = real_df.iloc[seg_start : seg_end].copy()
+        n_events_here = segment_event_counts[seg_idx]
         
-        # Split real data at cut points
-        real_segments = []
-        prev = 0
-        for cp in cut_points:
-            real_segments.append(real_subset.iloc[prev:cp])
-            prev = cp
-        real_segments.append(real_subset.iloc[prev:])  # Last segment
+        if n_events_here > 0:
+            # Even spacing logic inside this segment
+            # Gap between events
+            avg_event_len = sum(selected_events[i][1] - selected_events[i][0] for i in range(event_ptr, event_ptr+n_events_here)) / n_events_here
+            spacing = (seg_len - (avg_event_len * n_events_here)) / (n_events_here + 1)
+            spacing = max(0, spacing)
+            
+            curr_seg_pos = 0
+            for _ in range(n_events_here):
+                if event_ptr >= num_events: break
+                
+                # 1. Add quiet part of background
+                quiet_len = int(spacing)
+                if quiet_len > 0 and curr_seg_pos + quiet_len <= seg_len:
+                    final_parts.append(seg_df.iloc[curr_seg_pos : curr_seg_pos + quiet_len])
+                    curr_seg_pos += quiet_len
+                
+                # 2. Add Synthetic Event
+                s_syn, e_syn = selected_events[event_ptr]
+                event_len = e_syn - s_syn
+                
+                # Extract background from real segment (or cycle it if segment is too short)
+                # For simplicity, we use the next N rows of the current quiet segment as background
+                bg_slice_len = min(event_len, seg_len - curr_seg_pos)
+                if bg_slice_len > 0:
+                    real_bg_w = extract_background_from_df(seg_df.iloc[curr_seg_pos : curr_seg_pos + bg_slice_len], appliance_name)
+                    ỹ_event = syn_app_w[s_syn : s_syn + bg_slice_len]
+                    time_event = syn_time_features[s_syn : s_syn + bg_slice_len]
+                    
+                    x_syn = real_bg_w + ỹ_event
+                    agg_z = (x_syn - AGG_MEAN) / AGG_STD
+                    app_z = (ỹ_event - spec['mean']) / spec['std']
+                    
+                    evt_df = pd.DataFrame(time_event, columns=real_df.columns[2:])
+                    evt_df.insert(0, real_df.columns[0], agg_z)
+                    evt_df.insert(1, real_df.columns[1], app_z)
+                    final_parts.append(evt_df)
+                    
+                    curr_seg_pos += bg_slice_len
+                event_ptr += 1
+            
+            # Add remaining part of segment
+            if curr_seg_pos < seg_len:
+                final_parts.append(seg_df.iloc[curr_seg_pos:])
+        else:
+            final_parts.append(seg_df)
         
-        # Shuffle event blocks
-        random.shuffle(syn_event_dfs)
+        curr_real_idx = seg_end
         
-        # Interleave: real_segment[0], syn_event[0], real_segment[1], syn_event[1], ...
-        all_parts = []
-        for i, seg in enumerate(real_segments):
-            all_parts.append(seg)
-            if i < len(syn_event_dfs):
-                all_parts.append(syn_event_dfs[i])
-        
-        # Append any remaining synthetic events at the end
-        if len(syn_event_dfs) > len(real_segments):
-            for j in range(len(real_segments), len(syn_event_dfs)):
-                all_parts.append(syn_event_dfs[j])
-        
-        final_df = pd.concat(all_parts, ignore_index=True)
-    else:
-        # No shuffle: real data first, then all synthetic events appended
-        all_parts = [real_subset] + syn_event_dfs
-        final_df = pd.concat(all_parts, ignore_index=True)
-    
-    # 7. Save
+    # Add any remaining real data at the very end
+    if curr_real_idx < len(real_df):
+        final_parts.append(real_df.iloc[curr_real_idx:])
+
+    # 6. Save
+    final_df = pd.concat(final_parts, ignore_index=True)
     out_dir = Path(f'created_data/UK_DALE/{appliance_name}')
     out_dir.mkdir(parents=True, exist_ok=True)
     out_file = out_dir / f'{appliance_name}_training_{suffix}.csv'
     final_df.to_csv(out_file, index=False)
-    
-    total_syn = sum(len(df) for df in syn_event_dfs)
-    print(f"\nDONE! Saved to: {out_file}")
-    print(f"Total Rows: {len(final_df)} (Real: {len(real_subset)}, Synthetic: {total_syn})")
-
+    print(f"DONE! Saved to: {out_file}, Rows: {len(final_df)}")
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='NILM Data Mixing v3 - Event-Based Injection')
+    parser = argparse.ArgumentParser()
     parser.add_argument('--appliance', type=str, required=True)
     parser.add_argument('--real_rows', type=int, default=200000)
     parser.add_argument('--synthetic_rows', type=int, default=200000)
     parser.add_argument('--suffix', type=str, default="200k+200k_event_v3")
-    parser.add_argument('--shuffle', action='store_true', help='Enable event injection shuffling')
-    parser.add_argument('--no-shuffle', action='store_false', dest='shuffle', help='Disable shuffling')
-    parser.set_defaults(shuffle=True)
     args = parser.parse_args()
     
-    mix_data_v3(
-        appliance_name=args.appliance, 
-        real_rows=args.real_rows, 
-        synthetic_rows=args.synthetic_rows, 
-        suffix=args.suffix,
-        shuffle=args.shuffle
-    )
+    mix_data_v3(args.appliance, args.real_rows, args.synthetic_rows, suffix=args.suffix)

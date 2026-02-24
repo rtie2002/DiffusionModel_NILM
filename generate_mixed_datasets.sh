@@ -4,8 +4,8 @@
 # Script: generate_mixed_datasets.sh
 # Purpose: Generate combinations of real and synthetic NILM data
 #          Strategy 1 (v2): Fixed window shuffling (w10, w50, w100, w600)
-#          Strategy 2 (v3): Event-based injection (complete ON-period events)
-#          Per appliance: 1 baseline + 4 ordered + 4*4 shuffled + 4 event = 25
+#          Strategy 2 (v3): Event-based injection (Evenly-spaced in OFF periods)
+#          Per appliance: 1 baseline + 4 ordered + 16 shuffled + 4 v3 = 25
 # ==============================================================================
 
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -13,6 +13,7 @@ cd "$PROJECT_ROOT"
 
 # --- Self-Cleaning: Fix Windows Line Endings (\r) ---
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    sed -i 's/\r$//' mix_training_data_multivariate_v3.py 2>/dev/null
     sed -i 's/\r$//' "$0" 2>/dev/null
 fi
 
@@ -72,7 +73,6 @@ for APPLIANCE in "${APPLIANCES[@]}"; do
             # ----------------------------------------------------------------
             for window in "${WINDOW_SIZES[@]}"; do
                 echo "[v2 Shuffled] $APPLIANCE | Window: $window | Injection: ${REAL_K}k+${SYN_K}k"
-                
                 SUFFIX="${REAL_K}k+${SYN_K}k_shuffled_w${window}"
                 
                 python mix_training_data_multivariate_v2.py \
@@ -84,17 +84,16 @@ for APPLIANCE in "${APPLIANCES[@]}"; do
                     --window_size $window
             done
 
-            # 3. Event-Based Injection — v3 (Algorithm 1 ON-period aware)
+            # 3. Event-Based Injection (v3) — Evenly Spaced (OFF periods only)
             # ----------------------------------------------------------------
-            SUFFIX="${REAL_K}k+${SYN_K}k_event_shuffled"
-            echo "[v3 Event] $APPLIANCE | Injection: ${REAL_K}k+${SYN_K}k | Mode: event_shuffled"
+            SUFFIX="${REAL_K}k+${SYN_K}k_event_even_v3"
+            echo "[v3 Event Even] $APPLIANCE | Injection: ${REAL_K}k+${SYN_K}k"
 
             python mix_training_data_multivariate_v3.py \
                 --appliance "$APPLIANCE" \
                 --real_rows $REAL_ROWS \
                 --synthetic_rows $syn_rows \
-                --suffix "$SUFFIX" \
-                --shuffle
+                --suffix "$SUFFIX"
 
         else
             echo "[Skipping] Shuffled/Event modes for $APPLIANCE (Zero synthetic rows)"

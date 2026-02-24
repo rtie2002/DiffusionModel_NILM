@@ -4,7 +4,7 @@
 # Script: run_all_easys2s.sh
 # Purpose: Automate training + testing for all 25 dataset combinations,
 #          for all 5 appliances (125 experiments total).
-#          Includes v2 (fixed window shuffle) + v3 (event-based injection).
+#          Includes v2 (window w50+) and v3 (evenly-spaced events).
 #          Displays a formatted MAE summary table at the end.
 #          Uses CLI arguments for non-brittle parameter passing.
 # ==============================================================================
@@ -14,10 +14,10 @@ cd "$PROJECT_ROOT"
 
 # --- Self-Cleaning: Fix Windows Line Endings (\r) ---
 # If this script was edited on Windows, it might contain \r which breaks bash.
-# This line will clean itself and the companion script on the fly.
+# This line will clean itself and the companion scripts on the fly.
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    # Clean the generator script and this script just in case
     sed -i 's/\r$//' generate_mixed_datasets.sh 2>/dev/null
+    sed -i 's/\r$//' mix_training_data_multivariate_v3.py 2>/dev/null
     sed -i 's/\r$//' "$0" 2>/dev/null
 fi
 
@@ -51,7 +51,7 @@ fi
 # --- Experiment Parameters ---
 REAL_K="200k"
 SYN_K_CASES=("0k" "20k" "100k" "200k" "400k")
-WINDOW_SIZES=("10" "50" "100" "600")
+WINDOW_SIZES=("50" "100" "600") # w10 removed for execution
 EPOCHS=100
 BATCH_SIZE=2048   # Increased for speed on RTX 4090
 TRAIN_PERCENT="20"
@@ -163,7 +163,7 @@ for syn_k in "${SYN_K_CASES[@]}"; do
         for window in "${WINDOW_SIZES[@]}"; do
             CONFIG_ORDER+=("200k+${syn_k} | Shuffled w${window} ")
         done
-        CONFIG_ORDER+=("200k+${syn_k} | Event Shuf  ")
+        CONFIG_ORDER+=("200k+${syn_k} | Event Even  ")
     fi
 done
 
@@ -182,8 +182,9 @@ for app in "${APPLIANCES[@]}"; do
         run_experiment "$app" "$TRAIN_FILENAME" "$ORIGIN_MODEL" "$CONFIG_KEY"
         print_summary_table
 
-        # 2. Shuffled Cases (v2)
+        # 2. Shuffled/Event Cases
         if [ "$syn_k" != "0k" ]; then
+            # v2: Shuffled Windows
             for window in "${WINDOW_SIZES[@]}"; do
                 CONFIG_KEY="200k+${syn_k} | Shuffled w${window} "
                 TRAIN_FILENAME="${app}_training_${REAL_K}+${syn_k}_shuffled_w${window}"
@@ -191,9 +192,9 @@ for app in "${APPLIANCES[@]}"; do
                 print_summary_table
             done
 
-            # 3. Event-Based Injection (v3)
-            CONFIG_KEY="200k+${syn_k} | Event Shuf  "
-            TRAIN_FILENAME="${app}_training_${REAL_K}+${syn_k}_event_shuffled"
+            # v3: Event-Based Even (OFF periods only)
+            CONFIG_KEY="200k+${syn_k} | Event Even  "
+            TRAIN_FILENAME="${app}_training_${REAL_K}+${syn_k}_event_even_v3"
             run_experiment "$app" "$TRAIN_FILENAME" "$ORIGIN_MODEL" "$CONFIG_KEY"
             print_summary_table
         fi
