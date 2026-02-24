@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# Script: run_all_easys2s_experiments.sh
+# Script: run_all_easys2s.sh
 # Purpose: Automate training + testing for all 21 dataset combinations,
 #          for all 5 appliances (105 experiments total).
 #          Displays a formatted MAE summary table at the end.
@@ -43,12 +43,13 @@ REAL_K="200k"
 SYN_K_CASES=("0k" "20k" "100k" "200k" "400k")
 WINDOW_SIZES=("10" "50" "100" "600")
 EPOCHS=100
-BATCH_SIZE=1024
+BATCH_SIZE=2048   # Increased for speed on RTX 4090
 TRAIN_PERCENT="20"
 
 # --- Paths ---
 DATA_DIR="$PROJECT_ROOT/created_data/UK_DALE/"
 NILM_DIR="$PROJECT_ROOT/NILM-main"
+MODELS_ROOT="$NILM_DIR/models/EasyS2S/UK_DALE"
 
 # --- Result storage ---
 declare -A RESULTS
@@ -61,33 +62,42 @@ run_experiment() {
     local origin_model=$3
     local config_key=$4
 
+    local model_path="$MODELS_ROOT/${train_filename}_model"
+    local weight_file="${model_path}_weights.h5"
+
     echo ""
     echo "------------------------------------------------------------"
     echo " APP: $app | $config_key | origin_model=$origin_model"
     echo "------------------------------------------------------------"
 
-    # --- TRAIN ---
-    echo "[TRAIN]"
-    cd "$NILM_DIR"
-    $PYTHON EasyS2S_train.py \
-        --appliance_name "$app" \
-        --n_epoch $EPOCHS \
-        --batchsize $BATCH_SIZE \
-        --datadir "$DATA_DIR" \
-        --train_filename "$train_filename" \
-        --origin_model "$origin_model" \
-        --dataset_name "UK_DALE" \
-        --train_percent "$TRAIN_PERCENT"
+    # --- SKIP if already done ---
+    if [ -f "$weight_file" ]; then
+        echo "[RESUME] Found existing model: $weight_file. Skipping training."
+    else
+        # --- TRAIN ---
+        echo "[TRAIN]"
+        cd "$NILM_DIR"
+        $PYTHON EasyS2S_train.py \
+            --appliance_name "$app" \
+            --n_epoch $EPOCHS \
+            --batchsize $BATCH_SIZE \
+            --datadir "$DATA_DIR" \
+            --train_filename "$train_filename" \
+            --origin_model "$origin_model" \
+            --dataset_name "UK_DALE" \
+            --train_percent "$TRAIN_PERCENT"
 
-    if [ $? -ne 0 ]; then
-        echo "ERROR: Training failed. Skipping test."
-        RESULTS["${config_key}|${app}"]="FAIL"
-        cd "$PROJECT_ROOT"; return
+        if [ $? -ne 0 ]; then
+            echo "ERROR: Training failed. Skipping test."
+            RESULTS["${config_key}|${app}"]="FAIL"
+            cd "$PROJECT_ROOT"; return
+        fi
     fi
 
     # --- TEST ---
     echo "[TEST]"
     TMP_TEST_LOG="/tmp/easys2s_test_$$.log"
+    cd "$NILM_DIR"
     $PYTHON EasyS2S_test.py \
         --appliance_name "$app" \
         --datadir "$DATA_DIR" \
@@ -134,33 +144,43 @@ print_summary_table() {
     echo "${sep// /-}"; echo ""
 }
 
-# Main Loop
+# Pre-populate CONFIG_ORDER for a consistent table structure
 for syn_k in "${SYN_K_CASES[@]}"; do
-    ORIGIN_MODEL="False"; [ "$syn_k" == "0k" ] && ORIGIN_MODEL="True"
+    if [ "$syn_k" == "0k" ]; then
+        CONFIG_ORDER+=("200k+${syn_k} | Baseline    ")
+    else
+        CONFIG_ORDER+=("200k+${syn_k} | Ordered     ")
+        for window in "${WINDOW_SIZES[@]}"; do
+            CONFIG_ORDER+=("200k+${syn_k} | Shuffled w${window} ")
+        done
+    fi
+done
 
-    # 1. Ordered Case (or Baseline)
-    CONFIG_KEY="200k+${syn_k} | Ordered     "; [ "$syn_k" == "0k" ] && CONFIG_KEY="200k+${syn_k} | Baseline    "
-    if [[ ! " ${CONFIG_ORDER[*]} " =~ " ${CONFIG_KEY} " ]]; then CONFIG_ORDER+=("$CONFIG_KEY"); fi
-    
-    for app in "${APPLIANCES[@]}"; do
+# Main Loop: Process one appliance fully before moving to the next
+for app in "${APPLIANCES[@]}"; do
+    echo ">>> STARTING FULL EXPERIMENT SET FOR APPLIANCE: $app <<<"
+    for syn_k in "${SYN_K_CASES[@]}"; do
+        ORIGIN_MODEL="False"; [ "$syn_k" == "0k" ] && ORIGIN_MODEL="True"
+
+        # 1. Ordered Case (or Baseline)
+        CONFIG_KEY="200k+${syn_k} | Ordered     "
+        [ "$syn_k" == "0k" ] && CONFIG_KEY="200k+${syn_k} | Baseline    "
+        
         TRAIN_SUFFIX="ordered"
         TRAIN_FILENAME="${app}_training_${REAL_K}+${syn_k}_${TRAIN_SUFFIX}"
         run_experiment "$app" "$TRAIN_FILENAME" "$ORIGIN_MODEL" "$CONFIG_KEY"
         print_summary_table
-    done
 
-    # 2. Shuffled Cases
-    if [ "$syn_k" != "0k" ]; then
-        for window in "${WINDOW_SIZES[@]}"; do
-            CONFIG_KEY="200k+${syn_k} | Shuffled w${window} "
-            if [[ ! " ${CONFIG_ORDER[*]} " =~ " ${CONFIG_KEY} " ]]; then CONFIG_ORDER+=("$CONFIG_KEY"); fi
-            for app in "${APPLIANCES[@]}"; do
+        # 2. Shuffled Cases
+        if [ "$syn_k" != "0k" ]; then
+            for window in "${WINDOW_SIZES[@]}"; do
+                CONFIG_KEY="200k+${syn_k} | Shuffled w${window} "
                 TRAIN_FILENAME="${app}_training_${REAL_K}+${syn_k}_shuffled_w${window}"
                 run_experiment "$app" "$TRAIN_FILENAME" "$ORIGIN_MODEL" "$CONFIG_KEY"
                 print_summary_table
             done
-        done
-    fi
+        fi
+    done
 done
 
 print_summary_table
