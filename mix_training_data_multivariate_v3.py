@@ -213,34 +213,32 @@ def detect_events_threshold(power: np.ndarray, cfg: DetectionConfig,
     return segs
 
 
-def detect_washingmachine_spikes(power, threshold=1800, min_gap=5000):
+def detect_washingmachine_spikes(power, threshold=1800, min_gap=200):
     """
-    Spike-to-Spike Dynamic Filtering with Robust Buffering:
-    1. min_gap=5000: Ensures a cluster of pulses is seen as ONE start signals
-       and different laundry loads (hours apart) are clearly separated.
-    2. kernel=1000: Keeps the 'Heating + Agitation' together even if there are 
-       long-ish low-power gaps in between.
+    High-Sensitivity Spike Splitting for Washing Machine:
+    1. min_gap=200: If two high-power plateaus are > 200 steps apart, 
+       they are treated as SEPARATE events.
+    2. kernel=100: Tightens the event boundary to the pulses themselves.
     """
     indices = np.where(power >= threshold)[0]
     if len(indices) == 0: return []
     
-    # 1. Identify distinct 'Wash Load' starts (based on high-power spikes)
+    # 1. Identify each high-power pulse plateau as a new start
     block_starts = [indices[0]]
     for i in range(1, len(indices)):
-        # Use a large buffer (5000 steps) to skip pulses within the SAME wash
         if indices[i] - indices[i-1] > min_gap:
             block_starts.append(indices[i])
     
     segs = []
-    # 2. Extract active events within each 'Spike-to-Spike' frame
+    # 2. Extract each plateau as an independent event unit
     for i in range(len(block_starts)):
         s_spike = block_starts[i]
         e_limit = block_starts[i+1] if i+1 < len(block_starts) else len(power)
         
         chunk = power[s_spike:e_limit]
         is_on = chunk > 20
-        # Use a LARGE kernel (1000 steps) to bridge gaps between spikes and agitation
-        kernel = np.ones(1000) 
+        # Use a small kernel (100) to isolate the heating plateaus
+        kernel = np.ones(100) 
         closed = np.convolve(is_on.astype(float), kernel, mode='same') > 0
         
         in_sub, sub_s = False, 0
@@ -248,13 +246,12 @@ def detect_washingmachine_spikes(power, threshold=1800, min_gap=5000):
             if v and not in_sub:
                 sub_s = j; in_sub = True
             elif not v and in_sub:
-                # The first sub-segment will be the anchor (starts at the spike)
+                # Add ONLY the first active segment of this cycle (the plateau itself)
                 segs.append((s_spike + sub_s, s_spike + j))
-                in_sub = False
+                break # Move to the next spike immediately
         if in_sub:
             segs.append((s_spike + sub_s, s_spike + len(closed)))
             
-    # Remove fragments that are too small
     segs = [(s, e) for s, e in segs if (e - s) > 50]
     return segs
 
