@@ -85,14 +85,14 @@ class DetectionConfig:
 
 DETECTION_CONFIG = {
     'washingmachine': DetectionConfig(
-        strategy='threshold',   # Balanced: Precise start + complete tail
+        strategy='threshold',   # Capture high-power heating pulses as event start
         edge_threshold=30,
         density_window=50,
         density_min_events=2,
-        power_threshold=500,    # Detect the whole block (starting at 500W pulses)
-        min_gap_steps=150,      # Keep the block together
-        min_duration_steps=30,  
-        max_event_length=4000,
+        power_threshold=500,    # Focus on pulses > 500W (ignore low-power agitation)
+        min_gap_steps=200,      # Combine pulses within the same heating block
+        min_duration_steps=50,
+        max_event_length=2000,  # Keep high-power block integrity
     ),
     'dishwasher': DetectionConfig(
         strategy='density',
@@ -249,8 +249,12 @@ def load_and_build_events(appliance_name: str):
     spec = APPLIANCE_SPECS[appliance_name]
 
     # Flatten to continuous sequence
+    N            = data.shape[0]
+    full_power   = (data[:, :, 0] * spec['max_power']).reshape(-1)
+    full_time    = data[:, :, 1:].reshape(-1, data.shape[2] - 1)
+    print(f"  Flattened: {len(full_power):,} steps ({N} windows × 600)")
+
     # Detect events using per-appliance strategy
-    # (Removed the nuclear 1500W wipe to preserve data diversity)
     segs = detect_synthetic_events(full_power, appliance_name)
 
     cfg = DETECTION_CONFIG.get(appliance_name, DETECTION_CONFIG['kettle'])
@@ -259,33 +263,14 @@ def load_and_build_events(appliance_name: str):
     # Convert to event dicts AND split any event exceeding max_event_length
     events = []
     for s, e in segs:
-        evt_power = full_power[s:e]
-        
-        # ── Refined Cropping ──
-        # Focus: Ensure the HEAD is the 1500W spike, but keep the TAIL > 500W
-        on_high = np.where(evt_power >= 1500)[0]
-        if len(on_high) == 0: continue
-        
-        # Trim the START to the first high pulse
-        tight_s = s + on_high[0]
-        # Keep the END as detected by the 500W threshold
-        tight_e = e 
-        
-        pos = tight_s
-        actual_e = tight_e
-        while pos < actual_e:
-            chunk_end = min(pos + max_len, actual_e)
+        pos = s
+        while pos < e:
+            chunk_end = min(pos + max_len, e)
             chunk_len = chunk_end - pos
-            
-            p_slice = full_power[pos:chunk_end].copy()
-            # If it's the very first chunk of this event, ensure it's not a tiny sliver
-            if len(p_slice) < 10: 
-                pos = chunk_end
-                continue
-                
             events.append({
-                'power':  p_slice,
-                'length': len(p_slice),
+                'power':  full_power[pos:chunk_end],
+                'time':   full_time [pos:chunk_end],
+                'length': chunk_len,
             })
             pos = chunk_end
 
