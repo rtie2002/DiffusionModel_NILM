@@ -2,8 +2,9 @@
 
 # ==============================================================================
 # Script: run_all_easys2s.sh
-# Purpose: Automate training + testing for all 21 dataset combinations,
-#          for all 5 appliances (105 experiments total).
+# Purpose: Automate training + testing for all 25 dataset combinations,
+#          for all 5 appliances (125 experiments total).
+#          Includes v2 (fixed window shuffle) + v3 (event-based injection).
 #          Displays a formatted MAE summary table at the end.
 #          Uses CLI arguments for non-brittle parameter passing.
 # ==============================================================================
@@ -153,6 +154,7 @@ for syn_k in "${SYN_K_CASES[@]}"; do
         for window in "${WINDOW_SIZES[@]}"; do
             CONFIG_ORDER+=("200k+${syn_k} | Shuffled w${window} ")
         done
+        CONFIG_ORDER+=("200k+${syn_k} | Event Shuf  ")
     fi
 done
 
@@ -171,7 +173,7 @@ for app in "${APPLIANCES[@]}"; do
         run_experiment "$app" "$TRAIN_FILENAME" "$ORIGIN_MODEL" "$CONFIG_KEY"
         print_summary_table
 
-        # 2. Shuffled Cases
+        # 2. Shuffled Cases (v2)
         if [ "$syn_k" != "0k" ]; then
             for window in "${WINDOW_SIZES[@]}"; do
                 CONFIG_KEY="200k+${syn_k} | Shuffled w${window} "
@@ -179,6 +181,12 @@ for app in "${APPLIANCES[@]}"; do
                 run_experiment "$app" "$TRAIN_FILENAME" "$ORIGIN_MODEL" "$CONFIG_KEY"
                 print_summary_table
             done
+
+            # 3. Event-Based Injection (v3)
+            CONFIG_KEY="200k+${syn_k} | Event Shuf  "
+            TRAIN_FILENAME="${app}_training_${REAL_K}+${syn_k}_event_shuffled"
+            run_experiment "$app" "$TRAIN_FILENAME" "$ORIGIN_MODEL" "$CONFIG_KEY"
+            print_summary_table
         fi
     done
 done

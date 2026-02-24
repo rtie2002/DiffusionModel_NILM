@@ -2,8 +2,10 @@
 
 # ==============================================================================
 # Script: generate_mixed_datasets.sh
-# Purpose: Generate 25 combinations of real and synthetic NILM data
-#          (5 injection ratios x 5 shuffle/window configurations)
+# Purpose: Generate combinations of real and synthetic NILM data
+#          Strategy 1 (v2): Fixed window shuffling (w10, w50, w100, w600)
+#          Strategy 2 (v3): Event-based injection (complete ON-period events)
+#          Per appliance: 1 baseline + 4 ordered + 4*4 shuffled + 4 event = 25
 # ==============================================================================
 
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -23,14 +25,14 @@ REAL_ROWS=200000
 # Injection Cases (Synthetic Rows)
 SYN_ROWS_CASES=(0 20000 100000 200000 400000)
 
-# Window Sizes for Shuffling
+# Window Sizes for Shuffling (v2 strategy)
 WINDOW_SIZES=(10 50 100 600)
 
 for APPLIANCE in "${APPLIANCES[@]}"; do
-    echo "----------------------------------------------------------------"
+    echo "================================================================"
     echo "Starting dataset generation for $APPLIANCE..."
     echo "Real Rows: $REAL_ROWS (fixed)"
-    echo "----------------------------------------------------------------"
+    echo "================================================================"
 
     for syn_rows in "${SYN_ROWS_CASES[@]}"; do
         
@@ -43,7 +45,7 @@ for APPLIANCE in "${APPLIANCES[@]}"; do
             SUFFIX_TYPE="ordered"
         fi
 
-        # 1. Ordered Case (or Baseline)
+        # 1. Ordered Case (or Baseline) — v2
         # ----------------------------------------------------------------
         REAL_K=$((REAL_ROWS / 1000))
         SYN_K=$((syn_rows / 1000))
@@ -58,13 +60,14 @@ for APPLIANCE in "${APPLIANCES[@]}"; do
             --suffix "$SUFFIX" \
             --no-shuffle
 
-        # 2. Shuffled Cases (Various Window Sizes)
-        # Skip shuffling if there is no synthetic data (Baseline Case)
+        # Skip all shuffled/event modes if no synthetic data (Baseline)
         if [ "$syn_rows" -gt 0 ]; then
+
+            # 2. Shuffled Cases — v2 (Various Window Sizes)
+            # ----------------------------------------------------------------
             for window in "${WINDOW_SIZES[@]}"; do
-                echo "[Processing] $APPLIANCE | Mode: Shuffled | Window: $window | Injection: ${REAL_ROWS}+${syn_rows}"
+                echo "[v2 Shuffled] $APPLIANCE | Window: $window | Injection: ${REAL_K}k+${SYN_K}k"
                 
-                # Generate suffix like: 200k+20k_shuffled_w10
                 SUFFIX="${REAL_K}k+${SYN_K}k_shuffled_w${window}"
                 
                 python mix_training_data_multivariate_v2.py \
@@ -75,11 +78,24 @@ for APPLIANCE in "${APPLIANCES[@]}"; do
                     --shuffle \
                     --window_size $window
             done
+
+            # 3. Event-Based Injection — v3 (Algorithm 1 ON-period aware)
+            # ----------------------------------------------------------------
+            SUFFIX="${REAL_K}k+${SYN_K}k_event_shuffled"
+            echo "[v3 Event] $APPLIANCE | Injection: ${REAL_K}k+${SYN_K}k | Mode: event_shuffled"
+
+            python mix_training_data_multivariate_v3.py \
+                --appliance "$APPLIANCE" \
+                --real_rows $REAL_ROWS \
+                --synthetic_rows $syn_rows \
+                --suffix "$SUFFIX" \
+                --shuffle
+
         else
-            echo "[Skipping] Shuffled modes for $APPLIANCE (Zero synthetic rows)"
+            echo "[Skipping] Shuffled/Event modes for $APPLIANCE (Zero synthetic rows)"
         fi
     done
 done
 
-echo "----------------------------------------------------------------"
-echo "Done! Generated all requested cases."
+echo "================================================================"
+echo "Done! Generated all requested cases (v2 + v3)."
