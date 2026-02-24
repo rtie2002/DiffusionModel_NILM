@@ -251,6 +251,14 @@ def load_and_build_events(appliance_name: str):
     # Flatten to continuous sequence
     N            = data.shape[0]
     full_power   = (data[:, :, 0] * spec['max_power']).reshape(-1)
+    
+    # --- NUCLEAR OPTION FOR WASHING MACHINE ---
+    # To satisfy "Correct Waveform": Hard-wipe absolutely everything below 1500W 
+    # at the source. This ensures agitation tails never even enter the detection pipeline.
+    if appliance_name == 'washingmachine':
+        print("  Applying Zero-Thresholding (<1500W) to source data...")
+        full_power[full_power < 1500] = 0
+    
     full_time    = data[:, :, 1:].reshape(-1, data.shape[2] - 1)
     print(f"  Flattened: {len(full_power):,} steps ({N} windows × 600)")
 
@@ -268,28 +276,28 @@ def load_and_build_events(appliance_name: str):
     # Convert to event dicts AND split any event exceeding max_event_length
     events = []
     for s, e in segs:
-        # Tight Cropping: Ensure the extracted slice starts and ends AT the actual thresholded pulse
-        evt_power = full_power[s:e]
-        on_indices = np.where(evt_power >= cfg.power_threshold)[0]
-        if len(on_indices) == 0: continue
-        
-        # New tight boundaries within the flattened sequence
-        tight_s = s + on_indices[0]
-        tight_e = s + on_indices[-1] + 1
-        
-        pos = tight_s
-        actual_e = tight_e
-        while pos < actual_e:
-            chunk_end = min(pos + max_len, actual_e)
+        # Since we hard-wiped full_power above, s and e are already guaranteed 
+        # to bound only high-power pulses.
+        pos = s
+        while pos < e:
+            chunk_end = min(pos + max_len, e)
             chunk_len = chunk_end - pos
             
             p_slice = full_power[pos:chunk_end].copy()
-            if appliance_name == 'washingmachine':
-                p_slice[p_slice < 1000] = 0  # CRITICAL: Hard-wipe the agitation noise from the actual data slice
+            # Double check: ensure the chunk itself doesn't start with 0s
+            on_indices = np.where(p_slice >= 1500)[0]
+            if len(on_indices) == 0:
+                pos = chunk_end
+                continue
                 
+            # Final Tight Crop of the chunk
+            actual_start = on_indices[0]
+            actual_end   = on_indices[-1] + 1
+            final_p      = p_slice[actual_start:actual_end]
+            
             events.append({
-                'power':  p_slice,   # Watts
-                'length': chunk_len,
+                'power':  final_p,
+                'length': len(final_p),
             })
             pos = chunk_end
 
