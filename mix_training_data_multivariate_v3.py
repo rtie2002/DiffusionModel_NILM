@@ -85,14 +85,14 @@ class DetectionConfig:
 
 DETECTION_CONFIG = {
     'washingmachine': DetectionConfig(
-        strategy='threshold',   # Capture high-power heating pulses as event start
+        strategy='threshold',   # Capture ONLY the core high-power phase
         edge_threshold=30,
         density_window=50,
         density_min_events=2,
-        power_threshold=500,    # Focus on pulses > 500W (ignore low-power agitation)
-        min_gap_steps=200,      # Combine pulses within the same heating block
-        min_duration_steps=50,
-        max_event_length=2000,  # Keep high-power block integrity
+        power_threshold=1500,   # Ignore everything < 1500W (agitation/pre-wash)
+        min_gap_steps=50,       # Don't bridge gaps between distant heating spikes
+        min_duration_steps=30,  # Must be a significant pulse
+        max_event_length=1200,  # Keep the core block as one unit
     ),
     'dishwasher': DetectionConfig(
         strategy='density',
