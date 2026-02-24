@@ -213,20 +213,71 @@ def detect_events_threshold(power: np.ndarray, cfg: DetectionConfig,
     return segs
 
 
+def detect_washingmachine_spikes(power, threshold=1800, min_gap=2000):
+    """
+    Dynamic Spike-Anchored Filtering for Washing Machine:
+    1. Find high-power spikes (>1800W).
+    2. Slice the data into [spike_i, spike_i+1].
+    3. Within each slice, use a 20W threshold to find all 'active' sub-segments.
+    4. Ensures the first sub-segment starts exactly at the spike.
+    """
+    indices = np.where(power >= threshold)[0]
+    if len(indices) == 0: return []
+    
+    # Block starts (where it hits 1800W)
+    block_starts = [indices[0]]
+    for i in range(1, len(indices)):
+        if indices[i] - indices[i-1] > min_gap:
+            block_starts.append(indices[i])
+    
+    segs = []
+    # Loop through each 'Cycle' defined by spikes
+    for i in range(len(block_starts)):
+        s_spike = block_starts[i]
+        # Look ahead until next spike or end of data
+        e_limit = block_starts[i+1] if i+1 < len(block_starts) else len(power)
+        
+        # 'Filtering as before': find active portions (>20W) inside this cycle
+        chunk = power[s_spike:e_limit]
+        is_on = chunk > 20
+        # Simple morphological grouping to avoid micro-fragmentation
+        kernel = np.ones(150) # gap threshold for sub-segments
+        closed = np.convolve(is_on.astype(float), kernel, mode='same') > 0
+        
+        # Extract sub-segments within this cycle
+        in_sub, sub_s = False, 0
+        for j, v in enumerate(closed):
+            if v and not in_sub:
+                sub_s = j; in_sub = True
+            elif not v and in_sub:
+                # Add sub-segment (mapped back to global index)
+                # First sub-segment will ALWAYS start at j=0 (the spike)
+                segs.append((s_spike + sub_s, s_spike + j))
+                in_sub = False
+        if in_sub:
+            segs.append((s_spike + sub_s, s_spike + len(closed)))
+            
+    # Final filter: discard very short fragments (< 30 steps)
+    segs = [(s, e) for s, e in segs if (e - s) > 30]
+    return segs
+
+
 def detect_synthetic_events(power: np.ndarray, appliance_name: str
                              ) -> List[Tuple[int, int]]:
     """Choose detection strategy per appliance and return (start, end) list."""
-    cfg = DETECTION_CONFIG.get(appliance_name, DETECTION_CONFIG['kettle'])
-    if cfg.strategy == 'density':
-        segs = detect_events_density(power, cfg, appliance_name)
+    if appliance_name == 'washingmachine':
+        segs = detect_washingmachine_spikes(power)
     else:
-        segs = detect_events_threshold(power, cfg, appliance_name)
+        cfg = DETECTION_CONFIG.get(appliance_name, DETECTION_CONFIG['kettle'])
+        if cfg.strategy == 'density':
+            segs = detect_events_density(power, cfg, appliance_name)
+        else:
+            segs = detect_events_threshold(power, cfg, appliance_name)
 
     if segs:
         avg_len = np.mean([e - s for s, e in segs])
         print(f"  [{appliance_name}] {len(segs)} events detected  "
-              f"(strategy={cfg.strategy}, avg={avg_len:.0f}steps, "
-              f"min={min(e-s for s,e in segs)}, max={max(e-s for s,e in segs)})")
+              f"(avg={avg_len:.0f}steps, min={min(e-s for s,e in segs)}, max={max(e-s for s,e in segs)})")
     else:
         print(f"  [{appliance_name}] WARNING: No events detected!")
     return segs
