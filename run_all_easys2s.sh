@@ -42,10 +42,16 @@ fi
 export TF_CPP_MIN_LOG_LEVEL=2
 
 # --- Appliances ---
-if [ "$1" == "all" ] || [ -z "$1" ]; then
+# Fix: If user types 'al', assume they meant 'all'
+USER_INPUT="$1"
+if [ "$USER_INPUT" == "al" ]; then USER_INPUT="all"; fi
+
+if [ "$USER_INPUT" == "all" ] || [ -z "$USER_INPUT" ]; then
     APPLIANCES=("fridge" "microwave" "kettle" "dishwasher" "washingmachine")
+    echo "Targeting ALL appliances: ${APPLIANCES[*]}"
 else
-    APPLIANCES=("$1")
+    APPLIANCES=("$USER_INPUT")
+    echo "Targeting single appliance: $USER_INPUT"
 fi
 
 # --- Experiment Parameters ---
