@@ -12,6 +12,15 @@
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_ROOT"
 
+# --- Self-Cleaning: Fix Windows Line Endings (\r) ---
+# If this script was edited on Windows, it might contain \r which breaks bash.
+# This line will clean itself and the companion script on the fly.
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    # Clean the generator script and this script just in case
+    sed -i 's/\r$//' generate_mixed_datasets.sh 2>/dev/null
+    sed -i 's/\r$//' "$0" 2>/dev/null
+fi
+
 # Use the full Python path from the nilm_main conda env
 PYTHON="/home/raymond/miniconda3/envs/nilm_main/bin/python3"
 

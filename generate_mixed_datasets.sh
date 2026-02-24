@@ -11,6 +11,11 @@
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_ROOT"
 
+# --- Self-Cleaning: Fix Windows Line Endings (\r) ---
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    sed -i 's/\r$//' "$0" 2>/dev/null
+fi
+
 # Appliances to process
 if [ "$1" == "all" ] || [ -z "$1" ]; then
     APPLIANCES=("fridge" "microwave" "kettle" "dishwasher" "washingmachine")
