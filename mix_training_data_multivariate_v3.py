@@ -213,52 +213,49 @@ def detect_events_threshold(power: np.ndarray, cfg: DetectionConfig,
     return segs
 
 
-def detect_washingmachine_spikes(power, threshold=1800, min_gap=2000):
+def detect_washingmachine_spikes(power, threshold=1800, min_gap=5000):
     """
-    Dynamic Spike-Anchored Filtering for Washing Machine:
-    1. Find high-power spikes (>1800W).
-    2. Slice the data into [spike_i, spike_i+1].
-    3. Within each slice, use a 20W threshold to find all 'active' sub-segments.
-    4. Ensures the first sub-segment starts exactly at the spike.
+    Spike-to-Spike Dynamic Filtering with Robust Buffering:
+    1. min_gap=5000: Ensures a cluster of pulses is seen as ONE start signals
+       and different laundry loads (hours apart) are clearly separated.
+    2. kernel=1000: Keeps the 'Heating + Agitation' together even if there are 
+       long-ish low-power gaps in between.
     """
     indices = np.where(power >= threshold)[0]
     if len(indices) == 0: return []
     
-    # Block starts (where it hits 1800W)
+    # 1. Identify distinct 'Wash Load' starts (based on high-power spikes)
     block_starts = [indices[0]]
     for i in range(1, len(indices)):
+        # Use a large buffer (5000 steps) to skip pulses within the SAME wash
         if indices[i] - indices[i-1] > min_gap:
             block_starts.append(indices[i])
     
     segs = []
-    # Loop through each 'Cycle' defined by spikes
+    # 2. Extract active events within each 'Spike-to-Spike' frame
     for i in range(len(block_starts)):
         s_spike = block_starts[i]
-        # Look ahead until next spike or end of data
         e_limit = block_starts[i+1] if i+1 < len(block_starts) else len(power)
         
-        # 'Filtering as before': find active portions (>20W) inside this cycle
         chunk = power[s_spike:e_limit]
         is_on = chunk > 20
-        # Simple morphological grouping to avoid micro-fragmentation
-        kernel = np.ones(150) # gap threshold for sub-segments
+        # Use a LARGE kernel (1000 steps) to bridge gaps between spikes and agitation
+        kernel = np.ones(1000) 
         closed = np.convolve(is_on.astype(float), kernel, mode='same') > 0
         
-        # Extract sub-segments within this cycle
         in_sub, sub_s = False, 0
         for j, v in enumerate(closed):
             if v and not in_sub:
                 sub_s = j; in_sub = True
             elif not v and in_sub:
-                # Add sub-segment (mapped back to global index)
-                # First sub-segment will ALWAYS start at j=0 (the spike)
+                # The first sub-segment will be the anchor (starts at the spike)
                 segs.append((s_spike + sub_s, s_spike + j))
                 in_sub = False
         if in_sub:
             segs.append((s_spike + sub_s, s_spike + len(closed)))
             
-    # Final filter: discard very short fragments (< 30 steps)
-    segs = [(s, e) for s, e in segs if (e - s) > 30]
+    # Remove fragments that are too small
+    segs = [(s, e) for s, e in segs if (e - s) > 50]
     return segs
 
 
