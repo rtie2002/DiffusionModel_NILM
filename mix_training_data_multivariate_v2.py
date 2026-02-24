@@ -166,9 +166,20 @@ def mix_data_v2(appliance_name, real_rows, synthetic_rows, real_path=None, suffi
     def to_windows(df, w):
         return [df.iloc[i : i+w] for i in range(0, len(df), w)]
     
-    all_windows = to_windows(real_subset, window_size) + to_windows(syn_df, window_size)
+    real_windows = to_windows(real_subset, window_size)
+    syn_windows = to_windows(syn_df, window_size)
+    
     if shuffle:
-        random.shuffle(all_windows)
+        # Shuffle only synthetic windows
+        random.shuffle(syn_windows)
+        
+        # Keep real windows in order, randomly inject synthetic windows
+        all_windows = list(real_windows)
+        for syn_win in syn_windows:
+            insert_loc = random.randint(0, len(all_windows))
+            all_windows.insert(insert_loc, syn_win)
+    else:
+        all_windows = real_windows + syn_windows
     
     final_df = pd.concat(all_windows, ignore_index=True)
     
