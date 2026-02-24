@@ -32,7 +32,7 @@ REAL_ROWS=200000
 SYN_ROWS_CASES=(0 20000 100000 200000 400000)
 
 # Window Sizes for Shuffling (v2 strategy)
-WINDOW_SIZES=(10 50 100 600)
+WINDOW_SIZES=(10 50 100 6000)
 
 for APPLIANCE in "${APPLIANCES[@]}"; do
     echo "================================================================"

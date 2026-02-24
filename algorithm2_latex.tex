@@ -1,0 +1,74 @@
+% Required packages in preamble:
+% \usepackage{algorithm}
+% \usepackage{algpseudocode}
+% \usepackage{amsmath}
+
+\begin{algorithm}[t]
+\caption{Synthetic ON-Period Injection into Real Training Data}
+\label{alg:injection}
+\begin{algorithmic}[1]
+
+\Statex \textbf{Input:} Real training sequence
+  $X_{\text{real}} = [(x_t^{\text{agg}}, x_t^{\text{app}})]_{t=1}^{N_{\text{real}}}$ (Z-score normalised),
+  synthetic data $S \in \mathbb{R}^{N_s \times 600 \times C}$ (MinMax $[0,1]$),
+  target synthetic rows $N_{\text{syn}}$, appliance threshold $x_{\text{thr}}$,
+  dilation window $l_{\text{win}}$, max chunk length $L_{\text{max}}$,
+  edge threshold $\delta_{\text{thr}}$, density window $w$, density threshold $D_{\text{min}}$,
+  min gap $g_{\text{min}}$, min duration $d_{\text{min}}$
+\Statex \textbf{Output:} Mixed training dataset $X_{\text{mix}}$
+
+\Statex \hspace*{-1em}\textit{Phase 1: Identify Real OFF Segments}
+\State $\tilde{y} \leftarrow X_{\text{real}}^{\text{app}} \cdot \sigma_{\text{app}} + \mu_{\text{app}}$
+  \Comment{De-normalise appliance channel to Watts}
+\State $\mathcal{M}_{\text{on}}[t] \leftarrow \mathbb{1}[\tilde{y}[t] \geq x_{\text{thr}}]$
+\State $\mathcal{M}_{\text{on}} \leftarrow \mathcal{M}_{\text{on}} \circledast \mathbf{1}_{2l_{\text{win}}+1}$
+  \Comment{Dilate with Algorithm~1 buffer}
+\State $\mathcal{M}_{\text{off}} \leftarrow \neg\,\mathcal{M}_{\text{on}}$
+\State $\Omega \leftarrow \textsc{ExtractSegments}(\mathcal{M}_{\text{off}})$
+  \Comment{Contiguous OFF segments $\{(s_k, e_k)\}$}
+
+\Statex \hspace*{-1em}\textit{Phase 2: Extract Synthetic Events via Edge Density}
+\State $\tilde{P} \leftarrow \textsc{Flatten}(S[:,:,0])\cdot P_{\max}$
+  \Comment{Continuous power sequence, Watts}
+\State $\delta[t] \leftarrow |\tilde{P}[t] - \tilde{P}[t-1]|$
+  \Comment{First-order difference}
+\State $\mathcal{E}[t] \leftarrow \mathbb{1}[\delta[t] \geq \delta_{\text{thr}}]$
+  \Comment{Edge indicator}
+\State $D[t] \leftarrow \textstyle\sum_{\tau=t-w/2}^{t+w/2} \mathcal{E}[\tau]$
+  \Comment{Event density in window $w$}
+\State $\mathcal{A}[t] \leftarrow \mathbb{1}[D[t] \geq D_{\min}]$
+\State $\mathcal{A} \leftarrow \textsc{MorphClose}(\mathcal{A},\, g_{\min})$
+  \Comment{Merge gaps $<g_{\min}$ steps}
+\State $\mathcal{R} \leftarrow \textsc{ExtractSegments}(\mathcal{A},\, d_{\min})$
+  \Comment{Keep segments $\geq d_{\min}$ steps}
+\State Initialise event pool $\mathcal{P} \leftarrow \emptyset$
+\For{$(s,e) \in \mathcal{R}$}
+  \For{$p \leftarrow s$ \textbf{to} $e$ \textbf{step} $L_{\max}$}
+    \State $\mathcal{P}.\textsc{append}\!\left(\tilde{P}[p\,{:}\,\min(p{+}L_{\max}, e)]\right)$
+      \Comment{Split into ${\leq}L_{\max}$ chunks}
+  \EndFor
+\EndFor
+
+\Statex \hspace*{-1em}\textit{Phase 3: Even Distribution and Physical Reconstruction}
+\State Cycle $\mathcal{P}$ until total rows $\geq N_{\text{syn}}$; call result $\mathcal{P}^*$ of size $M$
+\For{$k \leftarrow 1$ \textbf{to} $|\Omega|$}
+  \State $m_k \leftarrow \left\lfloor M \cdot (e_k - s_k)\,/\,\textstyle\sum_j (e_j - s_j) \right\rceil$
+    \Comment{Proportional allocation}
+  \State $\mathrm{gap}_k \leftarrow \left\lfloor\!\left(e_k - s_k - \textstyle\sum_i L_i^{(k)}\right)/(m_k+1)\right\rfloor$
+    \Comment{Even inner spacing}
+  \For{each event chunk $\mathcal{P}^*_i$, $i \in [1..m_k]$}
+    \State Append $\mathrm{gap}_k$ real rows from $X_{\text{real}}[\Omega_k]$ to $X_{\text{mix}}$
+    \State $x_{\text{bg}} \leftarrow
+      \max\!\bigl((X_{\text{real}}[\Omega_k]^{\text{agg}} \cdot \sigma_{\text{agg}} + \mu_{\text{agg}})
+      - \tilde{y}[\Omega_k],\; 0\bigr)$
+    \State $\tilde{x}_{\text{syn}} \leftarrow x_{\text{bg}} + \mathcal{P}^*_i$
+      \Comment{Physical aggregate reconstruction}
+    \State Append $\!\left(\frac{\tilde{x}_{\text{syn}}-\mu_{\text{agg}}}{\sigma_{\text{agg}}},\;
+      \frac{\mathcal{P}^*_i - \mu_{\text{app}}}{\sigma_{\text{app}}}\right)$ to $X_{\text{mix}}$
+  \EndFor
+  \State Append remaining rows of $\Omega_k$ to $X_{\text{mix}}$
+\EndFor
+\State \Return $X_{\text{mix}}$
+
+\end{algorithmic}
+\end{algorithm}

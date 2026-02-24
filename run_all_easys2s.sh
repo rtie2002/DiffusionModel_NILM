@@ -57,7 +57,7 @@ fi
 # --- Experiment Parameters ---
 REAL_K="200k"
 SYN_K_CASES=("0k" "20k" "100k" "200k" "400k")
-WINDOW_SIZES=("50" "100" "600") # w10 removed for execution
+WINDOW_SIZES=("50" "100" "6000") # w10 removed for execution
 EPOCHS=100
 BATCH_SIZE=2048   # Increased for speed on RTX 4090
 TRAIN_PERCENT="20"
