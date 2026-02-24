@@ -374,9 +374,14 @@ savenoemapred=noEMAprediction.flatten()
 if args.transfer:
     save_name = args.save_results_dir + '/' + appliance_name + '/' + test_filename + '_transf_' + args.cnn   # save path for mains
 else:
-    save_name = args.save_results_dir + '/' + appliance_name + '/' + test_filename  # save path for mains
-if not os.path.exists(save_name):
-        os.makedirs(save_name)
+    # Safely suffix with train_filename so loop experiments don't overwrite each other!
+    if args.train_filename:
+        save_name = args.save_results_dir + '/' + appliance_name + '/' + args.train_filename + '_' + test_filename
+    else:
+        save_name = args.save_results_dir + '/' + appliance_name + '/' + test_filename
+        
+# Make parent directories, not the file path itself as a directory
+os.makedirs(os.path.dirname(save_name), exist_ok=True)
 
 # np.save('D:/Diffusion-TS-main/AugLPN_NILM-main/results/EASYS2S/draw/'+f'20-{applianceName}pred.npy', savepred)
 # np.save('D:/Diffusion-TS-main/AugLPN_NILM-main/results/EASYS2S/draw/'+f'{applianceName}groundtruth.npy', savegt)
@@ -385,10 +390,7 @@ if not os.path.exists(save_name):
 
 
 
-np.save('testpred.npy', savepred)
-np.save('testgt.npy', savegt)
-np.save('testmains.npy', savemains)
-np.save('testnoemapred.npy', savenoemapred)
+
 # Numpy saving
 if(originHome):
     np.save(save_name + '_pred.npy', savepred)

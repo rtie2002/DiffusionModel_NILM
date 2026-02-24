@@ -376,9 +376,10 @@ log('TensorFlow Session starting...')
 # TensorBoard summary (graph)
 tf.summary.scalar('cost', cost)
 merged_summary = tf.summary.merge_all()
-writer = tf.summary.FileWriter('./tensorboard_test')
+tensorboard_dir = f'./tensorboard_test_easys2s/{args.train_filename}' if args.train_filename else './tensorboard_test_easys2s/default'
+writer = tf.summary.FileWriter(tensorboard_dir)
 writer.add_graph(sess.graph)
-log('TensorBoard infos in ./tensorboard_test')
+log(f'TensorBoard infos in {tensorboard_dir}')
 ###############################################     Save path depending on the training behaviour
 if args.train_filename:
     # Use the specific filename to create a unique model directory
