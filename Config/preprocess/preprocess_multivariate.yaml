@@ -67,7 +67,7 @@ appliances:
     std: 800
     max_power: 3969              # Updated to match real_max_power
     on_power_threshold: 200
-    real_max_power: 3969
+    real_max_power: 3323
     max_power_clip: 3969
     train:
       houses: [1, 5]
@@ -81,7 +81,7 @@ appliances:
     std: 400
     max_power: 350
     on_power_threshold: 50
-    real_max_power: 350
+    real_max_power: 33
     max_power_clip: 350      # Clipped max for filtering, as per original config
     train:
       houses: [1, 5]
@@ -127,7 +127,7 @@ appliances:
 # Purpose: Parameters for selecting "effective" windows of data used to train the Diffusion Model.
 
 algorithm1:
-  window_length: 50          # Number of samples to keep BEFORE and AFTER an event
+  window_length: 100          # Number of samples to keep BEFORE and AFTER an event
   remove_spikes: true        # Enable/Disable pre-cleaning of isolated spikes
   spike_window: 5            # Window size for detecting spikes
   spike_threshold: 3.0       # Multiplier (value > 3.0 * median = spike)
