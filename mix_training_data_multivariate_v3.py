@@ -29,7 +29,7 @@ Usage:
 import numpy as np
 import pandas as pd
 import argparse
-import yaml
+import random
 from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Tuple, Optional
@@ -345,6 +345,32 @@ def get_off_periods_mask(appliance_name: str, df: pd.DataFrame) -> np.ndarray:
     return ~exp_on
 
 
+def get_background_pool(appliance_name: str, df: pd.DataFrame, is_off: np.ndarray, window_size=600):
+    """Samples valid background power slices from real data to use for synthetic window construction."""
+    spec = APPLIANCE_SPECS[appliance_name]
+    agg_w = df.iloc[:, 0].values * AGG_STD + AGG_MEAN
+    app_w = df.iloc[:, 1].values * spec['std'] + spec['mean']
+    bg_w = np.maximum(agg_w - app_w, 0)
+    
+    pool = []
+    # Find continuous OFF windows
+    for i in range(0, len(bg_w) - window_size, window_size):
+        if np.all(is_off[i : i + window_size]): 
+            pool.append(bg_w[i : i + window_size])
+            
+    if not pool:
+        # Fallback: find 50 windows where the target appliance had the lowest max power
+        scored = []
+        for i in range(0, len(bg_w) - window_size, window_size):
+            scored.append((np.max(app_w[i : i + window_size]), bg_w[i : i + window_size]))
+        scored.sort(key=lambda x: x[0])
+        pool = [w[1] for w in scored[:50]]
+        print(f"  [Pool Fallback] Selected {len(pool)} quietest windows for background construction.")
+    else:
+        print(f"  [Pool] Extracted {len(pool)} clean background windows of size {window_size}.")
+    return pool
+
+
 # ── Main ───────────────────────────────────────────────────────────────────
 
 def mix_data_v3(appliance_name: str, real_rows: int, synthetic_rows: int,
@@ -409,13 +435,16 @@ def mix_data_v3(appliance_name: str, real_rows: int, synthetic_rows: int,
             seg_counts[i] += sign; diff -= sign
             if diff == 0: break
 
-    # 6. Build final dataset
+    # 6. Build final dataset (INSERTION MODE: Total rows = Real + Synthetic)
+    print("  Assembling final dataset (Insertion Mode: preserves 100% real data)...")
     spec        = APPLIANCE_SPECS[appliance_name]
     final_parts = []
     ev_ptr      = 0
     curr_idx    = 0
+    bg_pool     = get_background_pool(appliance_name, real_df, is_off, window_size=600)
 
     for seg_idx, (seg_s, seg_e) in enumerate(off_segs):
+        # Add real data before this OFF segment
         if seg_s > curr_idx:
             final_parts.append(real_df.iloc[curr_idx:seg_s])
 
@@ -423,50 +452,69 @@ def mix_data_v3(appliance_name: str, real_rows: int, synthetic_rows: int,
         seg_len = seg_e - seg_s
         n_here  = seg_counts[seg_idx]
 
-        if n_here == 0 or ev_ptr >= n_ev:
+        if n_here == 0:
             final_parts.append(seg_df)
             curr_idx = seg_e
             continue
 
-        evs_here    = selected[ev_ptr: ev_ptr + n_here]
-        syn_len_sum = sum(ev['length'] for ev in evs_here)
-        gap         = max(0, (seg_len - syn_len_sum) // (n_here + 1))
+        # Split the current OFF segment into (n_here + 1) pieces.
+        # We will insert synthetic events between these pieces to keep the original data intact.
+        # Constraint: Every gap must be at least 50 steps.
+        MIN_GAP = 50
+        if n_here > 0:
+            if seg_len < (n_here + 1) * MIN_GAP:
+                old_n = n_here
+                n_here = max(0, seg_len // MIN_GAP - 1)
+                # Note: We don't need to 'worry' about lost events yet, 
+                # they will naturally be handled by the next segment or extra iteration if needed.
+                if n_here != old_n:
+                    print(f"  [Gap Warning] Segment too short ({seg_len} steps). Reducing events {old_n} -> {n_here} to keep {MIN_GAP} step gap.")
 
-        seg_pos = 0
-        for ev in evs_here:
-            # Gap before event
-            if gap > 0 and seg_pos + gap <= seg_len:
-                final_parts.append(seg_df.iloc[seg_pos: seg_pos + gap])
-                seg_pos += gap
+        if n_here == 0:
+            final_parts.append(seg_df)
+            curr_idx = seg_e
+            continue
 
-            room       = seg_len - seg_pos
-            inject_len = min(ev['length'], room)
-            if inject_len <= 0:
-                break
+        chunk_size = seg_len // (n_here + 1)
+        
+        for i in range(n_here):
+            # 1. Add piece of original OFF data (The 'Gap')
+            p_s = i * chunk_size
+            p_e = (i + 1) * chunk_size
+            final_parts.append(seg_df.iloc[p_s:p_e])
+            
+            # 2. Insert Synthetic Event
+            if ev_ptr < n_ev:
+                ev = selected[ev_ptr]
+                ev_len = ev['length']
+                
+                # Sample background from pool
+                raw_bg = random.choice(bg_pool)
+                # Ensure background slice matches event length
+                if len(raw_bg) < ev_len:
+                    x_bg = np.resize(raw_bg, ev_len)
+                else:
+                    start_crop = random.randint(0, len(raw_bg) - ev_len)
+                    x_bg = raw_bg[start_crop : start_crop + ev_len]
+                
+                # Physical reconstruction
+                x_syn  = x_bg + ev['power']
+                agg_z  = (x_syn - AGG_MEAN) / AGG_STD
+                app_z  = (ev['power'] - spec['mean']) / spec['std']
 
-            # Physical reconstruction: bg + synthetic_appliance
-            bg_slice   = seg_df.iloc[seg_pos: seg_pos + inject_len]
-            agg_w      = bg_slice.iloc[:, 0].values * AGG_STD + AGG_MEAN
-            app_w_real = bg_slice.iloc[:, 1].values * spec['std'] + spec['mean']
-            bg_w       = np.maximum(agg_w - app_w_real, 0)
+                evt_df = pd.DataFrame(ev['time'], columns=col_names[2:])
+                evt_df.insert(0, col_names[0], agg_z)
+                evt_df.insert(1, col_names[1], app_z)
+                final_parts.append(evt_df)
+                ev_ptr += 1
 
-            y_w    = ev['power'][:inject_len]
-            t_feat = ev['time'] [:inject_len]
-
-            x_syn  = bg_w + y_w
-            agg_z  = (x_syn - AGG_MEAN) / AGG_STD
-            app_z  = (y_w   - spec['mean']) / spec['std']
-
-            evt_df = pd.DataFrame(t_feat, columns=col_names[2:])
-            evt_df.insert(0, col_names[0], agg_z)
-            evt_df.insert(1, col_names[1], app_z)
-            final_parts.append(evt_df)
-            seg_pos += inject_len
-            ev_ptr  += 1
-
-        if seg_pos < seg_len:
-            final_parts.append(seg_df.iloc[seg_pos:])
+        # 3. Add the final piece of the original OFF segment
+        final_parts.append(seg_df.iloc[n_here * chunk_size:])
         curr_idx = seg_e
+
+    # Final Check: Did we place everything?
+    if ev_ptr < n_ev:
+        print(f"  [Warning] Could only place {ev_ptr}/{n_ev} events due to MIN_GAP logic.")
 
     if curr_idx < len(real_df):
         final_parts.append(real_df.iloc[curr_idx:])
