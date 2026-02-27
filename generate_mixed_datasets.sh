@@ -29,7 +29,7 @@ fi
 REAL_ROWS=200000
 
 # Injection Cases (Synthetic Rows)
-SYN_ROWS_CASES=(0 20000 100000 200000 400000)
+SYN_ROWS_CASES=(0 10000 20000 100000 200000 400000)
 
 # Window Sizes for Shuffling (v2 strategy)
 WINDOW_SIZES=(600 6000)

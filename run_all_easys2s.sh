@@ -56,7 +56,7 @@ fi
 
 # --- Experiment Parameters ---
 REAL_K="200k"
-SYN_K_CASES=("0k" "20k" "100k" "200k" "400k")
+SYN_K_CASES=("0k" "10k" "20k" "100k" "200k" "400k")
 WINDOW_SIZES=("600" "6000") # Focusing on large windows
 EPOCHS=100
 BATCH_SIZE=2048   # Increased for speed on RTX 4090
