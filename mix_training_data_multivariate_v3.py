@@ -460,7 +460,7 @@ def mix_data_v3(appliance_name: str, real_rows: int, synthetic_rows: int,
         # Split the current OFF segment into (n_here + 1) pieces.
         # We will insert synthetic events between these pieces to keep the original data intact.
         # Constraint: Every gap must be at least 50 steps.
-        MIN_GAP = 50
+        MIN_GAP = 5
         if n_here > 0:
             if seg_len < (n_here + 1) * MIN_GAP:
                 old_n = n_here
