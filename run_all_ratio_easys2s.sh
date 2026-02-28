@@ -74,6 +74,7 @@ run_experiment() {
             --train_filename "$train_filename" \
             --origin_model "$origin_model" \
             --dataset_name "UK_DALE" \
+            --train_percent "$TRAIN_PERCENT"
         if [ $? -ne 0 ]; then
             echo "ERROR: Training failed. Skipping test."
             RESULTS["${config_key}|${app}"]="FAIL"
