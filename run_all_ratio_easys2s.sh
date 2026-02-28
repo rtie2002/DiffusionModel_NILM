@@ -19,10 +19,13 @@ PYTHON="/home/raymond/miniconda3/envs/nilm_main/bin/python3"
 
 # Appliances
 USER_INPUT="$1"
+if [ "$USER_INPUT" == "al" ]; then USER_INPUT="all"; fi
 if [ "$USER_INPUT" == "all" ] || [ -z "$USER_INPUT" ]; then
     APPLIANCES=("fridge" "microwave" "kettle" "dishwasher" "washingmachine")
+    echo "Targeting ALL appliances: ${APPLIANCES[*]}"
 else
     APPLIANCES=("$USER_INPUT")
+    echo "Targeting single appliance: $USER_INPUT"
 fi
 
 # Fix: libdevice.10.bc for TF XLA
@@ -51,6 +54,31 @@ MODELS_ROOT="$NILM_DIR/models/EasyS2S/UK_DALE"
 declare -A RESULTS
 declare -a CONFIG_ORDER
 
+# --- Helper: Print Table ---
+print_summary_table() {
+    local col_w=14
+    echo ""
+    echo "================================================================"
+    echo "  MAE SUMMARY TABLE (Current Progress)"
+    echo "================================================================"
+    local header="Configuration                  "
+    for local_app in "${APPLIANCES[@]}"; do
+        printf -v col "%-${col_w}s" "${local_app}"; header+="| ${col}"
+    done
+    echo "$header"
+    local sep=""; local sep_len=${#header}; printf -v sep '%*s' "$sep_len" ''; echo "${sep// /-}"
+    for config_key in "${CONFIG_ORDER[@]}"; do
+        printf "%-31s" "$config_key"
+        for local_app in "${APPLIANCES[@]}"; do
+            local val="${RESULTS["${config_key}|${local_app}"]:-...}"
+            if [[ "$val" =~ ^[0-9]*\.?[0-9]+$ ]]; then printf "| %-14.2f" "$val"
+            else printf "| %-14s" "$val"; fi
+        done
+        echo ""
+    done
+    echo "${sep// /-}"; echo ""
+}
+
 run_experiment() {
     local app=$1
     local train_filename=$2
@@ -60,11 +88,15 @@ run_experiment() {
     local model_path="$MODELS_ROOT/${train_filename}_model"
     local weight_file="${model_path}_weights.h5"
 
-    echo "Running: APP=$app | FILE=$train_filename"
+    echo ""
+    echo "------------------------------------------------------------"
+    echo " APP: $app | $config_key"
+    echo "------------------------------------------------------------"
 
     if [ -f "$weight_file" ]; then
-        echo "[SKIP] Model exists."
+        echo "[RESUME] Found existing model: $weight_file. Skipping training."
     else
+        echo "[TRAIN]"
         cd "$NILM_DIR"
         $PYTHON EasyS2S_train.py \
             --appliance_name "$app" \
@@ -75,6 +107,7 @@ run_experiment() {
             --origin_model "$origin_model" \
             --dataset_name "UK_DALE" \
             --train_percent "$TRAIN_PERCENT"
+        
         if [ $? -ne 0 ]; then
             echo "ERROR: Training failed. Skipping test."
             RESULTS["${config_key}|${app}"]="FAIL"
@@ -82,7 +115,6 @@ run_experiment() {
         fi
     fi
 
-    # --- TEST ---
     echo "[TEST]"
     TMP_LOG="/tmp/ratio_test_$$.log"
     cd "$NILM_DIR"
@@ -123,6 +155,7 @@ done
 
 # Main Loop
 for app in "${APPLIANCES[@]}"; do
+    echo ">>> STARTING FULL EXPERIMENT SET FOR APPLIANCE: $app <<<"
     for pct in "${RATIO_LABELS[@]}"; do
         ORIGIN_MODEL="False"; [ "$pct" == "0pct" ] && ORIGIN_MODEL="True"
         
@@ -130,25 +163,22 @@ for app in "${APPLIANCES[@]}"; do
         CK="100%+${pct} | Ordered"; [ "$pct" == "0pct" ] && CK="100%+${pct} | Baseline"
         FNAME="${app}_training_100%+${pct}_ordered"
         run_experiment "$app" "$FNAME" "$ORIGIN_MODEL" "$CK"
+        print_summary_table
 
         if [ "$pct" != "0pct" ]; then
             # 2. Shuffled
             for w in "${WINDOW_SIZES[@]}"; do
                 run_experiment "$app" "${app}_training_100%+${pct}_shuffled_w${w}" "$ORIGIN_MODEL" "100%+${pct} | Partial w${w}"
+                print_summary_table
                 run_experiment "$app" "${app}_training_100%+${pct}_full_shuffled_w${w}" "$ORIGIN_MODEL" "100%+${pct} | Full w${w}"
+                print_summary_table
             done
             # 3. Event
             run_experiment "$app" "${app}_training_100%+${pct}_event_even_v3" "$ORIGIN_MODEL" "100%+${pct} | Event Even"
+            print_summary_table
         fi
     done
 done
 
-# Final Print (Simplified)
-echo "================ MAE SUMMARY ================"
-for ck in "${CONFIG_ORDER[@]}"; do
-    printf "%-30s" "$ck"
-    for app in "${APPLIANCES[@]}"; do
-        printf "| %-10s" "${RESULTS["$ck|$app"]}"
-    done
-    echo ""
-done
+print_summary_table
+echo "DONE: All experiments finished."
