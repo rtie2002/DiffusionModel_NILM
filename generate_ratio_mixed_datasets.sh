@@ -31,6 +31,9 @@ else
     echo "Processing single appliance: $1"
 fi
 
+# Window Sizes for Shuffling (v2 strategy)
+WINDOW_SIZES=(600 6000)
+
 for APPLIANCE in "${APPLIANCES[@]}"; do
     echo "================================================================"
     echo "Starting dynamic ratio-based generation for $APPLIANCE..."
