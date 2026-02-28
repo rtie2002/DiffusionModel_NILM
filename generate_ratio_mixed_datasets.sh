@@ -95,11 +95,10 @@ for APPLIANCE in "${APPLIANCES[@]}"; do
             syn_rows=$MAX_SYN_ROWS
         fi
 
-        REAL_K=$((REAL_ROWS / 1000))
-        SYN_K=$((syn_rows / 1000))
-
+        REAL_K_LABEL="100%"
+        
         # 1. Ordered Case (or Baseline) — v2
-        SUFFIX="${REAL_K}k+${SYN_K}k_${PCT}_ordered"
+        SUFFIX="${REAL_K_LABEL}+${PCT}_ordered"
         echo "$TAG $APPLIANCE | Ratio: $PCT | Rows: ${REAL_K}k real + ${SYN_K}k syn"
         
         python mix_training_data_multivariate_v2.py \
@@ -114,17 +113,17 @@ for APPLIANCE in "${APPLIANCES[@]}"; do
             for window in "${WINDOW_SIZES[@]}"; do
                 # A) Partial Shuffle
                 echo "[v2 Partial Shuffle] $APPLIANCE | Window: $window | Ratio: $PCT"
-                SUFFIX="${REAL_K}k+${SYN_K}k_${PCT}_shuffled_w${window}"
+                SUFFIX="${REAL_K_LABEL}+${PCT}_shuffled_w${window}"
                 python mix_training_data_multivariate_v2.py --appliance "$APPLIANCE" --real_rows $REAL_ROWS --synthetic_rows $syn_rows --suffix "$SUFFIX" --shuffle --window_size $window
 
                 # B) Full Shuffle
                 echo "[v2 Full Shuffle] $APPLIANCE | Window: $window | Ratio: $PCT"
-                SUFFIX="${REAL_K}k+${SYN_K}k_${PCT}_full_shuffled_w${window}"
+                SUFFIX="${REAL_K_LABEL}+${PCT}_full_shuffled_w${window}"
                 python mix_training_data_multivariate_v2.py --appliance "$APPLIANCE" --real_rows $REAL_ROWS --synthetic_rows $syn_rows --suffix "$SUFFIX" --full-shuffle --window_size $window
             done
 
             # 3. Event-Based Injection (v3)
-            SUFFIX="${REAL_K}k+${SYN_K}k_${PCT}_event_even_v3"
+            SUFFIX="${REAL_K_LABEL}+${PCT}_event_even_v3"
             echo "[v3 Event Even] $APPLIANCE | Ratio: $PCT"
             python mix_training_data_multivariate_v3.py --appliance "$APPLIANCE" --real_rows $REAL_ROWS --synthetic_rows $syn_rows --suffix "$SUFFIX"
         fi

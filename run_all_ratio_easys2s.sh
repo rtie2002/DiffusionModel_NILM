@@ -1,0 +1,130 @@
+#!/bin/bash
+
+# ==============================================================================
+# Script: run_all_ratio_easys2s.sh
+# Purpose: Automate training + testing for specific ratio-named datasets
+#          Naming logic: appliance_training_100%+[5,10,50,100,200]%.csv
+# ==============================================================================
+
+PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$PROJECT_ROOT"
+
+# --- Self-Cleaning: Fix Windows Line Endings ---
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    sed -i 's/\r$//' "$0" 2>/dev/null
+fi
+
+# Use the full Python path from the nilm_main conda env
+PYTHON="/home/raymond/miniconda3/envs/nilm_main/bin/python3"
+
+# Appliances
+USER_INPUT="$1"
+if [ "$USER_INPUT" == "all" ] || [ -z "$USER_INPUT" ]; then
+    APPLIANCES=("fridge" "microwave" "kettle" "dishwasher" "washingmachine")
+else
+    APPLIANCES=("$USER_INPUT")
+fi
+
+# Ratios and Modes
+RATIO_LABELS=("0pct" "5pct" "10pct" "50pct" "100pct" "200pct")
+WINDOW_SIZES=("600" "6000")
+EPOCHS=100
+BATCH_SIZE=2048
+TRAIN_PERCENT="20"
+
+# Paths
+DATA_DIR="$PROJECT_ROOT/created_data/UK_DALE/"
+NILM_DIR="$PROJECT_ROOT/NILM-main"
+MODELS_ROOT="$NILM_DIR/models/EasyS2S/UK_DALE"
+
+declare -A RESULTS
+declare -a CONFIG_ORDER
+
+run_experiment() {
+    local app=$1
+    local train_filename=$2
+    local origin_model=$3
+    local config_key=$4
+
+    local model_path="$MODELS_ROOT/${train_filename}_model"
+    local weight_file="${model_path}_weights.h5"
+
+    echo "Running: APP=$app | FILE=$train_filename"
+
+    if [ -f "$weight_file" ]; then
+        echo "[SKIP] Model exists."
+    else
+        cd "$NILM_DIR"
+        $PYTHON EasyS2S_train.py \
+            --appliance_name "$app" \
+            --n_epoch $EPOCHS \
+            --batchsize $BATCH_SIZE \
+            --datadir "$DATA_DIR" \
+            --train_filename "$train_filename" \
+            --origin_model "$origin_model" \
+            --dataset_name "UK_DALE" \
+            --train_percent "$TRAIN_PERCENT"
+    fi
+
+    echo "[TEST]"
+    TMP_LOG="/tmp/ratio_test_$$.log"
+    cd "$NILM_DIR"
+    $PYTHON EasyS2S_test.py \
+        --appliance_name "$app" \
+        --datadir "$DATA_DIR" \
+        --train_filename "$train_filename" \
+        --origin_model "$origin_model" \
+        --dataset_name "UK_DALE" \
+        --train_percent "$TRAIN_PERCENT" 2>&1 | tee "$TMP_LOG"
+    
+    MAE=$(grep -oP "MAE:\s*\K[0-9]*\.?[0-9]+" "$TMP_LOG" | head -1)
+    rm -f "$TMP_LOG"
+    RESULTS["${config_key}|${app}"]="${MAE:-FAIL}"
+    cd "$PROJECT_ROOT"
+}
+
+# Define Table Structure
+for pct in "${RATIO_LABELS[@]}"; do
+    if [ "$pct" == "0pct" ]; then
+        CONFIG_ORDER+=("100%+${pct} | Baseline")
+    else
+        CONFIG_ORDER+=("100%+${pct} | Ordered")
+        for w in "${WINDOW_SIZES[@]}"; do
+            CONFIG_ORDER+=("100%+${pct} | Partial w${w}")
+            CONFIG_ORDER+=("100%+${pct} | Full w${w}")
+        done
+        CONFIG_ORDER+=("100%+${pct} | Event Even")
+    fi
+done
+
+# Main Loop
+for app in "${APPLIANCES[@]}"; do
+    for pct in "${RATIO_LABELS[@]}"; do
+        ORIGIN_MODEL="False"; [ "$pct" == "0pct" ] && ORIGIN_MODEL="True"
+        
+        # 1. Ordered
+        CK="100%+${pct} | Ordered"; [ "$pct" == "0pct" ] && CK="100%+${pct} | Baseline"
+        FNAME="${app}_training_100%+${pct}_ordered"
+        run_experiment "$app" "$FNAME" "$ORIGIN_MODEL" "$CK"
+
+        if [ "$pct" != "0pct" ]; then
+            # 2. Shuffled
+            for w in "${WINDOW_SIZES[@]}"; do
+                run_experiment "$app" "${app}_training_100%+${pct}_shuffled_w${w}" "$ORIGIN_MODEL" "100%+${pct} | Partial w${w}"
+                run_experiment "$app" "${app}_training_100%+${pct}_full_shuffled_w${w}" "$ORIGIN_MODEL" "100%+${pct} | Full w${w}"
+            done
+            # 3. Event
+            run_experiment "$app" "${app}_training_100%+${pct}_event_even_v3" "$ORIGIN_MODEL" "100%+${pct} | Event Even"
+        fi
+    done
+done
+
+# Final Print (Simplified)
+echo "================ MAE SUMMARY ================"
+for ck in "${CONFIG_ORDER[@]}"; do
+    printf "%-30s" "$ck"
+    for app in "${APPLIANCES[@]}"; do
+        printf "| %-10s" "${RESULTS["$ck|$app"]}"
+    done
+    echo ""
+done
