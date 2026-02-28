@@ -25,6 +25,17 @@ else
     APPLIANCES=("$USER_INPUT")
 fi
 
+# Fix: libdevice.10.bc for TF XLA
+TRITON_LIBDEVICE="$($PYTHON -c 'import triton; import os; print(os.path.join(os.path.dirname(triton.__file__), "backends/nvidia/lib/libdevice.10.bc"))' 2>/dev/null)"
+if [ -f "$TRITON_LIBDEVICE" ]; then
+    CUDA_DATA_DIR="/tmp/xla_cuda_data_$$"
+    mkdir -p "$CUDA_DATA_DIR/nvvm/libdevice"
+    ln -sf "$TRITON_LIBDEVICE" "$CUDA_DATA_DIR/nvvm/libdevice/libdevice.10.bc"
+    export XLA_FLAGS="--xla_gpu_cuda_data_dir=$CUDA_DATA_DIR"
+fi
+
+export TF_CPP_MIN_LOG_LEVEL=2
+
 # Ratios and Modes
 RATIO_LABELS=("0pct" "5pct" "10pct" "50pct" "100pct" "200pct")
 WINDOW_SIZES=("600" "6000")
@@ -63,9 +74,14 @@ run_experiment() {
             --train_filename "$train_filename" \
             --origin_model "$origin_model" \
             --dataset_name "UK_DALE" \
-            --train_percent "$TRAIN_PERCENT"
+        if [ $? -ne 0 ]; then
+            echo "ERROR: Training failed. Skipping test."
+            RESULTS["${config_key}|${app}"]="FAIL"
+            cd "$PROJECT_ROOT"; return
+        fi
     fi
 
+    # --- TEST ---
     echo "[TEST]"
     TMP_LOG="/tmp/ratio_test_$$.log"
     cd "$NILM_DIR"
@@ -77,9 +93,16 @@ run_experiment() {
         --dataset_name "UK_DALE" \
         --train_percent "$TRAIN_PERCENT" 2>&1 | tee "$TMP_LOG"
     
+    TEST_EXIT=${PIPESTATUS[0]}
     MAE=$(grep -oP "MAE:\s*\K[0-9]*\.?[0-9]+" "$TMP_LOG" | head -1)
     rm -f "$TMP_LOG"
-    RESULTS["${config_key}|${app}"]="${MAE:-FAIL}"
+
+    if [ $TEST_EXIT -ne 0 ] && [ -z "$MAE" ]; then
+        RESULTS["${config_key}|${app}"]="FAIL"
+    else
+        RESULTS["${config_key}|${app}"]="${MAE:-N/A}"
+    fi
+
     cd "$PROJECT_ROOT"
 }
 
