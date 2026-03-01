@@ -317,14 +317,11 @@ def combined_loss(y_true, y_pred, alpha=1, beta=0.1):
 # cost = log_cosh_loss(y_, y)
 # 使用Huber损失函数
 
-if originModel:
+if current_origin_model:
     cost = tf.reduce_mean(tf.reduce_mean(tf.squared_difference(y, y_), 1))
     # cost = tf.reduce_mean(combined_loss(y_, y))
 else:
     cost = tf.reduce_mean(combined_loss(y_, y))
-    # cost = tf.reduce_mean(tf.reduce_mean(tf.squared_difference(y, y_), 1))
-
-
 
 #cost = tf.reduce_mean(tf.reduce_mean(tf.squared_difference(y, y_), 1))  # y_是预定义的，y含有预定义的x
 
