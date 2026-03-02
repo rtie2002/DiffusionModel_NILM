@@ -58,6 +58,7 @@ ratios=(0.25 0.50 1.00 2.00)
 run_mix_ratios() {
     local appliance="$1"
     local filename="$2"
+    local shuffle_flag="$3"   # "true" or "false"
     local real_path="$DATA_DIR/$filename"
 
     if [[ ! -f "$real_path" ]]; then
@@ -96,17 +97,18 @@ END
             --real_rows "$total_real_points" \
             --synthetic_rows "$syn_rows" \
             --real_path "$real_path" \
-            --suffix "$suffix"
+            --suffix "$suffix" \
+            $(if [ "$shuffle_flag" = "false" ]; then echo "--no-shuffle"; fi)
     done
 }
 
 # ------------------------------------------------------------------
 # 4) Run for each appliance.
 # ------------------------------------------------------------------
-run_mix_ratios "fridge"       "fridge_training_.csv"
-run_mix_ratios "microwave"    "microwave_training_.csv"
-run_mix_ratios "kettle"       "kettle_training_.csv"
-run_mix_ratios "dishwasher"   "dishwasher_training_.csv"
-run_mix_ratios "washingmachine" "washingmachine_training_.csv"
+run_mix_ratios "fridge"       "fridge_training_.csv" "true"
+run_mix_ratios "microwave"    "microwave_training_.csv" "true"
+run_mix_ratios "kettle"       "kettle_training_.csv" "true"
+run_mix_ratios "dishwasher"   "dishwasher_training_.csv" "true"
+run_mix_ratios "washingmachine" "washingmachine_training_.csv" "false"
 
 # End of script
