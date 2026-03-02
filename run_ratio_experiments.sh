@@ -10,8 +10,14 @@
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_ROOT"
 
-# --- Setup Python Environment ---
-PYTHON="/home/raymond/miniconda3/envs/nilm_main/bin/python3"
+# --- Setup Python Environment (Dynamic Detection) ---
+if [ -f "/root/anaconda3/envs/nilm_main/bin/python3" ]; then
+    PYTHON="/root/anaconda3/envs/nilm_main/bin/python3"
+elif [ -f "/home/raymond/miniconda3/envs/nilm_main/bin/python3" ]; then
+    PYTHON="/home/raymond/miniconda3/envs/nilm_main/bin/python3"
+else
+    PYTHON="python3" # Fallback to system python
+fi
 
 # --- Fix: libdevice.10.bc for TF XLA ---
 TRITON_LIBDEVICE="$($PYTHON -c 'import triton; import os; print(os.path.join(os.path.dirname(triton.__file__), "backends/nvidia/lib/libdevice.10.bc"))' 2>/dev/null)"

@@ -14,6 +14,15 @@ DATA_DIR="$PROJECT_ROOT/created_data/UK_DALE"
 echo "Working directory set to: $PROJECT_ROOT"
 echo "Data directory: $DATA_DIR"
 
+# --- Setup Python Environment (Dynamic Detection) ---
+if [ -f "/root/anaconda3/envs/nilm_main/bin/python3" ]; then
+    PYTHON="/root/anaconda3/envs/nilm_main/bin/python3"
+elif [ -f "/home/raymond/miniconda3/envs/nilm_main/bin/python3" ]; then
+    PYTHON="/home/raymond/miniconda3/envs/nilm_main/bin/python3"
+else
+    PYTHON="python3" # Fallback
+fi
+
 # ------------------------------------------------------------------
 # 1) Auto‑expand synthetic NPY files if they are shorter than the target.
 # ------------------------------------------------------------------
@@ -44,7 +53,7 @@ for f in files:
 print('[Auto‑Expand] Done.\n')
 PYEOF
 
-python "$TEMP_EXPAND_SCRIPT"
+"$PYTHON" "$TEMP_EXPAND_SCRIPT"
 rm -f "$TEMP_EXPAND_SCRIPT"
 
 # ------------------------------------------------------------------
@@ -76,14 +85,14 @@ run_mix_ratios() {
 
     for ratio in "${ratios[@]}"; do
         # synthetic rows = floor(real_rows * ratio)
-        local syn_rows=$(python - <<END
+        local syn_rows=$("$PYTHON" - <<END
 import math, sys
 ratio = $ratio
 real = $total_real_points
 print(math.floor(real * ratio))
 END
 )
-        local percent=$(python - <<END
+        local percent=$("$PYTHON" - <<END
 print(int($ratio * 100))
 END
 )
@@ -92,7 +101,7 @@ END
         echo "   Real rows      : $total_real_points"
         echo "   Synthetic rows : $syn_rows"
 
-        python mix_training_data_multivariate_v2.py \
+        "$PYTHON" mix_training_data_multivariate_v2.py \
             --appliance "$appliance" \
             --real_rows "$total_real_points" \
             --synthetic_rows "$syn_rows" \

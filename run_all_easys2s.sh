@@ -21,8 +21,14 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
     sed -i 's/\r$//' "$0" 2>/dev/null
 fi
 
-# Use the full Python path from the nilm_main conda env
-PYTHON="/home/raymond/miniconda3/envs/nilm_main/bin/python3"
+# Use the full Python path from the nilm_main conda env (Dynamic Detection)
+if [ -f "/root/anaconda3/envs/nilm_main/bin/python3" ]; then
+    PYTHON="/root/anaconda3/envs/nilm_main/bin/python3"
+elif [ -f "/home/raymond/miniconda3/envs/nilm_main/bin/python3" ]; then
+    PYTHON="/home/raymond/miniconda3/envs/nilm_main/bin/python3"
+else
+    PYTHON="python3" # Fallback
+fi
 
 # Sanity check
 if [ ! -f "$PYTHON" ]; then

@@ -15,6 +15,15 @@
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_ROOT"
 
+# --- Setup Python Environment (Dynamic Detection) ---
+if [ -f "/root/anaconda3/envs/nilm_main/bin/python3" ]; then
+    PYTHON="/root/anaconda3/envs/nilm_main/bin/python3"
+elif [ -f "/home/raymond/miniconda3/envs/nilm_main/bin/python3" ]; then
+    PYTHON="/home/raymond/miniconda3/envs/nilm_main/bin/python3"
+else
+    PYTHON="python3" # Fallback
+fi
+
 # --- Self-Cleaning: Fix Windows Line Endings (\r) ---
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
     sed -i 's/\r$//' mix_training_data_multivariate_v3.py 2>/dev/null
@@ -61,7 +70,7 @@ for APPLIANCE in "${APPLIANCES[@]}"; do
     if [ -f "$SYN_FILE" ]; then
         # Get flattened length (assuming shape [N, 512, 9] or similar where power is col 0)
         # mix_data_v2 uses data[:, :, 0].reshape(-1)
-        MAX_SYN_ROWS=$(python -c "import numpy as np; data=np.load('$SYN_FILE'); print(data.shape[0]*data.shape[1])")
+        MAX_SYN_ROWS=$("$PYTHON" -c "import numpy as np; data=np.load('$SYN_FILE'); print(data.shape[0]*data.shape[1])")
     else
         echo "Warning: Synthetic NPY not found for $APPLIANCE. Ratios will fail if > 0."
         MAX_SYN_ROWS=0
@@ -78,7 +87,7 @@ for APPLIANCE in "${APPLIANCES[@]}"; do
         
         # Calculate syn_rows based on REAL_ROWS
         # Using python for float multiplication
-        syn_rows=$(python -c "print(int($REAL_ROWS * $ratio))")
+        syn_rows=$("$PYTHON" -c "print(int($REAL_ROWS * $ratio))")
         
         # Determine Ratio Label
         if [ "$(echo "$ratio == 0" | bc -l)" -eq 1 ]; then
@@ -104,7 +113,7 @@ for APPLIANCE in "${APPLIANCES[@]}"; do
         SUFFIX="${REAL_K_LABEL}+${PCT}_ordered"
         echo "$TAG $APPLIANCE | Ratio: $PCT | Rows: ${REAL_K}k real + ${SYN_K}k syn"
         
-        python mix_training_data_multivariate_v2.py \
+        "$PYTHON" mix_training_data_multivariate_v2.py \
             --appliance "$APPLIANCE" \
             --real_rows $REAL_ROWS \
             --synthetic_rows $syn_rows \
@@ -117,18 +126,18 @@ for APPLIANCE in "${APPLIANCES[@]}"; do
                 # A) Partial Shuffle
                 echo "[v2 Partial Shuffle] $APPLIANCE | Window: $window | Ratio: $PCT"
                 SUFFIX="${REAL_K_LABEL}+${PCT}_shuffled_w${window}"
-                python mix_training_data_multivariate_v2.py --appliance "$APPLIANCE" --real_rows $REAL_ROWS --synthetic_rows $syn_rows --suffix "$SUFFIX" --shuffle --window_size $window
+                "$PYTHON" mix_training_data_multivariate_v2.py --appliance "$APPLIANCE" --real_rows $REAL_ROWS --synthetic_rows $syn_rows --suffix "$SUFFIX" --shuffle --window_size $window
 
                 # B) Full Shuffle
                 echo "[v2 Full Shuffle] $APPLIANCE | Window: $window | Ratio: $PCT"
                 SUFFIX="${REAL_K_LABEL}+${PCT}_full_shuffled_w${window}"
-                python mix_training_data_multivariate_v2.py --appliance "$APPLIANCE" --real_rows $REAL_ROWS --synthetic_rows $syn_rows --suffix "$SUFFIX" --full-shuffle --window_size $window
+                "$PYTHON" mix_training_data_multivariate_v2.py --appliance "$APPLIANCE" --real_rows $REAL_ROWS --synthetic_rows $syn_rows --suffix "$SUFFIX" --full-shuffle --window_size $window
             done
 
             # 3. Event-Based Injection (v3)
             SUFFIX="${REAL_K_LABEL}+${PCT}_event_even_v3"
             echo "[v3 Event Even] $APPLIANCE | Ratio: $PCT"
-            python mix_training_data_multivariate_v3.py --appliance "$APPLIANCE" --real_rows $REAL_ROWS --synthetic_rows $syn_rows --suffix "$SUFFIX"
+            "$PYTHON" mix_training_data_multivariate_v3.py --appliance "$APPLIANCE" --real_rows $REAL_ROWS --synthetic_rows $syn_rows --suffix "$SUFFIX"
         fi
     done
 done
