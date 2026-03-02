@@ -178,7 +178,11 @@ done
 for app in "${APPLIANCES[@]}"; do
     echo ">>> STARTING FULL EXPERIMENT SET FOR APPLIANCE: $app <<<"
     for syn_k in "${SYN_K_CASES[@]}"; do
-        ORIGIN_MODEL="TRUE" # Enforce TRUE for all cases as requested
+        if [ "$app" == "washingmachine" ]; then
+            ORIGIN_MODEL="FALSE"
+        else
+            ORIGIN_MODEL="TRUE"
+        fi
 
         # 1. Ordered Case (or Baseline)
         CONFIG_KEY="200k+${syn_k} | Ordered     "
