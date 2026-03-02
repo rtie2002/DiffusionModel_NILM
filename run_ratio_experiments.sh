@@ -13,10 +13,18 @@ cd "$PROJECT_ROOT"
 # --- Setup Python Environment (Dynamic Detection) ---
 if [ -f "/root/anaconda3/envs/nilm_main/bin/python3" ]; then
     PYTHON="/root/anaconda3/envs/nilm_main/bin/python3"
+    ENV_LIB="/root/anaconda3/envs/nilm_main/lib"
 elif [ -f "/home/raymond/miniconda3/envs/nilm_main/bin/python3" ]; then
     PYTHON="/home/raymond/miniconda3/envs/nilm_main/bin/python3"
+    ENV_LIB="/home/raymond/miniconda3/envs/nilm_main/lib"
 else
-    PYTHON="python3" # Fallback to system python
+    PYTHON="python3"
+    ENV_LIB=""
+fi
+
+# Fix: libstdc++.so.6 version issue (CXXABI_1.3.15 not found)
+if [ -n "$ENV_LIB" ]; then
+    export LD_LIBRARY_PATH="$ENV_LIB:$LD_LIBRARY_PATH"
 fi
 
 # --- Fix: libdevice.10.bc for TF XLA ---
