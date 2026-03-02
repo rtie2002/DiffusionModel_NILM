@@ -165,8 +165,18 @@ else:
 # path for training data
 if args.train_filename:
     training_path = args.datadir + appliance_name + '/' + args.train_filename + '.csv'
+    # Fallback: check the parent directory if not found in appliance folder
+    if not os.path.exists(training_path):
+        training_path_fallback = args.datadir + args.train_filename + '.csv'
+        if os.path.exists(training_path_fallback):
+            training_path = training_path_fallback
 else:
     training_path = args.datadir + appliance_name + '/' + trainfile + '.csv'
+    if not os.path.exists(training_path):
+        training_path_fallback = args.datadir + trainfile + '.csv'
+        if os.path.exists(training_path_fallback):
+            training_path = training_path_fallback
+
 log('Training dataset: ' + training_path)
 
 print(args.datadir)

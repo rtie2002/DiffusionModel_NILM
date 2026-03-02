@@ -57,6 +57,24 @@ DATA_DIR="$PROJECT_ROOT/created_data/UK_DALE/"
 NILM_DIR="$PROJECT_ROOT/NILM-main"
 MODELS_ROOT="$NILM_DIR/models/EasyS2S/UK_DALE"
 
+# --- Sanity Check: Ensure Mixed Data Exists ---
+echo "Checking for mixed datasets..."
+MISSING_DATA=false
+for app in "${APPLIANCES[@]}"; do
+    # Check for at least the 25% file
+    if [ ! -f "$DATA_DIR/${app}/${app}_training_synthetic_25%.csv" ] && [ ! -f "$DATA_DIR/${app}_training_synthetic_25%.csv" ]; then
+        echo "WARNING: Missing synthetic data for $app (synthetic_25% not found)"
+        MISSING_DATA=true
+    fi
+done
+
+if [ "$MISSING_DATA" = true ]; then
+    echo "----------------------------------------------------------------"
+    echo "HINT: It looks like you haven't generated the mixed datasets yet."
+    echo "Please run: ./mix_training_data_multivariate.sh first!"
+    echo "----------------------------------------------------------------"
+fi
+
 # --- Result storage ---
 declare -A RESULTS
 declare -a CONFIG_ORDER
