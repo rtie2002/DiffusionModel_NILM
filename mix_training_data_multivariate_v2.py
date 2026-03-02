@@ -191,13 +191,15 @@ if __name__ == '__main__':
     parser.add_argument('--no-shuffle', action='store_false', dest='shuffle', help='Disable window shuffling')
     parser.set_defaults(shuffle=True)
     parser.add_argument('--window_size', type=int, default=600, help='Window size for slicing and shuffling')
+    parser.add_argument('--real_path', type=str, default=None, help='Path to real CSV file (optional)')
     args = parser.parse_args()
     
     mix_data_v2(
-        appliance_name=args.appliance, 
-        real_rows=args.real_rows, 
-        synthetic_rows=args.synthetic_rows, 
+        appliance_name=args.appliance,
+        real_rows=args.real_rows,
+        synthetic_rows=args.synthetic_rows,
+        real_path=args.real_path,
         suffix=args.suffix,
         shuffle=args.shuffle,
-        window_size=args.window_size
+        window_size=args.window_size,
     )
