@@ -213,7 +213,7 @@ def detect_events_threshold(power: np.ndarray, cfg: DetectionConfig,
     return segs
 
 
-def detect_washingmachine_spikes(power, threshold, min_gap=200):
+def detect_washingmachine_spikes(power, threshold=1800, min_gap=200):
     """
     High-Sensitivity Spike Splitting for Washing Machine:
     1. min_gap=200: If two high-power plateaus are > 200 steps apart, 
@@ -236,7 +236,7 @@ def detect_washingmachine_spikes(power, threshold, min_gap=200):
         e_limit = block_starts[i+1] if i+1 < len(block_starts) else len(power)
         
         chunk = power[s_spike:e_limit]
-        is_on = chunk > threshold
+        is_on = chunk > 20
         # Use a small kernel (100) to isolate the heating plateaus
         kernel = np.ones(100) 
         closed = np.convolve(is_on.astype(float), kernel, mode='same') > 0
@@ -256,44 +256,11 @@ def detect_washingmachine_spikes(power, threshold, min_gap=200):
     return segs
 
 
-def detect_dishwasher_blocks(power, threshold, min_gap=50):
-    """
-    Dishwasher block detection:
-    Identifies continuous periods above a power threshold,
-    merges small gaps, and filters by duration.
-    """
-    is_on = power >= threshold
-    
-    # Morphological closing to merge small gaps
-    # Use a kernel based on min_gap to close gaps
-    kernel = np.ones(min_gap * 2 + 1)
-    closed = np.convolve(is_on.astype(float), kernel, mode='same') > 0
-    
-    segs, i_seg = [], False
-    n = len(power)
-    for i, v in enumerate(closed):
-        if v and not i_seg:
-            s = i; i_seg = True
-        elif not v and i_seg:
-            # Only add segments that are long enough
-            if i - s >= 50: # Using a default min_duration_steps for now
-                segs.append((s, i))
-            i_seg = False
-    if i_seg and n - s >= 50: # Check last segment
-        segs.append((s, n))
-        
-    return segs
-
-
 def detect_synthetic_events(power: np.ndarray, appliance_name: str
                              ) -> List[Tuple[int, int]]:
     """Choose detection strategy per appliance and return (start, end) list."""
-    spec = APPLIANCE_SPECS[appliance_name] # Get appliance specific data
-    
     if appliance_name == 'washingmachine':
-        segs = detect_washingmachine_spikes(power, threshold=spec['on_power_threshold'])
-    elif appliance_name == 'dishwasher':
-        segs = detect_dishwasher_blocks(power, threshold=spec['on_power_threshold'])
+        segs = detect_washingmachine_spikes(power)
     else:
         cfg = DETECTION_CONFIG.get(appliance_name, DETECTION_CONFIG['kettle'])
         if cfg.strategy == 'density':
@@ -472,18 +439,15 @@ def mix_data_v3(appliance_name: str, real_rows: int, synthetic_rows: int,
     print("  Assembling final dataset (Insertion Mode: preserves 100% real data)...")
     spec        = APPLIANCE_SPECS[appliance_name]
     final_parts = []
-    # Ensure we preserve all real data, including the on-events.
-    # Logic: Between each pair of OFF segments, there is an ON event.
-    # We append [Real ON segment] -> [Real OFF segment pieces + Synthetic insertions]
+    ev_ptr      = 0
     curr_idx    = 0
-    bg_pool     = get_background_pool(appliance_name, real_df, is_off, window_size=2000)
-    ev_ptr      = 0 # Initialize event pointer
+    bg_pool     = get_background_pool(appliance_name, real_df, is_off, window_size=600)
 
     for seg_idx, (seg_s, seg_e) in enumerate(off_segs):
-        # 0. Preserve the real ON-event leading up to this OFF gap (if any)
-        if curr_idx < seg_s:
+        # Add real data before this OFF segment
+        if seg_s > curr_idx:
             final_parts.append(real_df.iloc[curr_idx:seg_s])
-            
+
         seg_df  = real_df.iloc[seg_s:seg_e].copy()
         seg_len = seg_e - seg_s
         n_here  = seg_counts[seg_idx]
