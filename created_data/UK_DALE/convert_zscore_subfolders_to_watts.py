@@ -129,14 +129,17 @@ def main(dry_run: bool = False):
                     total_skipped += 1
                     continue
 
+                # Save into a dedicated 'realPower' subfolder (not mixed with originals)
+                out_dir  = subfolder / "realPower"
                 out_name = filename.replace(".csv", "_realPower.csv")
-                out_path = subfolder / out_name
+                out_path = out_dir / out_name
 
                 if dry_run:
-                    print(f"  [DRY-RUN] Would save → {out_name}")
+                    print(f"  [DRY-RUN] Would save → {appliance_name}/realPower/{out_name}")
                 else:
+                    out_dir.mkdir(parents=True, exist_ok=True)
                     df_watts.to_csv(out_path, index=False)
-                    print(f"  Saved → {out_name}")
+                    print(f"  Saved → {appliance_name}/realPower/{out_name}")
 
                 total_converted += 1
 
