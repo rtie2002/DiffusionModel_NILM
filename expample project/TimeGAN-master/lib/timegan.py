@@ -352,7 +352,7 @@ class TimeGAN(BaseModel):
       """
       self.err_er = self.l_mse(self.X_tilde, self.X)
       self.err_er.backward(retain_graph=True)
-      print("Loss: ", self.err_er)
+      # print("Loss: ", self.err_er)
 
     def backward_er_(self):
       """ Backpropagate through netE
@@ -378,14 +378,14 @@ class TimeGAN(BaseModel):
                    self.err_g_V2 * self.opt.w_g + \
                    torch.sqrt(self.err_s) 
       self.err_g.backward(retain_graph=True)
-      print("Loss G: ", self.err_g)
+      # print("Loss G: ", self.err_g)
 
     def backward_s(self):
       """ Backpropagate through netS
       """
       self.err_s = self.l_mse(self.H[:,1:,:], self.H_supervise[:,:-1,:])
       self.err_s.backward(retain_graph=True)
-      print("Loss S: ", self.err_s)
+      # print("Loss S: ", self.err_s)
    #   print(torch.autograd.grad(self.err_s, self.nets.parameters()))
 
     def backward_d(self):
