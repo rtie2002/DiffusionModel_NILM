@@ -60,28 +60,23 @@ def train():
     print()
 
     # LOAD DATA
-    ori_data = load_data(opt)
+    # C-TimeGAN REDESIGN: load_data returns (targets, conditions)
+    targets, conditions = load_data(opt)
     
-    # NEW: Automatically update dimension based on loaded data
-    # ori_data is a list of [seq_len, dim]
-    actual_dim = ori_data[0].shape[-1]
+    # Update dimension based on loaded targets
+    actual_dim = targets[0].shape[-1]
     opt.z_dim = actual_dim
-    print(f"Detected data dimension: {actual_dim}. Updating model config...")
+    print(f"Detected target dimension: {actual_dim}. Updating model config...")
 
-    # LOAD MODEL
-    model = TimeGAN(opt, ori_data)
+    # LOAD MODEL (Pass tuple to BaseModel)
+    model = TimeGAN(opt, (targets, conditions))
 
     # TRAIN MODEL
     model.train()
     
-    # GENERATE SYNTHETIC DATA
-    # Generate a substantial amount of data for evaluation
-    num_samples = len(ori_data)
-    print(f"Generating {num_samples} synthetic samples...")
-    generated_data = model.generation(num_samples)
-    
-    # Process for saving
-    generated_array = np.array(generated_data) # [N, seq_len, dim]
+    # Post-training sampling is now handled by sample_only.py 
+    # to inclusion OCSVM filtering. Use run_all_timegan.sh to trigger both.
+    print(f"Training of {opt.data_name} completed.")
     
     # Define save paths
     output_dir = os.path.join(opt.outf, opt.name)

@@ -30,30 +30,26 @@ class BaseModel():
   """ Base Model for timegan
   """
 
-  def __init__(self, opt, ori_data):
+  def __init__(self, opt, data_tuple):
     # Seed for deterministic behavior
     self.seed(opt.manualseed)
 
     # Initalize variables.
     self.opt = opt
-    self.ori_data, self.min_val, self.max_val = NormMinMax(ori_data)
-    self.ori_time, self.max_seq_len = extract_time(self.ori_data)
-    self.data_num, _, _ = np.asarray(ori_data).shape    # 3661; 24; 6
-    self.trn_dir = os.path.join(self.opt.outf, self.opt.name, 'train')
-    self.tst_dir = os.path.join(self.opt.outf, self.opt.name, 'test')
+    # data_tuple = (targets, conditions)
+    self.ori_data, self.ori_conds = data_tuple
+    
+    # Pre-calculate ranges for target data for renormalization
+    self.targets_concat = np.concatenate(self.ori_data, axis=0)
+    self.min_val = np.min(self.targets_concat, axis=0)
+    self.max_val = np.max(self.targets_concat, axis=0)
+
+    self.max_seq_len = self.opt.seq_len
+    self.data_num = len(self.ori_data)
     self.device = torch.device("cuda:0" if self.opt.device != 'cpu' else "cpu")
 
   def seed(self, seed_value):
-    """ Seed
-
-    Arguments:
-        seed_value {int} -- [description]
-    """
-    # Check if seed is default value
-    if seed_value == -1:
-      return
-
-    # Otherwise seed all functionality
+    if seed_value == -1: return
     import random
     random.seed(seed_value)
     torch.manual_seed(seed_value)
@@ -62,102 +58,51 @@ class BaseModel():
     torch.backends.cudnn.deterministic = True
 
   def save_weights(self, epoch):
-    """Save net weights for the current epoch.
-
-    Args:
-        epoch ([int]): Current epoch number.
-    """
-
     weight_dir = os.path.join(self.opt.outf, self.opt.name, 'train', 'weights')
-    if not os.path.exists(weight_dir): 
-      os.makedirs(weight_dir)
-
-    torch.save({'epoch': epoch + 1, 'state_dict': self.nete.state_dict()},
-               '%s/netE.pth' % (weight_dir))
-    torch.save({'epoch': epoch + 1, 'state_dict': self.netr.state_dict()},
-               '%s/netR.pth' % (weight_dir))
-    torch.save({'epoch': epoch + 1, 'state_dict': self.netg.state_dict()},
-               '%s/netG.pth' % (weight_dir))
-    torch.save({'epoch': epoch + 1, 'state_dict': self.netd.state_dict()},
-               '%s/netD.pth' % (weight_dir))
-    torch.save({'epoch': epoch + 1, 'state_dict': self.nets.state_dict()},
-               '%s/netS.pth' % (weight_dir))
-
+    if not os.path.exists(weight_dir): os.makedirs(weight_dir)
+    torch.save({'epoch': epoch + 1, 'state_dict': self.nete.state_dict()}, '%s/netE.pth' % (weight_dir))
+    torch.save({'epoch': epoch + 1, 'state_dict': self.netr.state_dict()}, '%s/netR.pth' % (weight_dir))
+    torch.save({'epoch': epoch + 1, 'state_dict': self.netg.state_dict()}, '%s/netG.pth' % (weight_dir))
+    torch.save({'epoch': epoch + 1, 'state_dict': self.netd.state_dict()}, '%s/netD.pth' % (weight_dir))
+    torch.save({'epoch': epoch + 1, 'state_dict': self.nets.state_dict()}, '%s/netS.pth' % (weight_dir))
 
   def train_one_iter_er(self):
-    """ Train the model for one epoch.
-    """
-
     self.nete.train()
     self.netr.train()
-
-    # set mini-batch
-    self.X0, self.T = batch_generator(self.ori_data, self.ori_time, self.opt.batch_size)
-    self.X = torch.tensor(self.X0, dtype=torch.float32).to(self.device)
-
-    # train encoder & decoder
+    self.X0, self.T, self.C0 = batch_generator(self.ori_data, self.ori_conds, self.opt.batch_size)
+    self.X = torch.tensor(self.X0, dtype=torch.float32).to(self.device).contiguous()
+    self.C = torch.tensor(self.C0, dtype=torch.float32).to(self.device).contiguous()
     self.optimize_params_er()
 
   def train_one_iter_er_(self):
-    """ Train the model for one epoch.
-    """
-
     self.nete.train()
     self.netr.train()
-
-    # set mini-batch
-    self.X0, self.T = batch_generator(self.ori_data, self.ori_time, self.opt.batch_size)
-    self.X = torch.tensor(self.X0, dtype=torch.float32).to(self.device)
-
-    # train encoder & decoder
+    self.X0, self.T, self.C0 = batch_generator(self.ori_data, self.ori_conds, self.opt.batch_size)
+    self.X = torch.tensor(self.X0, dtype=torch.float32).to(self.device).contiguous()
+    self.C = torch.tensor(self.C0, dtype=torch.float32).to(self.device).contiguous()
     self.optimize_params_er_()
  
   def train_one_iter_s(self):
-    """ Train the model for one epoch.
-    """
-
-    #self.nete.eval()
     self.nets.train()
-
-    # set mini-batch
-    self.X0, self.T = batch_generator(self.ori_data, self.ori_time, self.opt.batch_size)
-    self.X = torch.tensor(self.X0, dtype=torch.float32).to(self.device)
-    
-    # train superviser
+    self.X0, self.T, self.C0 = batch_generator(self.ori_data, self.ori_conds, self.opt.batch_size)
+    self.X = torch.tensor(self.X0, dtype=torch.float32).to(self.device).contiguous()
+    self.C = torch.tensor(self.C0, dtype=torch.float32).to(self.device).contiguous()
     self.optimize_params_s()
 
   def train_one_iter_g(self):
-    """ Train the model for one epoch.
-    """
-
-    """self.netr.eval()
-    self.nets.eval()
-    self.netd.eval()"""
     self.netg.train()
-
-    # set mini-batch
-    self.X0, self.T = batch_generator(self.ori_data, self.ori_time, self.opt.batch_size)
-    self.X = torch.tensor(self.X0, dtype=torch.float32).to(self.device)
+    self.X0, self.T, self.C0 = batch_generator(self.ori_data, self.ori_conds, self.opt.batch_size)
+    self.X = torch.tensor(self.X0, dtype=torch.float32).to(self.device).contiguous()
+    self.C = torch.tensor(self.C0, dtype=torch.float32).to(self.device).contiguous()
     self.Z = random_generator(self.opt.batch_size, self.opt.z_dim, self.T, self.max_seq_len)
-
-    # train superviser
     self.optimize_params_g()
 
   def train_one_iter_d(self):
-    """ Train the model for one epoch.
-    """
-    """self.nete.eval()
-    self.netr.eval()
-    self.nets.eval()
-    self.netg.eval()"""
     self.netd.train()
-
-    # set mini-batch
-    self.X0, self.T = batch_generator(self.ori_data, self.ori_time, self.opt.batch_size)
-    self.X = torch.tensor(self.X0, dtype=torch.float32).to(self.device)
+    self.X0, self.T, self.C0 = batch_generator(self.ori_data, self.ori_conds, self.opt.batch_size)
+    self.X = torch.tensor(self.X0, dtype=torch.float32).to(self.device).contiguous()
+    self.C = torch.tensor(self.C0, dtype=torch.float32).to(self.device).contiguous()
     self.Z = random_generator(self.opt.batch_size, self.opt.z_dim, self.T, self.max_seq_len)
-
-    # train superviser
     self.optimize_params_d()
 
 
@@ -225,14 +170,10 @@ class BaseModel():
 """
 
   def generation(self, num_samples):
-    if num_samples == 0:
-      return None
-    
-    # --- NEW: BATCH-WISE GENERATION TO PREVENT FREEZE AND cuDNN ERRORS ---
+    if num_samples == 0: return None
     batch_size = self.opt.batch_size
     all_generated_data = []
     
-    # Set to eval mode
     self.netg.eval()
     self.nets.eval()
     self.netr.eval()
@@ -245,47 +186,31 @@ class BaseModel():
         curr_batch_size = batch_size if i < iterations - 1 else num_samples - i * batch_size
         if curr_batch_size <= 0: break
 
-        # 1. Get time info for this batch from the original dataset's distribution
-        _, T_samples = batch_generator(self.ori_data, self.ori_time, curr_batch_size)
+        # Sample dummy conditions from the original dataset for consistency
+        _, T_samples, _ = batch_generator(self.ori_data, self.ori_conds, curr_batch_size)
         
-        # 2. Generate noise
-        Z = random_generator(curr_batch_size, self.opt.z_dim, T_samples, self.max_seq_len)
-        
-        # ⚡ FIX: Convert to contiguous numpy array first, then to tensor, then .contiguous()
-        # This solves the CUDNN_STATUS_NOT_SUPPORTED error on RTX 4090
+        Z = random_generator(curr_batch_size, self.opt.z_dim, T_samples, self.opt.seq_len)
         Z_np = np.stack(Z).astype(np.float32)
         Z_tensor = torch.from_numpy(Z_np).to(self.device).contiguous()
         
-        # 3. Predict
         with torch.no_grad():
             E_hat = self.netg(Z_tensor)
             H_hat = self.nets(E_hat)
             generated_data_curr = self.netr(H_hat).cpu().numpy()
 
-        # 4. Post-process and collect
         for j in range(curr_batch_size):
             temp = generated_data_curr[j, :T_samples[j], :]
-            # Apply Min-Max Renormalization
+            # Re-normalize using targets_concat stats
             temp = temp * (self.max_val + 1e-7)
             temp = temp + self.min_val
-            # --- OPTIMIZED FINALIZATION: PRE-ALLOCATE MEMORY ---
             all_generated_data.append(temp)
     
-    print(f"Finalizing Array mapping (Pre-allocating {num_samples} samples)...")
-    # Instead of np.array(list), we pre-allocate the target array
-    # This avoids the 2x memory spike that causes the freeze
-    out_array = np.empty((num_samples, self.max_seq_len, self.opt.z_dim), dtype=np.float32)
-    
-    for i in tqdm(range(num_samples), desc="Assembling Final Array"):
-        # Fill only the actual sequence length, reset of window is zeroed
+    print(f"Finalizing Array mapping...")
+    out_array = np.empty((num_samples, self.opt.seq_len, self.opt.z_dim), dtype=np.float32)
+    for i in range(num_samples):
         seq_len = len(all_generated_data[i])
         out_array[i, :seq_len, :] = all_generated_data[i]
-        
-    # Clear the list from memory immediately
     del all_generated_data
-    import gc
-    gc.collect()
-
     return out_array
 
 
@@ -343,26 +268,19 @@ class TimeGAN(BaseModel):
 
 
     def forward_e(self):
-      """ Forward propagate through netE
-      """
-      self.H = self.nete(self.X)
+      self.H = self.nete(self.X, self.C)
 
     def forward_er(self):
-      """ Forward propagate through netR
-      """
-      self.H = self.nete(self.X)
+      self.H = self.nete(self.X, self.C)
       self.X_tilde = self.netr(self.H)
 
     def forward_g(self):
-      """ Forward propagate through netG
-      """
-      self.Z = torch.tensor(self.Z, dtype=torch.float32).to(self.device)
-      self.E_hat = self.netg(self.Z)
+      self.Z = torch.tensor(self.Z, dtype=torch.float32).to(self.device).contiguous()
+      self.E_hat = self.netg(self.Z, self.C)
+
     def forward_dg(self):
-      """ Forward propagate through netD
-      """
-      self.Y_fake = self.netd(self.H_hat)
-      self.Y_fake_e = self.netd(self.E_hat)
+      self.Y_fake = self.netd(self.H_hat, self.C)
+      self.Y_fake_e = self.netd(self.E_hat, self.C)
 
     def forward_rg(self):
       """ Forward propagate through netG
@@ -381,11 +299,9 @@ class TimeGAN(BaseModel):
       self.H_hat = self.nets(self.E_hat)
 
     def forward_d(self):
-      """ Forward propagate through netD
-      """
-      self.Y_real = self.netd(self.H)
-      self.Y_fake = self.netd(self.H_hat)
-      self.Y_fake_e = self.netd(self.E_hat)
+      self.Y_real = self.netd(self.H, self.C)
+      self.Y_fake = self.netd(self.H_hat, self.C)
+      self.Y_fake_e = self.netd(self.E_hat, self.C)
 
 
     def backward_er(self):
@@ -396,30 +312,59 @@ class TimeGAN(BaseModel):
       # print("Loss: ", self.err_er)
 
     def backward_er_(self):
-      """ Backpropagate through netE
+      """ Backpropagate through netE with NILM Prioritization (2024 Paper Style)
       """
-      self.err_er_ = self.l_mse(self.X_tilde, self.X) 
+      # Original MSE
+      self.err_er_raw = self.l_mse(self.X_tilde, self.X) 
+      
+      # ⚡ NEW: Weighted MSE (Give 10x more weight to the Power column)
+      # Power is index 0, Time features are 1:
+      power_mse = self.l_mse(self.X_tilde[:, :, 0], self.X[:, :, 0])
+      feat_mse = self.l_mse(self.X_tilde[:, :, 1:], self.X[:, :, 1:])
+      self.err_er_ = 10.0 * power_mse + 1.0 * feat_mse
+
       self.err_s = self.l_mse(self.H_supervise[:,:-1,:], self.H[:,1:,:])
+      
+      # Final loss for embedding/recovery
       self.err_er = 10 * torch.sqrt(self.err_er_) + 0.1 * self.err_s
       self.err_er.backward(retain_graph=True)
 
-    #  print("Loss: ", self.err_er_, self.err_s)
     def backward_g(self):
-      """ Backpropagate through netG
+      """ Backpropagate through netG with C-TimeGAN+ Enhancements (2024 Paper Style)
       """
+      # 1. Adversarial Losses (Adheres to Eq. 11)
       self.err_g_U = self.l_bce(self.Y_fake, torch.ones_like(self.Y_fake))
-
       self.err_g_U_e = self.l_bce(self.Y_fake_e, torch.ones_like(self.Y_fake_e))
-      self.err_g_V1 = torch.mean(torch.abs(torch.sqrt(torch.std(self.X_hat,[0])[1] + 1e-6) - torch.sqrt(torch.std(self.X,[0])[1] + 1e-6)))   # |a^2 - b^2|
-      self.err_g_V2 = torch.mean(torch.abs((torch.mean(self.X_hat,[0])[0]) - (torch.mean(self.X,[0])[0])))  # |a - b|
+      
+      # 2. Moment Losses (Fidelity)
+      self.err_g_V1 = torch.mean(torch.abs(torch.sqrt(torch.std(self.X_hat,[0])[1] + 1e-6) - torch.sqrt(torch.std(self.X,[0])[1] + 1e-6)))   
+      self.err_g_V2 = torch.mean(torch.abs((torch.mean(self.X_hat,[0])[0]) - (torch.mean(self.X,[0])[0])))  
+      
+      # 3. ⚡ C-TimeGAN Specific: First-order Difference Loss (Eq. 12-related constraint)
+      # Penalizes mismatch in power transitions (sharp jumps)
+      diff_real = self.X[:, 1:, 0] - self.X[:, :-1, 0]
+      diff_fake = self.X_hat[:, 1:, 0] - self.X_hat[:, :-1, 0]
+      self.err_g_diff = self.l_mse(diff_fake, diff_real)
+
+      # 4. ⚡ Total Variation (TV) Regularization
+      # Encourages piecewise constant behavior (steady ON/OFF states)
+      # Calculates absolute difference between adjacent points
+      self.err_g_tv = torch.mean(torch.abs(self.X_hat[:, 1:, 0] - self.X_hat[:, :-1, 0]))
+
+      # 5. Supervised Loss (Eq. 12)
       self.err_s = self.l_mse(self.H_supervise[:,:-1,:], self.H[:,1:,:])
+      
+      # Final combined loss using the paper's recommended balance (eta=15)
+      # We use 15x weight for the supervised/constrained terms
       self.err_g = self.err_g_U + \
                    self.err_g_U_e * self.opt.w_gamma + \
                    self.err_g_V1 * self.opt.w_g + \
                    self.err_g_V2 * self.opt.w_g + \
-                   torch.sqrt(self.err_s) 
+                   15.0 * torch.sqrt(self.err_s) + \
+                   10.0 * self.err_g_diff + \
+                   0.1 * self.err_g_tv 
+                   
       self.err_g.backward(retain_graph=True)
-      # print("Loss G: ", self.err_g)
 
     def backward_s(self):
       """ Backpropagate through netS

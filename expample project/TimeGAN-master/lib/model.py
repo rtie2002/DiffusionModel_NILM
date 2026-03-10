@@ -57,14 +57,16 @@ class Encoder(nn.Module):
         """
     def __init__(self, opt):
         super(Encoder, self).__init__()
-        self.rnn = nn.GRU(input_size=opt.z_dim, hidden_size=opt.hidden_dim, num_layers=opt.num_layer)
-       # self.norm = nn.BatchNorm1d(opt.hidden_dim)
+        # input_size = target_dim + condition_dim (1)
+        self.rnn = nn.GRU(input_size=opt.z_dim + 1, hidden_size=opt.hidden_dim, num_layers=opt.num_layers)
         self.fc = nn.Linear(opt.hidden_dim, opt.hidden_dim)
         self.sigmoid = nn.Sigmoid()
         self.apply(_weights_init)
 
-    def forward(self, input, sigmoid=True):
-        e_outputs, _ = self.rnn(input)
+    def forward(self, input, cond, sigmoid=True):
+        # Concatenate Input with Condition per paper Eq. 7
+        combined = torch.cat([input, cond], dim=-1)
+        e_outputs, _ = self.rnn(combined)
         H = self.fc(e_outputs)
         if sigmoid:
             H = self.sigmoid(H)
@@ -83,7 +85,7 @@ class Recovery(nn.Module):
     """
     def __init__(self, opt):
         super(Recovery, self).__init__()
-        self.rnn = nn.GRU(input_size=opt.hidden_dim, hidden_size=opt.z_dim, num_layers=opt.num_layer)
+        self.rnn = nn.GRU(input_size=opt.hidden_dim, hidden_size=opt.z_dim, num_layers=opt.num_layers)
         
       #  self.norm = nn.BatchNorm1d(opt.z_dim)
         self.fc = nn.Linear(opt.z_dim, opt.z_dim)
@@ -110,15 +112,16 @@ class Generator(nn.Module):
     """
     def __init__(self, opt):
         super(Generator, self).__init__()
-        self.rnn = nn.GRU(input_size=opt.z_dim, hidden_size=opt.hidden_dim, num_layers=opt.num_layer)
-     #   self.norm = nn.LayerNorm(opt.hidden_dim)
+        # input_size = noise_dim + condition_dim (1)
+        self.rnn = nn.GRU(input_size=opt.z_dim + 1, hidden_size=opt.hidden_dim, num_layers=opt.num_layers)
         self.fc = nn.Linear(opt.hidden_dim, opt.hidden_dim)
         self.sigmoid = nn.Sigmoid()
         self.apply(_weights_init)
 
-    def forward(self, input, sigmoid=True):
-        g_outputs, _ = self.rnn(input)
-      #  g_outputs = self.norm(g_outputs)
+    def forward(self, input, cond, sigmoid=True):
+        # Concatenate Noise with Condition per paper Eq. 8
+        combined = torch.cat([input, cond], dim=-1)
+        g_outputs, _ = self.rnn(combined)
         E = self.fc(g_outputs)
         if sigmoid:
             E = self.sigmoid(E)
@@ -137,7 +140,7 @@ class Supervisor(nn.Module):
     """
     def __init__(self, opt):
         super(Supervisor, self).__init__()
-        self.rnn = nn.GRU(input_size=opt.hidden_dim, hidden_size=opt.hidden_dim, num_layers=opt.num_layer)
+        self.rnn = nn.GRU(input_size=opt.hidden_dim, hidden_size=opt.hidden_dim, num_layers=opt.num_layers)
       #  self.norm = nn.LayerNorm(opt.hidden_dim)
         self.fc = nn.Linear(opt.hidden_dim, opt.hidden_dim)
         self.sigmoid = nn.Sigmoid()
@@ -164,14 +167,16 @@ class Discriminator(nn.Module):
     """
     def __init__(self, opt):
         super(Discriminator, self).__init__()
-        self.rnn = nn.GRU(input_size=opt.hidden_dim, hidden_size=opt.hidden_dim, num_layers=opt.num_layer)
-      #  self.norm = nn.LayerNorm(opt.hidden_dim)
+        # input_size = hidden_dim + condition_dim (1)
+        self.rnn = nn.GRU(input_size=opt.hidden_dim + 1, hidden_size=opt.hidden_dim, num_layers=opt.num_layers)
         self.fc = nn.Linear(opt.hidden_dim, opt.hidden_dim)
         self.sigmoid = nn.Sigmoid()
         self.apply(_weights_init)
 
-    def forward(self, input, sigmoid=True):
-        d_outputs, _ = self.rnn(input)
+    def forward(self, input, cond, sigmoid=True):
+        # Concatenate Hidden state with Condition per paper Eq. 9
+        combined = torch.cat([input, cond], dim=-1)
+        d_outputs, _ = self.rnn(combined)
         Y_hat = self.fc(d_outputs)
         if sigmoid:
             Y_hat = self.sigmoid(Y_hat)

@@ -80,88 +80,70 @@ def sine_data_generation (no, seq_len, dim):
     
 
 def real_data_loading (data_name, seq_len):
-  """Load and preprocess real-world datasets for NILM appliances.
-  
-  Args:
-    - data_name: kettle, fridge, dishwasher, microwave, or washingmachine
-    - seq_len: sequence length
-    
-  Returns:
-    - data: preprocessed data.
-  """  
+  """Load and preprocess real-world datasets, extracting Aggregate as a Condition."""
   import os
   file_path = os.path.join(dirname(dirname(abspath(__file__))), 'data', f'{data_name}.csv')
   
   if not os.path.exists(file_path):
     raise FileNotFoundError(f"Missing data file for {data_name} at {file_path}")
 
-  # Load data from CSV (assuming power is in the last column or only column)
-  # NILM datasets usually have a header
   ori_data = np.loadtxt(file_path, delimiter=",", skiprows=1)
   
-  # NEW: Skip the first column (aggregated power) and use columns 1 to 9
-  # Columns: [0: Aggregated, 1: Appliance Power, 2-9: Time Features]
+  # ⚡ C-TimeGAN REDESIGN:
+  # Column 0 is Aggregate (Condition)
+  # Column 1 is Appliance (Target)
+  # Column 2-9 are Time Features
   if ori_data.shape[1] > 1:
-      print(f"Original columns: {ori_data.shape[1]}. Selecting columns 1 to end (Appliance + Time Features)...")
-      ori_data = ori_data[:, 1:] 
-  
-  # Ensure 2D shape [samples, features]
-  if len(ori_data.shape) == 1:
-    ori_data = ori_data.reshape(-1, 1)
-        
-  # Normalize the data
-  ori_data = MinMaxScaler(ori_data)
-    
-  # Preprocess the dataset
-  temp_data = []    
-  # Cut data by sequence length
-  for i in range(0, len(ori_data) - seq_len):
-    _x = ori_data[i:i + seq_len]
-    temp_data.append(_x)
-        
-  # Mix the datasets (to make it similar to i.i.d)
-  idx = np.random.permutation(len(temp_data))    
-  data = []
-  for i in range(len(temp_data)):
-    data.append(temp_data[idx[i]])
-    
-  return data
+      print(f"Original columns: {ori_data.shape[1]}. Extracting Aggregate as Condition...")
+      conditions = ori_data[:, 0:1] # Aggregate
+      targets = ori_data[:, 1:]    # Appliance + Time Feats
+  else:
+      conditions = np.zeros((len(ori_data), 1))
+      targets = ori_data.reshape(-1, 1)
 
+  # Normalize separately
+  conditions = MinMaxScaler(conditions)
+  targets = MinMaxScaler(targets)
+    
+  temp_targets = []
+  temp_conds = []
+  for i in range(0, len(targets) - seq_len):
+    temp_targets.append(targets[i:i + seq_len])
+    temp_conds.append(conditions[i:i + seq_len])
+        
+  # Suffle indices
+  idx = np.random.permutation(len(temp_targets))    
+  return [temp_targets[i] for i in idx], [temp_conds[i] for i in idx]
 
 def load_data(opt):
   ## Data loading
   if opt.data_name in ['kettle_training_', 'fridge_training_', 'dishwasher_training_', 'microwave_training_', 'washingmachine_training_']:
-    print(f'Loading {opt.data_name} dataset...')
-    ori_data = real_data_loading(opt.data_name, opt.seq_len)
-  elif opt.data_name == 'sine':
-    # Set number of samples and its dimensions
-    no, dim = 10000, 5
-    ori_data = sine_data_generation(no, opt.seq_len, dim)
+    print(f'Loading {opt.data_name} dataset with Conditions...')
+    targets, conditions = real_data_loading(opt.data_name, opt.seq_len)
+    return targets, conditions
   else:
     raise ValueError(f"Unknown dataset: {opt.data_name}")
-    
-  print(opt.data_name + ' dataset is ready.')
-
-  return ori_data
 
 
-def batch_generator(data, time, batch_size):
-  """Mini-batch generator.
+def batch_generator(data, conditions, batch_size):
+  """Mini-batch generator for C-TimeGAN.
 
   Args:
     - data: time-series data
-    - time: time information
+    - conditions: condition information (Aggregate power)
     - batch_size: the number of samples in each batch
 
   Returns:
-    - X_mb: time-series data in each batch
-    - T_mb: time information in each batch
+    - X_mb: targets in each batch
+    - T_mb: indices (dummies for time if not used)
+    - C_mb: conditions in each batch
   """
   no = len(data)
   idx = np.random.permutation(no)
   train_idx = idx[:batch_size]
 
   X_mb = list(data[i] for i in train_idx)
-  T_mb = list(time[i] for i in train_idx)
+  C_mb = list(conditions[i] for i in train_idx)
+  T_mb = [len(x) for x in X_mb] # Keep lengths for RNN masking
 
-  return X_mb, T_mb
+  return X_mb, T_mb, C_mb
