@@ -37,13 +37,13 @@ def sample():
     
     # ⚡ CRITICAL: Save NPY first (Fast and Memory Efficient)
     print(f"📁 Saving full NPY file: {npy_path}...")
-    np.save(npy_path, generated_array)
+    np.save(npy_path, generated_data)
     print("✅ NPY saved successfully.")
 
     # ⚡ OPTIMIZATION: Only save a snippet to CSV (Preventing pandas RAM crash)
     print(f"📊 Saving a 10,000 sample snippet to CSV for preview...")
     # Take first 10,000 samples to keep CSV size manageable
-    snippet_array = generated_array[:10000]
+    snippet_array = generated_data[:10000]
     if actual_dim == 1:
         df = pd.DataFrame(snippet_array.reshape(-1, 1), columns=['power'])
     else:
@@ -57,7 +57,7 @@ def sample():
     print(f"✨ SUCCESS! Data saved to:")
     print(f"   NPY: {npy_path}")
     print(f"   CSV: {csv_path}")
-    print(f"   Shape: {generated_array.shape}")
+    print(f"   Shape: {generated_data.shape}")
     print("=" * 60)
 
 if __name__ == '__main__':
