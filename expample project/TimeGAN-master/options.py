@@ -49,7 +49,7 @@ class Options():
             default=24,
             type=int)
         self.parser.add_argument(
-            '--num_layer',
+            '--num_layers',
             help='number of layers (should be optimized)',
             default=3,
             type=int)

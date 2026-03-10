@@ -59,6 +59,17 @@ def train():
     print("=" * 60)
     print()
 
+    # The following lines related to OCSVM filtering and `generated_data`
+    # are typically applied *after* data generation, not during training.
+    # Placing them here would result in a NameError as `generated_data`
+    # is not defined at this stage of the `train()` function.
+    # If this logic is intended for `sample_only.py` or after model.train(),
+    # please adjust the placement accordingly.
+    #
+    # # 4.5. 🛡️ NEW: OCSVM Filtering (C-TimeGAN+)
+    # # Filter out noisy samples that don't match the real data manifold
+    # generated_data = apply_ocsvm_filtering(np.stack(targets), generated_data, opt.data_name)
+    
     # LOAD DATA
     # C-TimeGAN REDESIGN: load_data returns (targets, conditions)
     targets, conditions = load_data(opt)
@@ -74,31 +85,9 @@ def train():
     # TRAIN MODEL
     model.train()
     
-    # Post-training sampling is now handled by sample_only.py 
-    # to inclusion OCSVM filtering. Use run_all_timegan.sh to trigger both.
-    print(f"Training of {opt.data_name} completed.")
-    
-    # Define save paths
-    output_dir = os.path.join(opt.outf, opt.name)
-    npy_path = os.path.join(output_dir, f'timegan_fake_{opt.data_name}.npy')
-    csv_path = os.path.join(output_dir, f'timegan_fake_{opt.data_name}.csv')
-    
-    # 1. Save as .npy (Same format as diffusion model)
-    np.save(npy_path, generated_array)
-    print(f"NPY saved: {npy_path} (Shape: {generated_array.shape})")
-    
-    # 2. Save as .csv (Flattened for easy viewing)
-    # Handle potentially multi-dimensional data by flattening or taking power column
-    if actual_dim == 1:
-        # Just power
-        df = pd.DataFrame(generated_array.reshape(-1, 1), columns=['power'])
-    else:
-        # Full 9 dimensions
-        cols = ['power'] + [f'time_feat_{i}' for i in range(actual_dim-1)]
-        df = pd.DataFrame(generated_array.reshape(-1, actual_dim), columns=cols)
-        
-    df.to_csv(csv_path, index=False)
-    print(f"CSV saved: {csv_path}")
+    print(f"✅ Training of {opt.data_name} completed.")
+    print(f"📂 Weights saved in: {os.path.join(opt.outf, opt.name, 'train', 'weights')}")
+    print(f"💡 You can now run sample_only.py or run_all_timegan.sh to generate data.")
 
 if __name__ == '__main__':
     train()

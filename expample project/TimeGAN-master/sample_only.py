@@ -71,7 +71,7 @@ def sample():
     
     # 4.5. 🛡️ NEW: OCSVM Filtering (C-TimeGAN+)
     # Filter out noisy samples that don't match the real data manifold
-    generated_data = apply_ocsvm_filtering(np.stack(ori_data), generated_data, opt.data_name)
+    generated_data = apply_ocsvm_filtering(np.stack(targets), generated_data, opt.data_name)
     
     # 5. 保存结果
     output_dir = os.path.join(opt.outf, opt.name)
