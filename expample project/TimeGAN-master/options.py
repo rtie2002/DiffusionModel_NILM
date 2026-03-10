@@ -25,18 +25,18 @@ class Options():
         # original
         self.parser.add_argument(
             '--data_name',
-            choices=['sine', 'stock', 'energy'],
-            default='stock',
+            choices=['kettle', 'fridge', 'dishwasher', 'microwave', 'washingmachine', 'sine'],
+            default='washingmachine',
             type=str)
         self.parser.add_argument(
             '--z_dim',
             help='z or data dimension',
-            default=6,
+            default=1,
             type=int)
         self.parser.add_argument(
             '--seq_len',
             help='sequence length',
-            default=24,
+            default=100,
             type=int)
         self.parser.add_argument(
             '--module',
@@ -61,7 +61,7 @@ class Options():
         self.parser.add_argument(
             '--batch_size',
             help='the number of samples in mini-batch (should be optimized)',
-            default=128,
+            default=512,
             type=int)
         self.parser.add_argument(
             '--metric_iteration',

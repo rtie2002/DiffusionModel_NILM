@@ -80,24 +80,35 @@ def sine_data_generation (no, seq_len, dim):
     
 
 def real_data_loading (data_name, seq_len):
-  """Load and preprocess real-world datasets.
+  """Load and preprocess real-world datasets for NILM appliances.
   
   Args:
-    - data_name: stock or energy
+    - data_name: kettle, fridge, dishwasher, microwave, or washingmachine
     - seq_len: sequence length
     
   Returns:
     - data: preprocessed data.
   """  
-  assert data_name in ['stock','energy']
+  import os
+  file_path = os.path.join(dirname(dirname(abspath(__file__))), 'data', f'{data_name}.csv')
   
-  if data_name == 'stock':
-    ori_data = np.loadtxt(dirname(dirname(abspath(__file__))) + '/data/stock_data.csv', delimiter = ",",skiprows = 1)
-  elif data_name == 'energy':
-    ori_data = np.loadtxt(dirname(dirname(abspath(__file__))) + '/data/energy_data.csv', delimiter = ",",skiprows = 1)
+  if not os.path.exists(file_path):
+    raise FileNotFoundError(f"Missing data file for {data_name} at {file_path}")
+
+  # Load data from CSV (assuming power is in the last column or only column)
+  # NILM datasets usually have a header
+  ori_data = np.loadtxt(file_path, delimiter=",", skiprows=1)
+  
+  # NEW: Skip the first column (aggregated power) and use columns 1 to 9
+  # Columns: [0: Aggregated, 1: Appliance Power, 2-9: Time Features]
+  if ori_data.shape[1] > 1:
+      print(f"Original columns: {ori_data.shape[1]}. Selecting columns 1 to end (Appliance + Time Features)...")
+      ori_data = ori_data[:, 1:] 
+  
+  # Ensure 2D shape [samples, features]
+  if len(ori_data.shape) == 1:
+    ori_data = ori_data.reshape(-1, 1)
         
-  # Flip the data to make chronological data
-  ori_data = ori_data[::-1]
   # Normalize the data
   ori_data = MinMaxScaler(ori_data)
     
@@ -119,12 +130,16 @@ def real_data_loading (data_name, seq_len):
 
 def load_data(opt):
   ## Data loading
-  if opt.data_name in ['stock', 'energy']:
-    ori_data = real_data_loading(opt.data_name, opt.seq_len)  # list: 3661; [24,6]
+  if opt.data_name in ['kettle', 'fridge', 'dishwasher', 'microwave', 'washingmachine']:
+    print(f'Loading {opt.data_name} dataset...')
+    ori_data = real_data_loading(opt.data_name, opt.seq_len)
   elif opt.data_name == 'sine':
     # Set number of samples and its dimensions
     no, dim = 10000, 5
     ori_data = sine_data_generation(no, opt.seq_len, dim)
+  else:
+    raise ValueError(f"Unknown dataset: {opt.data_name}")
+    
   print(opt.data_name + ' dataset is ready.')
 
   return ori_data
