@@ -226,24 +226,38 @@ class BaseModel():
     print(metric_results)
 """
 
-  def generation(self, num_samples, mean = 0.0, std = 1.0):
+  def generation(self, num_samples):
     if num_samples == 0:
-      return None, None
+      return None
     ## Synthetic data generation
-    self.X0, self.T = batch_generator(self.ori_data, self.ori_time, self.opt.batch_size)
-    self.Z = random_generator(num_samples, self.opt.z_dim, self.T, self.max_seq_len, mean, std)
+    # Get a batch of time sequences for sampling
+    _, T_samples = batch_generator(self.ori_data, self.ori_time, min(num_samples, len(self.ori_data)))
+    # Match T length to num_samples
+    T_gen = (T_samples * (num_samples // len(T_samples) + 1))[:num_samples]
+
+    self.Z = random_generator(num_samples, self.opt.z_dim, T_gen, self.max_seq_len)
     self.Z = torch.tensor(self.Z, dtype=torch.float32).to(self.device)
-    self.E_hat = self.netg(self.Z)    # [?, 24, 24]
-    self.H_hat = self.nets(self.E_hat)  # [?, 24, 24]
-    generated_data_curr = self.netr(self.H_hat).cpu().detach().numpy()  # [?, 24, 24]
+    
+    # Set to eval mode for safe generation
+    self.netg.eval()
+    self.nets.eval()
+    self.netr.eval()
+    
+    with torch.no_grad():
+      self.E_hat = self.netg(self.Z)
+      self.H_hat = self.nets(self.E_hat)
+      generated_data_curr = self.netr(self.H_hat).cpu().detach().numpy()
 
     generated_data = list()
     for i in range(num_samples):
-      temp = generated_data_curr[i, :self.ori_time[i], :]
+      temp = generated_data_curr[i, :T_gen[i], :]
       generated_data.append(temp)
     
+    # CRITICAL: Convert list to numpy array for vector math
+    generated_data = np.array(generated_data)
+    
     # Renormalization
-    generated_data = generated_data * self.max_val
+    generated_data = generated_data * (self.max_val + 1e-7)
     generated_data = generated_data + self.min_val
     return generated_data
 
