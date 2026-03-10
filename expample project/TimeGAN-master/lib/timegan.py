@@ -165,31 +165,34 @@ class BaseModel():
     """ Train the model
     """
 
-    for iter in range(self.opt.iteration):
-      # Train for one iter
+    from tqdm import tqdm
+    
+    # 1. Encoder training
+    pbar_er = tqdm(range(self.opt.iteration), desc='Encoder training')
+    for iter in pbar_er:
       self.train_one_iter_er()
+      # Extract loss for display
+      pbar_er.set_postfix({'loss': f'{self.err_er.item():.4f}'})
 
-      print('Encoder training step: '+ str(iter) + '/' + str(self.opt.iteration))
-
-    for iter in range(self.opt.iteration):
-      # Train for one iter
+    # 2. Supervisor training
+    pbar_s = tqdm(range(self.opt.iteration), desc='Supervisor training')
+    for iter in pbar_s:
       self.train_one_iter_s()
+      pbar_s.set_postfix({'loss': f'{self.err_s.item():.4f}'})
 
-      print('Superviser training step: '+ str(iter) + '/' + str(self.opt.iteration))
-
-    for iter in range(self.opt.iteration):
-      # Train for one iter
+    # 3. Joint training (Generator/Discriminator)
+    pbar_j = tqdm(range(self.opt.iteration), desc='Joint training')
+    for iter in pbar_j:
       for kk in range(2):
         self.train_one_iter_g()
         self.train_one_iter_er_()
 
       self.train_one_iter_d()
-
-      print('Superviser training step: '+ str(iter) + '/' + str(self.opt.iteration))
+      pbar_j.set_postfix({'G_loss': f'{self.err_g.item():.4f}'})
 
     self.save_weights(self.opt.iteration)
     self.generated_data = self.generation(self.opt.batch_size)
-    print('Finish Synthetic Data Generation')
+    print('\nFinish Synthetic Data Generation')
 
   #  self.evaluation()
 

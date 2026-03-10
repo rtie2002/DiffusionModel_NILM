@@ -41,9 +41,23 @@ from lib.timegan import TimeGAN
 def train():
     """ Training
     """
+    import torch
 
     # ARGUMENTS
     opt = Options().parse()
+
+    # --- DEVICE INFORMATION ---
+    print("=" * 60)
+    print("DEVICE INFORMATION")
+    print("=" * 60)
+    if torch.cuda.is_available():
+        print(f"✓ Using device: CUDA (GPU)")
+        print(f"  GPU Name: {torch.cuda.get_device_name(0)}")
+        print(f"  GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB")
+    else:
+        print(f"⚠ Using device: CPU (No GPU detected or CUDA disabled)")
+    print("=" * 60)
+    print()
 
     # LOAD DATA
     ori_data = load_data(opt)
