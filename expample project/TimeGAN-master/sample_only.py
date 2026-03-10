@@ -31,20 +31,27 @@ def sample():
     generated_data = model.generation(num_samples)
     
     # 5. 保存结果
-    generated_array = np.array(generated_data)
     output_dir = os.path.join(opt.outf, opt.name)
     npy_path = os.path.join(output_dir, f'timegan_fake_{opt.data_name}.npy')
-    csv_path = os.path.join(output_dir, f'timegan_fake_{opt.data_name}.csv')
+    csv_path = os.path.join(output_dir, f'timegan_fake_{opt.data_name}_snippet.csv')
     
+    # ⚡ CRITICAL: Save NPY first (Fast and Memory Efficient)
+    print(f"📁 Saving full NPY file: {npy_path}...")
     np.save(npy_path, generated_array)
-    
+    print("✅ NPY saved successfully.")
+
+    # ⚡ OPTIMIZATION: Only save a snippet to CSV (Preventing pandas RAM crash)
+    print(f"📊 Saving a 10,000 sample snippet to CSV for preview...")
+    # Take first 10,000 samples to keep CSV size manageable
+    snippet_array = generated_array[:10000]
     if actual_dim == 1:
-        df = pd.DataFrame(generated_array.reshape(-1, 1), columns=['power'])
+        df = pd.DataFrame(snippet_array.reshape(-1, 1), columns=['power'])
     else:
         cols = ['power'] + [f'time_feat_{i}' for i in range(actual_dim-1)]
-        df = pd.DataFrame(generated_array.reshape(-1, actual_dim), columns=cols)
+        df = pd.DataFrame(snippet_array.reshape(-1, actual_dim), columns=cols)
     
     df.to_csv(csv_path, index=False)
+    print(f"✅ CSV Snippet saved: {csv_path}")
     
     print("=" * 60)
     print(f"✨ SUCCESS! Data saved to:")
