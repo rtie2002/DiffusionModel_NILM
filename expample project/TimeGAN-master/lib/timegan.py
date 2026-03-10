@@ -164,14 +164,12 @@ class BaseModel():
   def train(self):
     """ Train the model
     """
-
     from tqdm import tqdm
     
     # 1. Encoder training
     pbar_er = tqdm(range(self.opt.iteration), desc='Encoder training')
     for iter in pbar_er:
       self.train_one_iter_er()
-      # Extract loss for display
       pbar_er.set_postfix({'loss': f'{self.err_er.item():.4f}'})
 
     # 2. Supervisor training
@@ -229,37 +227,51 @@ class BaseModel():
   def generation(self, num_samples):
     if num_samples == 0:
       return None
-    ## Synthetic data generation
-    # Get a batch of time sequences for sampling
-    _, T_samples = batch_generator(self.ori_data, self.ori_time, min(num_samples, len(self.ori_data)))
-    # Match T length to num_samples
-    T_gen = (T_samples * (num_samples // len(T_samples) + 1))[:num_samples]
-
-    self.Z = random_generator(num_samples, self.opt.z_dim, T_gen, self.max_seq_len)
-    self.Z = torch.tensor(self.Z, dtype=torch.float32).to(self.device)
     
-    # Set to eval mode for safe generation
+    # --- NEW: BATCH-WISE GENERATION TO PREVENT FREEZE AND cuDNN ERRORS ---
+    batch_size = self.opt.batch_size
+    all_generated_data = []
+    
+    # Set to eval mode
     self.netg.eval()
     self.nets.eval()
     self.netr.eval()
     
-    with torch.no_grad():
-      self.E_hat = self.netg(self.Z)
-      self.H_hat = self.nets(self.E_hat)
-      generated_data_curr = self.netr(self.H_hat).cpu().detach().numpy()
+    iterations = (num_samples // batch_size) + (1 if num_samples % batch_size != 0 else 0)
+    print(f"Sampling in {iterations} batches...")
 
-    generated_data = list()
-    for i in range(num_samples):
-      temp = generated_data_curr[i, :T_gen[i], :]
-      generated_data.append(temp)
+    from tqdm import tqdm
+    for i in tqdm(range(iterations), desc="Generating Data"):
+        curr_batch_size = batch_size if i < iterations - 1 else num_samples - i * batch_size
+        if curr_batch_size <= 0: break
+
+        # 1. Get time info for this batch from the original dataset's distribution
+        _, T_samples = batch_generator(self.ori_data, self.ori_time, curr_batch_size)
+        
+        # 2. Generate noise
+        Z = random_generator(curr_batch_size, self.opt.z_dim, T_samples, self.max_seq_len)
+        
+        # ⚡ FIX: Convert to contiguous numpy array first, then to tensor, then .contiguous()
+        # This solves the CUDNN_STATUS_NOT_SUPPORTED error on RTX 4090
+        Z_np = np.stack(Z).astype(np.float32)
+        Z_tensor = torch.from_numpy(Z_np).to(self.device).contiguous()
+        
+        # 3. Predict
+        with torch.no_grad():
+            E_hat = self.netg(Z_tensor)
+            H_hat = self.nets(E_hat)
+            generated_data_curr = self.netr(H_hat).cpu().numpy()
+
+        # 4. Post-process and collect
+        for j in range(curr_batch_size):
+            temp = generated_data_curr[j, :T_samples[j], :]
+            # Apply Min-Max Renormalization
+            temp = temp * (self.max_val + 1e-7)
+            temp = temp + self.min_val
+            all_generated_data.append(temp)
     
-    # CRITICAL: Convert list to numpy array for vector math
-    generated_data = np.array(generated_data)
-    
-    # Renormalization
-    generated_data = generated_data * (self.max_val + 1e-7)
-    generated_data = generated_data + self.min_val
-    return generated_data
+    print("Finalizing Array mapping...")
+    return np.array(all_generated_data)
 
 
 
