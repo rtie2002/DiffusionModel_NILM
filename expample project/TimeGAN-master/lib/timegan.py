@@ -268,10 +268,25 @@ class BaseModel():
             # Apply Min-Max Renormalization
             temp = temp * (self.max_val + 1e-7)
             temp = temp + self.min_val
+            # --- OPTIMIZED FINALIZATION: PRE-ALLOCATE MEMORY ---
             all_generated_data.append(temp)
     
-    print("Finalizing Array mapping...")
-    return np.array(all_generated_data)
+    print(f"Finalizing Array mapping (Pre-allocating {num_samples} samples)...")
+    # Instead of np.array(list), we pre-allocate the target array
+    # This avoids the 2x memory spike that causes the freeze
+    out_array = np.empty((num_samples, self.max_seq_len, self.opt.z_dim), dtype=np.float32)
+    
+    for i in tqdm(range(num_samples), desc="Assembling Final Array"):
+        # Fill only the actual sequence length, reset of window is zeroed
+        seq_len = len(all_generated_data[i])
+        out_array[i, :seq_len, :] = all_generated_data[i]
+        
+    # Clear the list from memory immediately
+    del all_generated_data
+    import gc
+    gc.collect()
+
+    return out_array
 
 
 
