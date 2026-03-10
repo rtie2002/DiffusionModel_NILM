@@ -1,10 +1,10 @@
 # 定义电器列表
 appliances=(
+    "washingmachine_training_"
     "kettle_training_"
     "fridge_training_"
     "dishwasher_training_"
     "microwave_training_"
-    "washingmachine_training_"
 )
 
 # 确保输出目录存在
