@@ -130,7 +130,7 @@ def real_data_loading (data_name, seq_len):
 
 def load_data(opt):
   ## Data loading
-  if opt.data_name in ['kettle', 'fridge', 'dishwasher', 'microwave', 'washingmachine']:
+  if opt.data_name in ['kettle_training_', 'fridge_training_', 'dishwasher_training_', 'microwave_training_', 'washingmachine_training_']:
     print(f'Loading {opt.data_name} dataset...')
     ori_data = real_data_loading(opt.data_name, opt.seq_len)
   elif opt.data_name == 'sine':
