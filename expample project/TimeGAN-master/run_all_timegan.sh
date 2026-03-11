@@ -1,10 +1,10 @@
 # 定义电器列表
 appliances=(
+    "washingmachine_multivariate"
     "kettle_multivariate"
     "fridge_multivariate"
     "dishwasher_multivariate"
     "microwave_multivariate"
-    "washingmachine_multivariate"
 )
 
 # 确保输出目录存在

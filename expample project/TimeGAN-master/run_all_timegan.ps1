@@ -1,9 +1,9 @@
 $appliances = @(
+    "washingmachine_multivariate",
     "kettle_multivariate",
     "fridge_multivariate",
     "dishwasher_multivariate",
-    "microwave_multivariate",
-    "washingmachine_multivariate"
+    "microwave_multivariate"
 )
 
 foreach ($app in $appliances) {
