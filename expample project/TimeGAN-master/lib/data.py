@@ -82,10 +82,23 @@ def sine_data_generation (no, seq_len, dim):
 def real_data_loading (data_name, seq_len):
   """Load and preprocess real-world datasets, extracting Aggregate as a Condition."""
   import os
-  file_path = os.path.join(dirname(dirname(abspath(__file__))), 'data', f'{data_name}.csv')
+  # Try different relative paths to reliably find the data
+  possible_paths = [
+      os.path.join(dirname(dirname(abspath(__file__))), 'data', f'{data_name}.csv'),
+      os.path.join(dirname(dirname(dirname(abspath(__file__)))), 'Data', 'datasets', f'{data_name}.csv'),
+      f'/home/raymond/projects/DiffusionModel_NILM/Data/datasets/{data_name}.csv',
+      f'C:/Users/Raymond Tie/Desktop/DiffusionModel_NILM/Data/datasets/{data_name}.csv',
+  ]
   
-  if not os.path.exists(file_path):
-    raise FileNotFoundError(f"Missing data file for {data_name} at {file_path}")
+  file_path = None
+  for p in possible_paths:
+      if os.path.exists(p):
+          file_path = p
+          break
+
+  if file_path is None:
+    raise FileNotFoundError(f"Missing data file for {data_name}. Tried: {possible_paths}")
+
 
   ori_data = np.loadtxt(file_path, delimiter=",", skiprows=1)
   

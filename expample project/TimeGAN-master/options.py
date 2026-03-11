@@ -25,7 +25,6 @@ class Options():
         # original
         self.parser.add_argument(
             '--data_name',
-            choices=['kettle_training_', 'fridge_training_', 'dishwasher_training_', 'microwave_training_', 'washingmachine_training_', 'sine'],
             default='washingmachine_training_',
             type=str)
         self.parser.add_argument(
