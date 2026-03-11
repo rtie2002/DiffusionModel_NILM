@@ -130,12 +130,15 @@ def real_data_loading (data_name, seq_len):
 
 def load_data(opt):
   ## Data loading
-  if opt.data_name in ['kettle_training_', 'fridge_training_', 'dishwasher_training_', 'microwave_training_', 'washingmachine_training_']:
+  if opt.data_name == 'sine':
+    # If you ever want to add sine back
+    from .data import sine_data_generation
+    return sine_data_generation(opt.num_samples, opt.seq_len, opt.z_dim), None
+  else:
     print(f'Loading {opt.data_name} dataset with Conditions...')
     targets, conditions = real_data_loading(opt.data_name, opt.seq_len)
     return targets, conditions
-  else:
-    raise ValueError(f"Unknown dataset: {opt.data_name}")
+
 
 
 def batch_generator(data, conditions, batch_size):
