@@ -210,7 +210,9 @@ def sample():
     generated_data = apply_ocsvm_filtering(np.stack(targets), generated_data, opt.data_name)
     
     # 7. ON-Period Texture Injection
-    generated_data = inject_on_period_texture(generated_data, np.stack(targets))
+    # ⚠️ DISABLED: User requested the model to learn texture natively during training.
+    # generated_data = inject_on_period_texture(generated_data, np.stack(targets))
+
 
     # ─────────────────────────────────────────────────────────────────────────
     # 8. ⚡ INVERSE NORMALIZATION to match Diffusion Model output format

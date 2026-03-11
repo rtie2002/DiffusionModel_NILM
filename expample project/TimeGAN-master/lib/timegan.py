@@ -251,33 +251,39 @@ class TimeGAN(BaseModel):
       self.err_er.backward(retain_graph=True)
 
     def backward_g(self):
-      # Adversarial
+      # Adversarial (This is what actually learns the realistic shape!)
       self.err_g_U = self.l_bce(self.Y_fake, torch.ones_like(self.Y_fake))
       self.err_g_U_e = self.l_bce(self.Y_fake_e, torch.ones_like(self.Y_fake_e))
       
-      # Moments
-      self.err_g_V1 = torch.mean(torch.abs(torch.sqrt(torch.std(self.X_hat,[0])[1] + 1e-6) - torch.sqrt(torch.std(self.X,[0])[1] + 1e-6)))   
+      # Moments (V1 = Variance/Texture, V2 = Mean/Energy)
+      # We INCREASE the weight on V1 to force it to learn the fluctuations (std dev)!
+      real_std = torch.sqrt(torch.std(self.X,[0])[1] + 1e-6)
+      fake_std = torch.sqrt(torch.std(self.X_hat,[0])[1] + 1e-6)
+      self.err_g_V1 = torch.mean(torch.abs(fake_std - real_std))   
       self.err_g_V2 = torch.mean(torch.abs((torch.mean(self.X_hat,[0])[0]) - (torch.mean(self.X,[0])[0])))  
       
-      # Difference loss (Sharp Transitions)
+      # Difference/Texture Loss: Instead of rigid MSE which smooths things out,
+      # we force the VARIANCE (roughness) of the fake signal's steps to match the real signal's steps.
       diff_real = self.X[:, 1:, 0] - self.X[:, :-1, 0]
       diff_fake = self.X_hat[:, 1:, 0] - self.X_hat[:, :-1, 0]
-      self.err_g_diff = self.l_mse(diff_fake, diff_real)
-
-      # TV Reg
-      self.err_g_tv = torch.mean(torch.abs(self.X_hat[:, 1:, 0] - self.X_hat[:, :-1, 0]))
+      
+      # Match the "amount of jitter" (std of diff) rather than the exact exact placement
+      texture_real = torch.std(diff_real, dim=1)
+      texture_fake = torch.std(diff_fake, dim=1)
+      self.err_g_texture = torch.mean(torch.abs(texture_fake - texture_real))
 
       # Supervisor
       self.err_s = self.l_mse(self.H_supervise[:,:-1,:], self.H[:,1:,:])
       
       # Total G Loss
-      self.err_g = self.err_g_U + \
+      # ⚠️ REMOVED err_g_tv completely because it forces flat blocks!
+      # ⚠️ INCREASED Adversarial & Texture weight to encourage high-frequency learning
+      self.err_g = self.err_g_U * 2.0 + \
                    self.err_g_U_e * self.opt.w_gamma + \
-                   self.err_g_V1 * self.opt.w_g + \
+                   self.err_g_V1 * (self.opt.w_g * 5.0) + \
                    self.err_g_V2 * self.opt.w_g + \
-                   15.0 * torch.sqrt(self.err_s) + \
-                   10.0 * self.err_g_diff + \
-                   0.1 * self.err_g_tv 
+                   10.0 * torch.sqrt(self.err_s) + \
+                   5.0 * self.err_g_texture
                    
       self.err_g.backward(retain_graph=True)
 
