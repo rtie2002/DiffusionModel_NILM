@@ -58,7 +58,7 @@ class Encoder(nn.Module):
     def __init__(self, opt):
         super(Encoder, self).__init__()
         # input_size = target_dim + condition_dim (1)
-        self.rnn = nn.GRU(input_size=opt.z_dim + 1, hidden_size=opt.hidden_dim, num_layers=opt.num_layers)
+        self.rnn = nn.GRU(input_size=opt.z_dim + 1, hidden_size=opt.hidden_dim, num_layers=opt.num_layers, dropout=0.1)
         self.fc = nn.Linear(opt.hidden_dim, opt.hidden_dim)
         self.sigmoid = nn.Sigmoid()
         self.apply(_weights_init)
@@ -85,7 +85,7 @@ class Recovery(nn.Module):
     """
     def __init__(self, opt):
         super(Recovery, self).__init__()
-        self.rnn = nn.GRU(input_size=opt.hidden_dim, hidden_size=opt.z_dim, num_layers=opt.num_layers)
+        self.rnn = nn.GRU(input_size=opt.hidden_dim, hidden_size=opt.z_dim, num_layers=opt.num_layers, dropout=0.1)
         
       #  self.norm = nn.BatchNorm1d(opt.z_dim)
         self.fc = nn.Linear(opt.z_dim, opt.z_dim)
@@ -113,7 +113,7 @@ class Generator(nn.Module):
     def __init__(self, opt):
         super(Generator, self).__init__()
         # input_size = noise_dim + condition_dim (1)
-        self.rnn = nn.GRU(input_size=opt.z_dim + 1, hidden_size=opt.hidden_dim, num_layers=opt.num_layers)
+        self.rnn = nn.GRU(input_size=opt.z_dim + 1, hidden_size=opt.hidden_dim, num_layers=opt.num_layers, dropout=0.1)
         self.fc = nn.Linear(opt.hidden_dim, opt.hidden_dim)
         self.sigmoid = nn.Sigmoid()
         self.apply(_weights_init)
@@ -140,7 +140,7 @@ class Supervisor(nn.Module):
     """
     def __init__(self, opt):
         super(Supervisor, self).__init__()
-        self.rnn = nn.GRU(input_size=opt.hidden_dim, hidden_size=opt.hidden_dim, num_layers=opt.num_layers)
+        self.rnn = nn.GRU(input_size=opt.hidden_dim, hidden_size=opt.hidden_dim, num_layers=opt.num_layers, dropout=0.1)
       #  self.norm = nn.LayerNorm(opt.hidden_dim)
         self.fc = nn.Linear(opt.hidden_dim, opt.hidden_dim)
         self.sigmoid = nn.Sigmoid()
@@ -168,7 +168,7 @@ class Discriminator(nn.Module):
     def __init__(self, opt):
         super(Discriminator, self).__init__()
         # input_size = hidden_dim + condition_dim (1)
-        self.rnn = nn.GRU(input_size=opt.hidden_dim + 1, hidden_size=opt.hidden_dim, num_layers=opt.num_layers)
+        self.rnn = nn.GRU(input_size=opt.hidden_dim + 1, hidden_size=opt.hidden_dim, num_layers=opt.num_layers, dropout=0.1)
         self.fc = nn.Linear(opt.hidden_dim, opt.hidden_dim)
         self.sigmoid = nn.Sigmoid()
         self.apply(_weights_init)
