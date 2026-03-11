@@ -138,18 +138,44 @@ def apply_ocsvm_filtering(ori_data, generated_data, data_name):
     X_train = ori_data.reshape(n_ori, -1)
     X_test = generated_data.reshape(n_gen, -1)
     
-    # Train OCSVM on Real Data
+    # ⚡ OCSVM on 1 Million samples has O(N^3) time complexity and will freeze the computer forever.
+    # FIX: We randomly subsample a maximum of 10,000 points to train the SVM boundary. 
+    # This takes seconds instead of days, and 10k is plenty to define the real data manifold.
+    max_train_samples = min(10000, n_ori)
+    np.random.seed(42)  # For reproducibility
+    demo_indices = np.random.choice(n_ori, max_train_samples, replace=False)
+    X_train_sub = X_train[demo_indices]
+    
+    print(f"   -> Training OCSVM boundary on {max_train_samples} real samples...")
     # kernel='rbf', nu=0.01 (defines the expected outlier ratio in real data)
-    clf = OneClassSVM(gamma='auto', nu=0.01).fit(X_train)
+    clf = OneClassSVM(gamma='auto', nu=0.01).fit(X_train_sub)
     
-    # Predict on Synthetic Data
+    # Predict on Synthetic Data (Batched to prevent RAM spikes)
+    print(f"   -> Predicting anomalies in {n_gen} synthetic samples...")
+    batch_size = 50000
+    preds = []
+    
+    try:
+        from tqdm import tqdm
+        pbar = tqdm(total=n_gen, desc="OCSVM Predict")
+    except ImportError:
+        pbar = None
+        
+    for i in range(0, n_gen, batch_size):
+        end_idx = min(i + batch_size, n_gen)
+        batch_preds = clf.predict(X_test[i:end_idx])
+        preds.append(batch_preds)
+        if pbar: pbar.update(end_idx - i)
+        
+    if pbar: pbar.close()
+    
+    preds = np.concatenate(preds)
+    
     # 1 for inlier (realistic), -1 for outlier (anomalous)
-    preds = clf.predict(X_test)
-    
     realistic_idx = np.where(preds == 1)[0]
     unrealistic_count = len(preds) - len(realistic_idx)
     
-    print(f"✅ OCSVM Filtered out {unrealistic_count} anomalies ({unrealistic_count/n_gen:.1%} of data).")
+    print(f"✅ OCSVM Filtered out {unrealistic_count} anomalies ({(unrealistic_count/n_gen)*100:.1f}% of data).")
     
     return generated_data[realistic_idx]
 
@@ -207,7 +233,8 @@ def sample():
     generated_data = model.generation(num_samples)   # [N, seq_len, 9], values in [0,1]
 
     # 6. OCSVM Filtering
-    generated_data = apply_ocsvm_filtering(np.stack(targets), generated_data, opt.data_name)
+    # ⚠️ DISABLED: User requested to turn off anomaly detection.
+    # generated_data = apply_ocsvm_filtering(np.stack(targets), generated_data, opt.data_name)
     
     # 7. ON-Period Texture Injection
     # ⚠️ DISABLED: User requested the model to learn texture natively during training.
