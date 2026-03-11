@@ -1,9 +1,9 @@
 $appliances = @(
-    "kettle_training_",
-    "fridge_training_",
-    "dishwasher_training_",
-    "microwave_training_",
-    "washingmachine_training_"
+    "kettle_multivariate",
+    "fridge_multivariate",
+    "dishwasher_multivariate",
+    "microwave_multivariate",
+    "washingmachine_multivariate"
 )
 
 foreach ($app in $appliances) {
@@ -18,7 +18,7 @@ foreach ($app in $appliances) {
     if ($LASTEXITCODE -eq 0) {
         Write-Host "✅ Training Finished: $app" -ForegroundColor Green
         
-        # ⚡ Step 2: Sampling (with OCSVM Filtering)
+        # ⚡ Step 2: Sampling (Matching 60 length)
         Write-Host "🧪 Phase 2: Generating Synthetic Data (OCSVM Filtering)..."
         python sample_only.py --data_name $app --seq_len 60
         

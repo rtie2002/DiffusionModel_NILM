@@ -1,10 +1,10 @@
 # 定义电器列表
 appliances=(
-    "washingmachine_training_"
-    "kettle_training_"
-    "fridge_training_"
-    "dishwasher_training_"
-    "microwave_training_"
+    "kettle_multivariate"
+    "fridge_multivariate"
+    "dishwasher_multivariate"
+    "microwave_multivariate"
+    "washingmachine_multivariate"
 )
 
 # 确保输出目录存在
@@ -23,7 +23,7 @@ do
     if [ $? -eq 0 ]; then
         echo -e "\033[0;32m✅ Training Finished: $app\033[0m"
         
-        # ⚡ 步骤 2: 采样 (运行 C-TimeGAN+ 后处理和 OCSVM 过滤)
+        # ⚡ 步骤 2: 采样 (采用 60 窗口大小)
         echo "🧪 Phase 2: Generating Synthetic Data (with OCSVM Filtering)..."
         python sample_only.py --data_name "$app" --seq_len 60
         
