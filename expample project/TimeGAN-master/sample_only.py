@@ -87,7 +87,6 @@ def inject_on_period_texture(generated_data, real_targets, on_threshold=0.05, no
 
 def concat_to_target_length(data, target_len=512):
     """
-    Concatenate consecutive short windows [N, 256, D] into
     long sequences [M, 512, D] to match Diffusion Model format.
 
     Strategy:
@@ -238,9 +237,9 @@ def sample():
 
     # ─────────────────────────────────────────────────────────────────────────
     # 8.5 ⚡ RESHAPE to match Diffusion Model window size [N, 512, 9]
-    #   TimeGAN  : [N, 256, 9]  ← seq_len 256
+    #   TimeGAN  : [N, 60, 9]  ← seq_len 60
     #   Diffusion: [M, 512, 9]  ← window  512
-    #   Strategy : stitch 2 consecutive 256-step windows → trim to 512
+    #   Strategy : stitch 9 consecutive 60-step windows → trim to 512
     # ─────────────────────────────────────────────────────────────────────────
     DIFFUSION_WINDOW = 512
     final_data = concat_to_target_length(final_data, target_len=DIFFUSION_WINDOW)

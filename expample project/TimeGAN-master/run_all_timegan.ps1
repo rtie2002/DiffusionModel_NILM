@@ -13,14 +13,14 @@ foreach ($app in $appliances) {
     
     # ⚡ Step 1: Training (Using 256 window and 10,000 iterations for rapid results)
     Write-Host "🏗️ Phase 1: Training..."
-    python train.py --data_name $app --seq_len 256 --batch_size 128 --iteration 10000
+    python train.py --data_name $app --seq_len 60 --batch_size 128 --iteration 10000
     
     if ($LASTEXITCODE -eq 0) {
         Write-Host "✅ Training Finished: $app" -ForegroundColor Green
         
-        # ⚡ Step 2: Sampling (Matching 256 length)
+        # ⚡ Step 2: Sampling (Matching 60 length)
         Write-Host "🧪 Phase 2: Generating Synthetic Data (OCSVM Filtering)..."
-        python sample_only.py --data_name $app --seq_len 256
+        python sample_only.py --data_name $app --seq_len 60
         
         if ($LASTEXITCODE -eq 0) {
             Write-Host "🎉 Successfully generated data for: $app" -ForegroundColor Green
