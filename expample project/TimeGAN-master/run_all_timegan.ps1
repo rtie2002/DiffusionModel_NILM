@@ -11,16 +11,16 @@ foreach ($app in $appliances) {
     Write-Host "🚀 STARTING C-TIMEGAN+ FOR: $app" -ForegroundColor Cyan
     Write-Host ("=" * 60) -ForegroundColor Cyan
     
-    # ⚡ Step 1: Training (Aligned with 2024 Paper)
+    # ⚡ Step 1: Training (Using 512 window and 20,000 iterations for RTX 4090)
     Write-Host "🏗️ Phase 1: Training..."
-    python train.py --data_name $app --seq_len 60 --batch_size 128 --iteration 50000
+    python train.py --data_name $app --seq_len 512 --batch_size 128 --iteration 20000
     
     if ($LASTEXITCODE -eq 0) {
         Write-Host "✅ Training Finished: $app" -ForegroundColor Green
         
-        # ⚡ Step 2: Sampling (Matching 60 length)
+        # ⚡ Step 2: Sampling (Matching 512 length)
         Write-Host "🧪 Phase 2: Generating Synthetic Data (OCSVM Filtering)..."
-        python sample_only.py --data_name $app --seq_len 60
+        python sample_only.py --data_name $app --seq_len 512
         
         if ($LASTEXITCODE -eq 0) {
             Write-Host "🎉 Successfully generated data for: $app" -ForegroundColor Green

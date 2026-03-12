@@ -116,8 +116,8 @@ class Generator(nn.Module):
     """
     def __init__(self, opt):
         super(Generator, self).__init__()
-        # input_size = noise_dim + condition_dim (1)
-        self.rnn = nn.GRU(input_size=opt.z_dim + 1, hidden_size=opt.hidden_dim, num_layers=opt.num_layers, dropout=0.1)
+        # input_size = latent_dim + condition_dim (1)
+        self.rnn = nn.GRU(input_size=opt.latent_dim + 1, hidden_size=opt.hidden_dim, num_layers=opt.num_layers, dropout=0.1)
         self.norm = nn.LayerNorm(opt.hidden_dim)
         self.fc = nn.Linear(opt.hidden_dim, opt.hidden_dim)
         self.sigmoid = nn.Sigmoid()

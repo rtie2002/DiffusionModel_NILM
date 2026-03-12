@@ -48,6 +48,14 @@ class BaseModel():
     self.data_num = len(self.ori_data)
     self.device = torch.device("cuda:0" if self.opt.device != 'cpu' else "cpu")
 
+    # Initialize loss attributes for stability/linting
+    self.err_g = None
+    self.err_d = None
+    self.err_g_tv = None
+    self.err_g_diversity = None
+    self.err_g_freq = None
+    self.err_g_texture = None
+
   def seed(self, seed_value):
     if seed_value == -1: return
     import random
@@ -95,7 +103,7 @@ class BaseModel():
     self.X0, self.T, self.C0 = batch_generator(self.ori_data, self.ori_conds, self.opt.batch_size)
     self.X = torch.tensor(np.stack(self.X0), dtype=torch.float32).to(self.device).contiguous()
     self.C = torch.tensor(np.stack(self.C0), dtype=torch.float32).to(self.device).contiguous()
-    self.Z = random_generator(self.opt.batch_size, self.opt.z_dim, self.T, self.max_seq_len)
+    self.Z = random_generator(self.opt.batch_size, self.opt.latent_dim, self.T, self.max_seq_len)
     self.optimize_params_g()
 
   def train_one_iter_d(self):
@@ -103,7 +111,7 @@ class BaseModel():
     self.X0, self.T, self.C0 = batch_generator(self.ori_data, self.ori_conds, self.opt.batch_size)
     self.X = torch.tensor(np.stack(self.X0), dtype=torch.float32).to(self.device).contiguous()
     self.C = torch.tensor(np.stack(self.C0), dtype=torch.float32).to(self.device).contiguous()
-    self.Z = random_generator(self.opt.batch_size, self.opt.z_dim, self.T, self.max_seq_len)
+    self.Z = random_generator(self.opt.batch_size, self.opt.latent_dim, self.T, self.max_seq_len)
     self.optimize_params_d()
 
 
@@ -151,7 +159,7 @@ class BaseModel():
         # Get real conditions (Aggregate) for context
         _, T_samples, C_mb = batch_generator(self.ori_data, self.ori_conds, curr_batch_size)
         
-        Z = random_generator(curr_batch_size, self.opt.z_dim, T_samples, self.opt.seq_len)
+        Z = random_generator(curr_batch_size, self.opt.latent_dim, T_samples, self.opt.seq_len)
         Z_tensor = torch.tensor(np.stack(Z), dtype=torch.float32).to(self.device).contiguous()
         C_tensor = torch.tensor(np.stack(C_mb), dtype=torch.float32).to(self.device).contiguous()
         

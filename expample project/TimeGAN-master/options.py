@@ -29,7 +29,12 @@ class Options():
             type=str)
         self.parser.add_argument(
             '--z_dim',
-            help='z or data dimension',
+            help='data/target dimension',
+            default=1,
+            type=int)
+        self.parser.add_argument(
+            '--latent_dim',
+            help='latent/noise dimension',
             default=100,
             type=int)
         self.parser.add_argument(
