@@ -59,8 +59,8 @@ class Encoder(nn.Module):
         """
     def __init__(self, opt):
         super(Encoder, self).__init__()
-        # input_size = target_dim + condition_dim 
-        self.rnn = nn.GRU(input_size=opt.z_dim + opt.cond_dim, hidden_size=opt.hidden_dim, num_layers=opt.num_layers, dropout=0.1)
+        # ⚡ CRITICAL FIX: Added batch_first=True to align with data dimensions [B, T, D]
+        self.rnn = nn.GRU(input_size=opt.z_dim + opt.cond_dim, hidden_size=opt.hidden_dim, num_layers=opt.num_layers, dropout=0.1, batch_first=True)
         self.norm = nn.LayerNorm(opt.hidden_dim)
         self.fc = nn.Linear(opt.hidden_dim, opt.hidden_dim)
         self.sigmoid = nn.Sigmoid()
@@ -89,7 +89,7 @@ class Recovery(nn.Module):
     """
     def __init__(self, opt):
         super(Recovery, self).__init__()
-        self.rnn = nn.GRU(input_size=opt.hidden_dim, hidden_size=opt.z_dim, num_layers=opt.num_layers, dropout=0.1)
+        self.rnn = nn.GRU(input_size=opt.hidden_dim, hidden_size=opt.z_dim, num_layers=opt.num_layers, dropout=0.1, batch_first=True)
         self.norm = nn.LayerNorm(opt.z_dim)
         self.fc = nn.Linear(opt.z_dim, opt.z_dim)
         self.sigmoid = nn.Sigmoid()
@@ -116,8 +116,8 @@ class Generator(nn.Module):
     """
     def __init__(self, opt):
         super(Generator, self).__init__()
-        # input_size = latent_dim + condition_dim 
-        self.rnn = nn.GRU(input_size=opt.latent_dim + opt.cond_dim, hidden_size=opt.hidden_dim, num_layers=opt.num_layers, dropout=0.1)
+        # ⚡ CRITICAL FIX: Added batch_first=True to align with data dimensions [B, T, D]
+        self.rnn = nn.GRU(input_size=opt.latent_dim + opt.cond_dim, hidden_size=opt.hidden_dim, num_layers=opt.num_layers, dropout=0.1, batch_first=True)
         self.norm = nn.LayerNorm(opt.hidden_dim)
         self.fc = nn.Linear(opt.hidden_dim, opt.hidden_dim)
         self.sigmoid = nn.Sigmoid()
@@ -146,7 +146,7 @@ class Supervisor(nn.Module):
     """
     def __init__(self, opt):
         super(Supervisor, self).__init__()
-        self.rnn = nn.GRU(input_size=opt.hidden_dim, hidden_size=opt.hidden_dim, num_layers=opt.num_layers, dropout=0.1)
+        self.rnn = nn.GRU(input_size=opt.hidden_dim, hidden_size=opt.hidden_dim, num_layers=opt.num_layers, dropout=0.1, batch_first=True)
         self.norm = nn.LayerNorm(opt.hidden_dim)
         self.fc = nn.Linear(opt.hidden_dim, opt.hidden_dim)
         self.sigmoid = nn.Sigmoid()
@@ -173,8 +173,8 @@ class Discriminator(nn.Module):
     """
     def __init__(self, opt):
         super(Discriminator, self).__init__()
-        # input_size = hidden_dim + condition_dim 
-        self.rnn = nn.GRU(input_size=opt.hidden_dim + opt.cond_dim, hidden_size=opt.hidden_dim, num_layers=opt.num_layers, dropout=0.1)
+        # ⚡ CRITICAL FIX: Added batch_first=True to align with data dimensions [B, T, D]
+        self.rnn = nn.GRU(input_size=opt.hidden_dim + opt.cond_dim, hidden_size=opt.hidden_dim, num_layers=opt.num_layers, dropout=0.1, batch_first=True)
         self.norm = nn.LayerNorm(opt.hidden_dim)
         # ⚡ SPECTRAL NORM: Stabilizes training. Applied once at init.
         self.fc = spectral_norm(nn.Linear(opt.hidden_dim, opt.hidden_dim))
