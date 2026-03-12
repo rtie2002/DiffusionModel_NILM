@@ -176,8 +176,8 @@ class Discriminator(nn.Module):
         # ⚡ CRITICAL FIX: Added batch_first=True to align with data dimensions [B, T, D]
         self.rnn = nn.GRU(input_size=opt.hidden_dim + opt.cond_dim, hidden_size=opt.hidden_dim, num_layers=opt.num_layers, dropout=0.1, batch_first=True)
         self.norm = nn.LayerNorm(opt.hidden_dim)
-        # ⚡ SPECTRAL NORM: Stabilizes training. Applied once at init.
-        self.fc = spectral_norm(nn.Linear(opt.hidden_dim, opt.hidden_dim))
+        # ⚡ CRITICAL FIX: Discriminator must output a single probability (1) per time step
+        self.fc = spectral_norm(nn.Linear(opt.hidden_dim, 1))
         self.sigmoid = nn.Sigmoid()
         self.apply(_weights_init)
 
