@@ -40,7 +40,7 @@ class Options():
         self.parser.add_argument(
             '--seq_len',
             help='sequence length',
-            default=256,
+            default=60,
             type=int)
         self.parser.add_argument(
             '--module',
