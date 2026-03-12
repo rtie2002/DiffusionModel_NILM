@@ -89,9 +89,12 @@ class Recovery(nn.Module):
     """
     def __init__(self, opt):
         super(Recovery, self).__init__()
-        self.rnn = nn.GRU(input_size=opt.hidden_dim, hidden_size=opt.z_dim, num_layers=opt.num_layers, dropout=0.1, batch_first=True)
-        self.norm = nn.LayerNorm(opt.z_dim)
-        self.fc = nn.Linear(opt.z_dim, opt.z_dim)
+        # ⚡ CRITICAL FIX: Recovery GRU must have high capacity (hidden_dim) to store temporal patterns.
+        # DO NOT use z_dim (1) here, or it becomes a bottleneck that produces flat lines.
+        self.rnn = nn.GRU(input_size=opt.hidden_dim, hidden_size=opt.hidden_dim, num_layers=opt.num_layers, dropout=0.1, batch_first=True)
+        self.norm = nn.LayerNorm(opt.hidden_dim)
+        # Project from hidden space (100+) down to target space (1)
+        self.fc = nn.Linear(opt.hidden_dim, opt.z_dim)
         self.sigmoid = nn.Sigmoid()
         self.apply(_weights_init)
 
