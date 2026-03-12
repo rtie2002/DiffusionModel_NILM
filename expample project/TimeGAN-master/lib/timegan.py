@@ -174,17 +174,28 @@ class BaseModel():
     # If cond is 8-dim, take the first one or a relevant one for background context
     cond_sample = self.C[0, :, 0].cpu().numpy() 
     
-    plt.figure(figsize=(12, 6))
-    plt.plot(cond_sample, label='Condition Pattern (Sample)', color='gray', alpha=0.3, linestyle='--')
-    plt.plot(real_sample, label='Real Appliance Power', color='blue', linewidth=2)
-    plt.plot(fake_sample, label='Generated Appliance Power', color='red', linewidth=1.5, alpha=0.8)
+    # Plot multiple generated samples + 1 real sample for comparison
+    fig, axes = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
     
-    plt.title(f"Iteration {iteration}: {self.opt.data_name} Waveform Evolution")
-    plt.xlabel("Time Steps (256)")
-    plt.ylabel("Power (Normalized [0, 1])")
-    plt.legend()
-    plt.grid(True, alpha=0.3)
+    # Top: Real vs Generated sample 0
+    axes[0].plot(real_sample, label='Real Appliance Power', color='blue', linewidth=2)
+    axes[0].plot(fake_sample, label='Generated Sample #0', color='red', linewidth=1.5, alpha=0.8)
+    if X_hat_plot.shape[0] > 1:
+        axes[0].plot(X_hat_plot[1, :, 0].cpu().numpy(), label='Generated Sample #1', color='orange', linewidth=1, alpha=0.6)
+    axes[0].set_ylabel('Power [0,1]')
+    axes[0].legend(fontsize=8)
+    axes[0].set_title(f"Iteration {iteration}: {self.opt.data_name} Waveform Evolution")
+    axes[0].grid(True, alpha=0.3)
     
+    # Bottom: Condition pattern
+    axes[1].plot(cond_sample, label='Condition (Time Feature 0)', color='gray', alpha=0.5)
+    axes[1].set_ylabel('Condition')
+    axes[1].set_xlabel(f'Time Steps ({self.opt.seq_len})')
+    axes[1].legend(fontsize=8)
+    axes[1].grid(True, alpha=0.3)
+    
+    
+    plt.tight_layout()
     save_path = os.path.join(visual_dir, f'joint_iter_{iteration:05d}.png')
     plt.savefig(save_path)
     plt.close()
@@ -389,7 +400,8 @@ class TimeGAN(BaseModel):
       self.err_d_fake = self.l_bce(self.Y_fake, torch.zeros_like(self.Y_fake))
       self.err_d_fake_e = self.l_bce(self.Y_fake_e, torch.zeros_like(self.Y_fake_e))
       self.err_d = self.err_d_real + self.err_d_fake + self.err_d_fake_e * self.opt.w_gamma
-      if self.err_d > 0.15:
+      # Only stop D training if it's overwhelmingly good (prevent total collapse)
+      if self.err_d > 0.01:
         self.err_d.backward(retain_graph=True)
 
     def optimize_params_er(self):
