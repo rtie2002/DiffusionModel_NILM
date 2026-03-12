@@ -329,12 +329,15 @@ class TimeGAN(BaseModel):
       self.err_g_U = self.l_bce(self.Y_fake, torch.ones_like(self.Y_fake))
       self.err_g_U_e = self.l_bce(self.Y_fake_e, torch.ones_like(self.Y_fake_e))
       
-      # Moments (V1 = Variance/Texture, V2 = Mean/Energy)
-      # We INCREASE the weight on V1 to force it to learn the fluctuations (std dev)!
-      real_std = torch.sqrt(torch.std(self.X,[0])[1] + 1e-6)
-      fake_std = torch.sqrt(torch.std(self.X_hat,[0])[1] + 1e-6)
-      self.err_g_V1 = torch.mean(torch.abs(fake_std - real_std))   
-      self.err_g_V2 = torch.mean(torch.abs((torch.mean(self.X_hat,[0])[0]) - (torch.mean(self.X,[0])[0])))  
+      # Moments matching (V1 = Std Dev matching, V2 = Mean matching)
+      # Calculated across Batch for each Time Step
+      real_std = torch.std(self.X, dim=0) 
+      fake_std = torch.std(self.X_hat, dim=0) 
+      self.err_g_V1 = torch.mean(torch.abs(fake_std - real_std))
+      
+      real_mean = torch.mean(self.X, dim=0)
+      fake_mean = torch.mean(self.X_hat, dim=0)
+      self.err_g_V2 = torch.mean(torch.abs(fake_mean - real_mean))   
       
       # Difference/Texture Loss: Instead of rigid MSE which smooths things out,
       # we force the VARIANCE (roughness) of the fake signal's steps to match the real signal's steps.
@@ -369,16 +372,16 @@ class TimeGAN(BaseModel):
       self.err_s = self.l_mse(self.H_supervise[:,:-1,:], self.H[:,1:,:])
       
       # Total G Loss
-      # ⚠️ Rebalanced weights for the "Ultimate Baseline"
-      self.err_g = self.err_g_U * 3.0 + \
+      # ⚠️ REBALANCED for Sparsity/Pulses (NILM Special)
+      self.err_g = self.err_g_U * 1.0 + \
                    self.err_g_U_e * self.opt.w_gamma + \
-                   self.err_g_V1 * 5.0 + \
+                   self.err_g_V1 * 10.0 + \
                    self.err_g_V2 * 1.0 + \
-                   10.0 * torch.sqrt(self.err_s) + \
-                   3.0 * self.err_g_texture + \
+                   1.0 * torch.sqrt(self.err_s) + \
+                   5.0 * self.err_g_texture + \
                    2.0 * self.err_g_freq + \
-                   0.5 * self.err_g_diversity + \
-                   2.0 * self.err_g_tv
+                   1.0 * self.err_g_diversity + \
+                   1.0 * self.err_g_tv
                    
       self.err_g.backward(retain_graph=True)
 
