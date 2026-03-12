@@ -30,12 +30,12 @@ class Options():
         self.parser.add_argument(
             '--z_dim',
             help='z or data dimension',
-            default=1,
+            default=100,
             type=int)
         self.parser.add_argument(
             '--seq_len',
             help='sequence length',
-            default=100,
+            default=512,
             type=int)
         self.parser.add_argument(
             '--module',
@@ -55,7 +55,7 @@ class Options():
         self.parser.add_argument(
             '--iteration',
             help='Training iterations (should be optimized)',
-            default=50000,
+            default=20000,
             type=int)
         self.parser.add_argument(
             '--batch_size',
@@ -91,7 +91,7 @@ class Options():
         self.parser.add_argument('--resume', default='', help="path to checkpoints (to continue training)")
 
         self.parser.add_argument('--beta1', type=float, default=0.9, help='momentum term of adam')
-        self.parser.add_argument('--lr', type=float, default=0.001, help='initial learning rate for adam')
+        self.parser.add_argument('--lr', type=float, default=0.0002, help='initial learning rate for adam')
 
         self.parser.add_argument('--w_gamma', type=float, default=1, help='Gamma weight')
         self.parser.add_argument('--w_es', type=float, default=0.1, help='Encoder loss weight')
