@@ -48,6 +48,13 @@ class BaseModel():
     self.data_num = len(self.ori_data)
     self.device = torch.device("cuda:0" if self.opt.device != 'cpu' else "cpu")
 
+    print(f"\n🚀 TRAINING ENVIRONMENT:")
+    print(f"   -> Appliance   : {self.opt.data_name}")
+    print(f"   -> Window Size : {self.opt.seq_len}")
+    print(f"   -> Iterations  : {self.opt.iteration}")
+    print(f"   -> GPU Device  : {self.device}")
+    print(f"   -> Save Path   : {os.path.join(self.opt.outf, self.opt.name)}\n")
+
     # Initialize loss attributes for stability/linting
     self.err_g = None
     self.err_d = None

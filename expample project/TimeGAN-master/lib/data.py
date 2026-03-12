@@ -46,16 +46,9 @@ def sine_data_generation (no, seq_len, dim):
   
   Args:
     - no: the number of samples
-    self.max_seq_len = self.opt.seq_len
-    self.data_num = len(self.ori_data)
-    self.device = torch.device("cuda:0" if self.opt.device != 'cpu' else "cpu")
-
-    print(f"\n🚀 TRAINING ENVIRONMENT:")
-    print(f"   -> Appliance   : {self.opt.data_name}")
-    print(f"   -> Window Size : {self.opt.seq_len}")
-    print(f"   -> Iterations  : {self.opt.iteration}")
-    print(f"   -> GPU Device  : {self.device}")
-    print(f"   -> Save Path   : {os.path.join(self.opt.outf, self.opt.name)}\n")
+    - seq_len: sequence length of the time-series
+    - dim: feature dimensions
+    
   Returns:
     - data: generated data
   """  
@@ -112,17 +105,25 @@ def real_data_loading (data_name, seq_len):
   
   ori_data = np.loadtxt(file_path, delimiter=",", skiprows=1)
   
-  # ⚡ C-TimeGAN REDESIGN:
-  # Column 0 is Aggregate (Condition)
-  # Column 1 is Appliance (Target)
-  # Column 2-9 are Time Features
-  if ori_data.shape[1] > 1:
-      print(f"Original columns: {ori_data.shape[1]}. Extracting Aggregate as Condition...")
-      conditions = ori_data[:, 0:1] # Aggregate
-      targets = ori_data[:, 1:]    # Appliance + Time Feats
+  # ⚡ C-TimeGAN INTELLIGENT DIMENSION DETECTION:
+  if ori_data.shape[1] == 9:
+      print(f"✅ 9-Column Mode Detected (No separate Aggregate):")
+      print(f"   -> Mapping Col 0 as Appliance Power (Target).")
+      print(f"   -> Mapping Cols 1-8 as Time Features (Conditions).")
+      # TARGET: Power + Time (Total 9)
+      targets = ori_data[:, 0:]    
+      # CONDITION: Time features (Total 8) act as the generation control
+      conditions = ori_data[:, 1:] 
+  elif ori_data.shape[1] >= 10:
+      print(f"✅ 10+ Column Mode Detected (Aggregate + Appliance + Time):")
+      # Aggregated Power (Col 0) is the CONDITION
+      conditions = ori_data[:, 0:1] 
+      # Appliance (Col 1) + Time features (Col 2-9) are TARGETS (Total 9)
+      targets = ori_data[:, 1:10]    
   else:
-      conditions = np.zeros((len(ori_data), 1))
-      targets = ori_data.reshape(-1, 1)
+      print(f"⚠️ Low Dimension Data ({ori_data.shape[1]} cols). Defaulting to self-conditioning.")
+      conditions = ori_data[:, 0:1]
+      targets = ori_data[:, 0:]
 
   # ⚡ SMART NORMALIZATION: 
   # If data is already in [0, 1], don't do anything (prevents double MinMax).

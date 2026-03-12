@@ -71,13 +71,20 @@ def train():
     # generated_data = apply_ocsvm_filtering(np.stack(targets), generated_data, opt.data_name)
     
     # LOAD DATA
-    # C-TimeGAN REDESIGN: load_data returns (targets, conditions)
     targets, conditions = load_data(opt)
     
-    # Update dimension based on loaded targets
+    # --- DYNAMIC DIMENSION DETECTION ---
     actual_dim = targets[0].shape[-1]
+    cond_dim = conditions[0].shape[-1]
+    
     opt.z_dim = actual_dim
-    print(f"Detected target dimension: {actual_dim}. Updating model config...")
+    opt.cond_dim = cond_dim 
+    
+    print(f"\n📏 DIMENSION SUMMARY:")
+    print(f"   -> Target Dim (Appliance+Time): {actual_dim}")
+    print(f"   -> Cond   Dim (Context Source): {cond_dim}")
+    print(f"   -> Total RNN Input          : {actual_dim + cond_dim}")
+    print("-" * 60)
 
     # LOAD MODEL (Pass tuple to BaseModel)
     model = TimeGAN(opt, (targets, conditions))
