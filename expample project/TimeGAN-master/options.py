@@ -35,12 +35,12 @@ class Options():
         self.parser.add_argument(
             '--latent_dim',
             help='latent/noise dimension',
-            default=100,
+            default=64,
             type=int)
         self.parser.add_argument(
             '--seq_len',
             help='sequence length',
-            default=512,
+            default=256,
             type=int)
         self.parser.add_argument(
             '--module',
@@ -60,7 +60,7 @@ class Options():
         self.parser.add_argument(
             '--iteration',
             help='Training iterations (should be optimized)',
-            default=20000,
+            default=10000,
             type=int)
         self.parser.add_argument(
             '--batch_size',
