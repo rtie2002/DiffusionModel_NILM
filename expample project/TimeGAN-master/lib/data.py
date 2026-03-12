@@ -46,9 +46,16 @@ def sine_data_generation (no, seq_len, dim):
   
   Args:
     - no: the number of samples
-    - seq_len: sequence length of the time-series
-    - dim: feature dimensions
-    
+    self.max_seq_len = self.opt.seq_len
+    self.data_num = len(self.ori_data)
+    self.device = torch.device("cuda:0" if self.opt.device != 'cpu' else "cpu")
+
+    print(f"\n🚀 TRAINING ENVIRONMENT:")
+    print(f"   -> Appliance   : {self.opt.data_name}")
+    print(f"   -> Window Size : {self.opt.seq_len}")
+    print(f"   -> Iterations  : {self.opt.iteration}")
+    print(f"   -> GPU Device  : {self.device}")
+    print(f"   -> Save Path   : {os.path.join(self.opt.outf, self.opt.name)}\n")
   Returns:
     - data: generated data
   """  
@@ -99,7 +106,10 @@ def real_data_loading (data_name, seq_len):
   if file_path is None:
     raise FileNotFoundError(f"Missing data file for {data_name}. Tried: {possible_paths}")
 
-
+  print(f"\n📂 DATA SOURCE RECOGNIZED:")
+  print(f"   -> Name: {data_name}")
+  print(f"   -> Path: {file_path}")
+  
   ori_data = np.loadtxt(file_path, delimiter=",", skiprows=1)
   
   # ⚡ C-TimeGAN REDESIGN:
