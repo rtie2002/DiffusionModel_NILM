@@ -176,18 +176,19 @@ class Discriminator(nn.Module):
         # input_size = hidden_dim + condition_dim (1)
         self.rnn = nn.GRU(input_size=opt.hidden_dim + 1, hidden_size=opt.hidden_dim, num_layers=opt.num_layers, dropout=0.1)
         self.norm = nn.LayerNorm(opt.hidden_dim)
-        self.fc = nn.Linear(opt.hidden_dim, opt.hidden_dim)
+        # ⚡ SPECTRAL NORM: Stabilizes training. Applied once at init.
+        self.fc = spectral_norm(nn.Linear(opt.hidden_dim, opt.hidden_dim))
         self.sigmoid = nn.Sigmoid()
         self.apply(_weights_init)
+
 
     def forward(self, input, cond, sigmoid=True):
         # Concatenate Hidden state with Condition per paper Eq. 9
         combined = torch.cat([input, cond], dim=-1)
         d_outputs, _ = self.rnn(combined)
         d_outputs = self.norm(d_outputs)
-        # ⚡ SPECTRAL NORM: Stabilizes training by limiting Lipschitz constant
-        sn_fc = spectral_norm(self.fc)
-        Y_hat = sn_fc(d_outputs)
+        Y_hat = self.fc(d_outputs)
+
 
         if sigmoid:
             Y_hat = self.sigmoid(Y_hat)
