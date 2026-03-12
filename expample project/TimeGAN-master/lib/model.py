@@ -107,9 +107,10 @@ class Recovery(nn.Module):
         r_conv = self.conv_refine(r_outputs.transpose(1, 2)).transpose(1, 2)  # (B, T, H)
         r_outputs = r_outputs + self.relu(r_conv)  # Residual connection
         X_tilde = self.fc(r_outputs)              # (B, T, 1)
-        # ⚡ Use hard clamp instead of sigmoid for sharp ON/OFF transitions
-        X_tilde = torch.clamp(X_tilde, 0.0, 1.0)
+        if sigmoid:
+            X_tilde = torch.sigmoid(X_tilde)
         return X_tilde
+
 
 
 class Generator(nn.Module):
