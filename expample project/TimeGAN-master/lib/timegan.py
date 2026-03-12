@@ -129,9 +129,8 @@ class BaseModel():
 
     pbar_j = tqdm(range(self.opt.iteration), desc='Joint Training')
     for iter in pbar_j:
-      for kk in range(2):
-        self.train_one_iter_g()
-        self.train_one_iter_er_()
+      self.train_one_iter_g()
+      self.train_one_iter_er_()
       self.train_one_iter_d()
       pbar_j.set_postfix({'G_loss': f'{self.err_g.item():.4f}'})
 
@@ -287,11 +286,11 @@ class TimeGAN(BaseModel):
       fake_fft = torch.fft.rfft(self.X_hat[:, :, 0], dim=1)
       self.err_g_freq = torch.mean(torch.abs(torch.abs(fake_fft) - torch.abs(real_fft)))
 
-      # ⚡ NEW: Diversity Loss (Anti-Mode Collapse)
-      # Forces the generator to produce different-looking samples in a single batch
-      # by penalizing it if all samples in a batch look too similar.
-      dist_fake = torch.pdist(self.X_hat.view(self.opt.batch_size, -1))
-      self.err_g_diversity = 1.0 / (torch.mean(dist_fake) + 1e-5)
+      # ⚡ SPEED OPTIMIZATION: Variance-based Diversity Loss
+      # pdist is O(N^2) - very slow. Variance is O(N) - very fast.
+      # This still forces the batch to be diverse by ensuring individual samples don't collapse.
+      batch_var = torch.var(self.X_hat.view(self.opt.batch_size, -1), dim=0)
+      self.err_g_diversity = 1.0 / (torch.mean(batch_var) + 1e-5)
 
       # ⚡ NEW: Total Variation (TV) Loss
       # Mimics the "smoothness" constraint from the CNN-CGAN notebook.
