@@ -142,19 +142,11 @@ class BaseModel():
       self.train_one_iter_er_()
       self.train_one_iter_d()
       
-      # Step LR schedulers
-      self.sched_g.step()
-      self.sched_d.step()
-      self.sched_s.step()
-      self.sched_e.step()
-      self.sched_r.step()
-      
-      # Live Waveform Visualization
+      # ⚡ NEW: Live Waveform Visualization (High Frequency)
       if (iter + 1) % 10 == 0:
           self.save_joint_visuals(iter + 1)
-      
-      cur_lr = self.optimizer_g.param_groups[0]['lr']
-      pbar_j.set_postfix({'G': f'{self.err_g.item():.4f}', 'D': f'{self.err_d.item():.4f}', 'lr': f'{cur_lr:.6f}'})
+          
+      pbar_j.set_postfix({'G_loss': f'{self.err_g.item():.4f}', 'D_loss': f'{self.err_d.item():.4f}'})
 
     self.save_weights(self.opt.iteration)
     print('\nFinish C-TimeGAN Training')
@@ -299,13 +291,6 @@ class TimeGAN(BaseModel):
       self.optimizer_d = optim.Adam(self.netd.parameters(), lr=self.opt.lr, betas=(self.opt.beta1, 0.999))
       self.optimizer_s = optim.Adam(self.nets.parameters(), lr=self.opt.lr, betas=(self.opt.beta1, 0.999))
 
-      # ⚡ LR Schedulers: Cosine Annealing (aggressive start, slow finish)
-      self.sched_g = optim.lr_scheduler.CosineAnnealingLR(self.optimizer_g, T_max=self.opt.iteration, eta_min=1e-5)
-      self.sched_d = optim.lr_scheduler.CosineAnnealingLR(self.optimizer_d, T_max=self.opt.iteration, eta_min=1e-5)
-      self.sched_s = optim.lr_scheduler.CosineAnnealingLR(self.optimizer_s, T_max=self.opt.iteration, eta_min=1e-5)
-      self.sched_e = optim.lr_scheduler.CosineAnnealingLR(self.optimizer_e, T_max=self.opt.iteration, eta_min=1e-5)
-      self.sched_r = optim.lr_scheduler.CosineAnnealingLR(self.optimizer_r, T_max=self.opt.iteration, eta_min=1e-5)
-
 
     def forward_e(self):
       self.H = self.nete(self.X, self.C)
@@ -384,25 +369,25 @@ class TimeGAN(BaseModel):
       batch_var = torch.var(self.X_hat.view(self.opt.batch_size, -1), dim=0)
       self.err_g_diversity = 1.0 / (torch.mean(batch_var) + 1e-5)
 
-      # ⚡ TV Loss RE-ENABLED (Weak): Acts as a denoiser to prevent 'jittery' fluctuations
-      # but low enough weight (0.1) to not suppress sharp pulses.
-      self.err_g_tv = torch.mean(torch.abs(self.X_hat[:, 1:, 0] - self.X_hat[:, :-1, 0]))
+      # ⚡ TV Loss REMOVED: It was actively smoothing the signal,
+      # preventing the model from learning sharp transitions and ON-period texture.
+      # self.err_g_tv = torch.mean(torch.abs(self.X_hat[:, 1:, 0] - self.X_hat[:, :-1, 0]))
+      self.err_g_tv = torch.tensor(0.0).to(self.device)  # disabled
 
 
       # Supervisor
       self.err_s = self.l_mse(self.H_supervise[:,:-1,:], self.H[:,1:,:])
       
       # Total G Loss
-      # ⚠️ REBALANCED for Shape Stability (Phase 3: fixing fluctuations)
+      # ⚠️ REBALANCED for Detail/Texture (Phase 2: after flat-line fix)
       self.err_g = self.err_g_U * 1.0 + \
                    self.err_g_U_e * self.opt.w_gamma + \
-                   self.err_g_V1 * 10.0 + \
+                   self.err_g_V1 * 5.0 + \
                    self.err_g_V2 * 1.0 + \
-                   5.0 * torch.sqrt(self.err_s) + \
-                   2.0 * self.err_g_texture + \
+                   1.0 * torch.sqrt(self.err_s) + \
+                   10.0 * self.err_g_texture + \
                    1.0 * self.err_g_freq + \
-                   0.5 * self.err_g_diversity + \
-                   0.1 * self.err_g_tv
+                   0.5 * self.err_g_diversity
                    
       self.err_g.backward(retain_graph=True)
 
