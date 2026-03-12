@@ -16,16 +16,16 @@ do
     echo -e "\033[0;36m🚀 STARTING C-TIMEGAN+ FOR: $app\033[0m"
     echo -e "\033[0;36m============================================================\033[0m"
     
-    # ⚡ 步骤 1: 训练 (C-TimeGAN Paper: window=60, hidden=24, iter=50k, lr=0.001)
+    # ⚡ 步骤 1: 训练 (Conv-TimeGAN: window=512, hidden=24, iter=50k, lr=0.001)
     echo "🏗️ Phase 1: Training..."
-    python train.py --data_name "$app" --seq_len 60 --hidden_dim 24 --batch_size 128 --iteration 50000 --lr 0.001
+    python train.py --data_name "$app" --seq_len 512 --hidden_dim 24 --batch_size 128 --iteration 50000 --lr 0.001
     
     if [ $? -eq 0 ]; then
         echo -e "\033[0;32m✅ Training Finished: $app\033[0m"
         
-        # ⚡ 步骤 2: 采样 (采用 60 窗口大小)
+        # ⚡ 步骤 2: 采样 (采用 512 窗口大小)
         echo "🧪 Phase 2: Generating Synthetic Data (with OCSVM Filtering)..."
-        python sample_only.py --data_name "$app" --seq_len 60
+        python sample_only.py --data_name "$app" --seq_len 512
         
         if [ $? -eq 0 ]; then
             echo -e "\033[0;32m🎉 Successfully generated data for: $app\033[0m"

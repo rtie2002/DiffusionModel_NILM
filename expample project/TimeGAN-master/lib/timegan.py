@@ -138,6 +138,8 @@ class BaseModel():
 
     pbar_j = tqdm(range(self.opt.iteration), desc='Joint Training')
     for iter in pbar_j:
+      # ⚡ G trains 2x per D step (proven effective in CNN-CGAN baseline)
+      self.train_one_iter_g()
       self.train_one_iter_g()
       self.train_one_iter_er_()
       self.train_one_iter_d()
@@ -371,7 +373,8 @@ class TimeGAN(BaseModel):
       self.err_s.backward(retain_graph=True)
 
     def backward_d(self):
-      self.err_d_real = self.l_bce(self.Y_real, torch.ones_like(self.Y_real))
+      # ⚡ Label smoothing: real=0.9 (proven in CNN-CGAN, prevents D overconfidence)
+      self.err_d_real = self.l_bce(self.Y_real, torch.full_like(self.Y_real, 0.9))
       self.err_d_fake = self.l_bce(self.Y_fake, torch.zeros_like(self.Y_fake))
       self.err_d_fake_e = self.l_bce(self.Y_fake_e, torch.zeros_like(self.Y_fake_e))
       self.err_d = self.err_d_real + self.err_d_fake + self.err_d_fake_e * self.opt.w_gamma

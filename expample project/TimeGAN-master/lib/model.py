@@ -6,138 +6,150 @@ Neural Information Processing Systems (NeurIPS), 2019.
 
 Paper link: https://papers.nips.cc/paper/8789-time-series-generative-adversarial-networks
 
-Last updated Date: October 18th 2021
-Code author: Zhiwei Zhang (bitzzw@gmail.com), Biaolin Wen (robinbg@foxmail.com)
-
 -----------------------------
 
-model.py: Network Modules
+model.py: Network Modules (CNN-Enhanced TimeGAN)
 
-(1) Encoder
-(2) Recovery
-(3) Generator
-(4) Supervisor
-(5) Discriminator
+⚡ HYBRID ARCHITECTURE:
+  - Encoder, Recovery, Generator, Discriminator → CNN-based (Conv1d)
+    for effective local pattern capture (sharp edges, transients, ON/OFF)
+  - Supervisor → GRU-based (THE TimeGAN signature)
+    for autoregressive temporal coherence in latent space
+
+This preserves the TimeGAN training framework while gaining CNN's
+ability to generate detailed waveform patterns.
+
+(1) Encoder     - Conv1d: real data → latent space
+(2) Recovery    - Conv1d: latent space → data space
+(3) Generator   - Conv1d: noise+cond → latent space
+(4) Supervisor  - GRU:    latent → latent (temporal supervision) ← TimeGAN core
+(5) Discriminator - Conv1d: latent+cond → real/fake classification
 """
 
 import torch
 import torch.nn as nn
-import torch.nn.init as init
 from torch.nn.utils import spectral_norm
 
 
-
-def _weights_init(m):
-    classname = m.__class__.__name__
-    if isinstance(m, nn.Linear):
-        init.xavier_uniform_(m.weight)
-        m.bias.data.fill_(0)
-    elif classname.find('Conv') != -1:
-        m.weight.data.normal_(0.0, 0.02)
-    elif classname.find('Norm') != -1:
-        m.weight.data.normal_(1.0, 0.02)
-        m.bias.data.fill_(0)
-    elif classname.find("GRU") != -1:
-      for name,param in m.named_parameters():
-        if 'weight_ih' in name:
-          init.xavier_uniform_(param.data)
-        elif 'weight_hh' in name:
-          init.orthogonal_(param.data)
-        elif 'bias' in name:
-          param.data.fill_(0)
-
-
 class Encoder(nn.Module):
-    """Embedding network between original feature space to latent space.
+    """Embedding network: maps real data → latent space using Conv1d.
 
-        Args:
-          - input: input time-series features. (L, N, X) = (24, ?, 6)
-          - h3: (num_layers, N, H). [3, ?, 24]
+    Conv1d extracts local temporal features much more effectively than
+    GRU for signals with sharp transitions and high-frequency texture.
 
-        Returns:
-          - H: embeddings
-        """
+    Args:
+      - input: [B, T, z_dim]  (appliance power)
+      - cond:  [B, T, cond_dim] (time features + first-order diff)
+
+    Returns:
+      - H: [B, T, hidden_dim]  (latent embeddings)
+    """
     def __init__(self, opt):
         super(Encoder, self).__init__()
-        # ⚡ CRITICAL FIX: Added batch_first=True to align with data dimensions [B, T, D]
-        self.rnn = nn.GRU(input_size=opt.z_dim + opt.cond_dim, hidden_size=opt.hidden_dim, num_layers=opt.num_layers, dropout=0.1, batch_first=True)
-        self.norm = nn.LayerNorm(opt.hidden_dim)
-        self.fc = nn.Linear(opt.hidden_dim, opt.hidden_dim)
+        in_dim = opt.z_dim + opt.cond_dim
+
+        self.conv = nn.Sequential(
+            nn.Conv1d(in_dim, 64, kernel_size=5, padding=2),
+            nn.BatchNorm1d(64),
+            nn.LeakyReLU(0.2),
+            nn.Conv1d(64, 128, kernel_size=5, padding=2),
+            nn.BatchNorm1d(128),
+            nn.LeakyReLU(0.2),
+            nn.Conv1d(128, 128, kernel_size=3, padding=1),
+            nn.BatchNorm1d(128),
+            nn.LeakyReLU(0.2),
+        )
+        self.fc = nn.Linear(128, opt.hidden_dim)
         self.sigmoid = nn.Sigmoid()
-        self.apply(_weights_init)
 
     def forward(self, input, cond, sigmoid=True):
-        # Concatenate Input with Condition per paper Eq. 7
-        combined = torch.cat([input, cond], dim=-1)
-        e_outputs, _ = self.rnn(combined)
-        e_outputs = self.norm(e_outputs)
-        H = self.fc(e_outputs)
+        combined = torch.cat([input, cond], dim=-1)   # [B, T, in_dim]
+        x = combined.transpose(1, 2)                  # [B, in_dim, T]
+        x = self.conv(x)                              # [B, 128, T]
+        x = x.transpose(1, 2)                         # [B, T, 128]
+        H = self.fc(x)                                # [B, T, hidden_dim]
         if sigmoid:
             H = self.sigmoid(H)
         return H
 
 
 class Recovery(nn.Module):
-    """Recovery network from latent space to original space.
+    """Recovery network: maps latent space → data space using Conv1d.
+
+    Uses multiple Conv1d layers for sharp detail reconstruction,
+    which is critical for capturing ON/OFF edges and transient spikes.
 
     Args:
-      - H: latent representation
-      - T: input time information
+      - H: [B, T, hidden_dim]
 
     Returns:
-      - X_tilde: recovered data
+      - X_tilde: [B, T, z_dim]
     """
     def __init__(self, opt):
         super(Recovery, self).__init__()
-        # ⚡ CRITICAL FIX: Recovery GRU must have high capacity (hidden_dim) to store temporal patterns.
-        self.rnn = nn.GRU(input_size=opt.hidden_dim, hidden_size=opt.hidden_dim, num_layers=opt.num_layers, dropout=0.1, batch_first=True)
-        self.norm = nn.LayerNorm(opt.hidden_dim)
-        # ⚡ NEW: 1D Conv for local detail refinement (sharp edges, texture)
-        # kernel_size=5 captures local patterns over 5 time steps
-        self.conv_refine = nn.Conv1d(opt.hidden_dim, opt.hidden_dim, kernel_size=5, padding=2)
-        self.relu = nn.ReLU()
-        # Project from hidden space down to target space (1)
-        self.fc = nn.Linear(opt.hidden_dim, opt.z_dim)
-        self.apply(_weights_init)
+        h = opt.hidden_dim
+
+        self.conv = nn.Sequential(
+            nn.Conv1d(h, 128, kernel_size=5, padding=2),
+            nn.BatchNorm1d(128),
+            nn.ReLU(),
+            nn.Conv1d(128, 64, kernel_size=5, padding=2),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
+            nn.Conv1d(64, 32, kernel_size=3, padding=1),
+            nn.BatchNorm1d(32),
+            nn.ReLU(),
+        )
+        self.fc = nn.Linear(32, opt.z_dim)
+        self.sigmoid = nn.Sigmoid()
 
     def forward(self, input, sigmoid=True):
-        r_outputs, _ = self.rnn(input)           # (B, T, H)
-        r_outputs = self.norm(r_outputs)
-        # Conv1d expects (B, C, T), so transpose → conv → transpose back
-        r_conv = self.conv_refine(r_outputs.transpose(1, 2)).transpose(1, 2)  # (B, T, H)
-        r_outputs = r_outputs + self.relu(r_conv)  # Residual connection
-        X_tilde = self.fc(r_outputs)              # (B, T, 1)
+        x = input.transpose(1, 2)                     # [B, hidden_dim, T]
+        x = self.conv(x)                              # [B, 32, T]
+        x = x.transpose(1, 2)                         # [B, T, 32]
+        X_tilde = self.fc(x)                          # [B, T, z_dim]
         if sigmoid:
-            X_tilde = torch.sigmoid(X_tilde)
+            X_tilde = self.sigmoid(X_tilde)
         return X_tilde
 
 
-
 class Generator(nn.Module):
-    """Generator function: Generate time-series data in latent space.
+    """Generator: maps noise+condition → latent space using Conv1d.
+
+    CNN-based generation captures local patterns (sharp peaks, texture)
+    far more effectively than GRU which tends to smooth everything out.
 
     Args:
-      - Z: random variables
-      - T: input time information
+      - Z:    [B, T, latent_dim]  (random noise)
+      - cond: [B, T, cond_dim]    (conditions)
 
     Returns:
-      - E: generated embedding
+      - E: [B, T, hidden_dim]  (generated latent embeddings)
     """
     def __init__(self, opt):
         super(Generator, self).__init__()
-        # ⚡ CRITICAL FIX: Added batch_first=True to align with data dimensions [B, T, D]
-        self.rnn = nn.GRU(input_size=opt.latent_dim + opt.cond_dim, hidden_size=opt.hidden_dim, num_layers=opt.num_layers, dropout=0.1, batch_first=True)
-        self.norm = nn.LayerNorm(opt.hidden_dim)
-        self.fc = nn.Linear(opt.hidden_dim, opt.hidden_dim)
+        in_dim = opt.latent_dim + opt.cond_dim
+
+        self.conv = nn.Sequential(
+            nn.Conv1d(in_dim, 64, kernel_size=5, padding=2),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
+            nn.Conv1d(64, 128, kernel_size=5, padding=2),
+            nn.BatchNorm1d(128),
+            nn.ReLU(),
+            nn.Conv1d(128, 128, kernel_size=3, padding=1),
+            nn.BatchNorm1d(128),
+            nn.ReLU(),
+        )
+        self.fc = nn.Linear(128, opt.hidden_dim)
         self.sigmoid = nn.Sigmoid()
-        self.apply(_weights_init)
 
     def forward(self, input, cond, sigmoid=True):
-        # Concatenate Noise with Condition per paper Eq. 8
-        combined = torch.cat([input, cond], dim=-1)
-        g_outputs, _ = self.rnn(combined)
-        g_outputs = self.norm(g_outputs)
-        E = self.fc(g_outputs)
+        combined = torch.cat([input, cond], dim=-1)   # [B, T, in_dim]
+        x = combined.transpose(1, 2)                  # [B, in_dim, T]
+        x = self.conv(x)                              # [B, 128, T]
+        x = x.transpose(1, 2)                         # [B, T, 128]
+        E = self.fc(x)                                # [B, T, hidden_dim]
         if sigmoid:
             E = self.sigmoid(E)
         return E
@@ -146,24 +158,34 @@ class Generator(nn.Module):
 class Supervisor(nn.Module):
     """Generate next sequence using the previous sequence.
 
+    ⚡⚡⚡ THIS IS THE CORE TimeGAN COMPONENT ⚡⚡⚡
+
+    KEPT AS GRU — this is what makes this model "TimeGAN" and not just
+    a plain GAN. The Supervisor enforces autoregressive temporal coherence
+    in latent space by predicting h_{t+1} from h_t, ensuring that generated
+    sequences follow realistic temporal dynamics.
+
+    Without this, the model is just a CNN-GAN with an autoencoder.
+
     Args:
-      - H: latent representation
-      - T: input time information
+      - H: [B, T, hidden_dim]  (latent representation)
 
     Returns:
-      - S: generated sequence based on the latent representations generated by the generator
+      - S: [B, T, hidden_dim]  (supervised latent sequence)
     """
     def __init__(self, opt):
         super(Supervisor, self).__init__()
-        self.rnn = nn.GRU(input_size=opt.hidden_dim, hidden_size=opt.hidden_dim, num_layers=opt.num_layers, dropout=0.1, batch_first=True)
-        self.norm = nn.LayerNorm(opt.hidden_dim)
+        self.rnn = nn.GRU(
+            input_size=opt.hidden_dim,
+            hidden_size=opt.hidden_dim,
+            num_layers=opt.num_layers,
+            batch_first=True
+        )
         self.fc = nn.Linear(opt.hidden_dim, opt.hidden_dim)
         self.sigmoid = nn.Sigmoid()
-        self.apply(_weights_init)
 
     def forward(self, input, sigmoid=True):
         s_outputs, _ = self.rnn(input)
-        s_outputs = self.norm(s_outputs)
         S = self.fc(s_outputs)
         if sigmoid:
             S = self.sigmoid(S)
@@ -173,32 +195,39 @@ class Supervisor(nn.Module):
 class Discriminator(nn.Module):
     """Discriminate the original and synthetic time-series data.
 
+    Uses strided Conv1d (like CNN-CGAN) with spectral normalization
+    for stable adversarial training. Outputs a single real/fake
+    probability per sample (whole-sequence discrimination).
+
     Args:
-      - H: latent representation
-      - T: input time information
+      - H:    [B, T, hidden_dim]
+      - cond: [B, T, cond_dim]
 
     Returns:
-      - Y_hat: classification results between original and synthetic time-series
+      - Y_hat: [B, 1]  (real/fake probability)
     """
     def __init__(self, opt):
         super(Discriminator, self).__init__()
-        # ⚡ CRITICAL FIX: Added batch_first=True to align with data dimensions [B, T, D]
-        self.rnn = nn.GRU(input_size=opt.hidden_dim + opt.cond_dim, hidden_size=opt.hidden_dim, num_layers=opt.num_layers, dropout=0.1, batch_first=True)
-        self.norm = nn.LayerNorm(opt.hidden_dim)
-        # ⚡ CRITICAL FIX: Discriminator must output a single probability (1) per time step
-        self.fc = spectral_norm(nn.Linear(opt.hidden_dim, 1))
-        self.sigmoid = nn.Sigmoid()
-        self.apply(_weights_init)
+        in_dim = opt.hidden_dim + opt.cond_dim
 
+        self.model = nn.Sequential(
+            spectral_norm(nn.Conv1d(in_dim, 64, kernel_size=4, stride=2, padding=1)),
+            nn.LeakyReLU(0.2),
+            spectral_norm(nn.Conv1d(64, 128, kernel_size=4, stride=2, padding=1)),
+            nn.LeakyReLU(0.2),
+            spectral_norm(nn.Conv1d(128, 256, kernel_size=4, stride=2, padding=1)),
+            nn.LeakyReLU(0.2),
+            nn.AdaptiveAvgPool1d(1),
+            nn.Flatten(),
+        )
+        self.fc = nn.Linear(256, 1)
+        self.sigmoid = nn.Sigmoid()
 
     def forward(self, input, cond, sigmoid=True):
-        # Concatenate Hidden state with Condition per paper Eq. 9
-        combined = torch.cat([input, cond], dim=-1)
-        d_outputs, _ = self.rnn(combined)
-        d_outputs = self.norm(d_outputs)
-        Y_hat = self.fc(d_outputs)
-
-
+        combined = torch.cat([input, cond], dim=-1)   # [B, T, D]
+        x = combined.transpose(1, 2)                  # [B, D, T]
+        x = self.model(x)                             # [B, 256]
+        Y_hat = self.fc(x)                            # [B, 1]
         if sigmoid:
             Y_hat = self.sigmoid(Y_hat)
         return Y_hat
