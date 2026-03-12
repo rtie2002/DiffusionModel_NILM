@@ -18,7 +18,7 @@ do
     
     # ⚡ 步骤 1: 训练 (Conv-TimeGAN: window=512, hidden=24, iter=50k, lr=0.001)
     echo "🏗️ Phase 1: Training..."
-    python train.py --data_name "$app" --seq_len 512 --hidden_dim 24 --batch_size 128 --iteration 50000 --lr 0.001
+    python train.py --data_name "$app" --seq_len 512 --hidden_dim 24 --batch_size 128 --iteration 2000 --lr 0.001
     
     if [ $? -eq 0 ]; then
         echo -e "\033[0;32m✅ Training Finished: $app\033[0m"

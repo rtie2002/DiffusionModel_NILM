@@ -13,7 +13,7 @@ foreach ($app in $appliances) {
     
     # ⚡ Step 1: Training (Conv-TimeGAN: window=512, hidden=24, iter=50k, lr=0.001)
     Write-Host "🏗️ Phase 1: Training..."
-    python train.py --data_name $app --seq_len 512 --hidden_dim 24 --batch_size 128 --iteration 50000 --lr 0.001
+    python train.py --data_name $app --seq_len 512 --hidden_dim 24 --batch_size 128 --iteration 2000 --lr 0.001
     
     if ($LASTEXITCODE -eq 0) {
         Write-Host "✅ Training Finished: $app" -ForegroundColor Green

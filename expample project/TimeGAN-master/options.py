@@ -60,7 +60,7 @@ class Options():
         self.parser.add_argument(
             '--iteration',
             help='Training iterations (should be optimized)',
-            default=50000,
+            default=2000,
             type=int)
         self.parser.add_argument(
             '--batch_size',
