@@ -126,12 +126,12 @@ class BaseModel():
 
   def train(self):
     from tqdm import tqdm
-    pbar_er = tqdm(range(self.opt.iteration), desc='Encoder Pre-training')
+    pbar_er = tqdm(range(2000), desc='Encoder Pre-training (2k)')
     for iter in pbar_er:
       self.train_one_iter_er()
       pbar_er.set_postfix({'loss': f'{self.err_er.item():.4f}'})
 
-    pbar_s = tqdm(range(self.opt.iteration), desc='Supervisor Pre-training')
+    pbar_s = tqdm(range(2000), desc='Supervisor Pre-training (2k)')
     for iter in pbar_s:
       self.train_one_iter_s()
       pbar_s.set_postfix({'loss': f'{self.err_s.item():.4f}'})
@@ -315,12 +315,8 @@ class TimeGAN(BaseModel):
       self.err_er.backward(retain_graph=True)
 
     def backward_er_(self):
-      # Focus high-weight MSE on the Appliance Power (The only target column now)
-      power_mse = self.l_mse(self.X_tilde, self.X)
-      self.err_er_raw = power_mse
+      self.err_er_raw = self.l_mse(self.X_tilde, self.X)
       self.err_s = self.l_mse(self.H_supervise[:,:-1,:], self.H[:,1:,:])
-      
-      # Combined Reconstruction + Supervisor loss
       self.err_er = 10.0 * torch.sqrt(self.err_er_raw) + 0.1 * self.err_s
       self.err_er.backward(retain_graph=True)
 

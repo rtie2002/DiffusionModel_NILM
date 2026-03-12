@@ -50,12 +50,12 @@ class Options():
         self.parser.add_argument(
             '--hidden_dim',
             help='hidden state dimensions (should be optimized)',
-            default=64,
+            default=128,
             type=int)
         self.parser.add_argument(
             '--num_layers',
             help='number of layers (should be optimized)',
-            default=4,
+            default=3,
             type=int)
         self.parser.add_argument(
             '--iteration',

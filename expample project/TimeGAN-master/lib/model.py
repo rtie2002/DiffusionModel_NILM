@@ -90,20 +90,25 @@ class Recovery(nn.Module):
     def __init__(self, opt):
         super(Recovery, self).__init__()
         # ⚡ CRITICAL FIX: Recovery GRU must have high capacity (hidden_dim) to store temporal patterns.
-        # DO NOT use z_dim (1) here, or it becomes a bottleneck that produces flat lines.
         self.rnn = nn.GRU(input_size=opt.hidden_dim, hidden_size=opt.hidden_dim, num_layers=opt.num_layers, dropout=0.1, batch_first=True)
         self.norm = nn.LayerNorm(opt.hidden_dim)
-        # Project from hidden space (100+) down to target space (1)
+        # ⚡ NEW: 1D Conv for local detail refinement (sharp edges, texture)
+        # kernel_size=5 captures local patterns over 5 time steps
+        self.conv_refine = nn.Conv1d(opt.hidden_dim, opt.hidden_dim, kernel_size=5, padding=2)
+        self.relu = nn.ReLU()
+        # Project from hidden space down to target space (1)
         self.fc = nn.Linear(opt.hidden_dim, opt.z_dim)
-        self.sigmoid = nn.Sigmoid()
         self.apply(_weights_init)
 
     def forward(self, input, sigmoid=True):
-        r_outputs, _ = self.rnn(input)
+        r_outputs, _ = self.rnn(input)           # (B, T, H)
         r_outputs = self.norm(r_outputs)
-        X_tilde = self.fc(r_outputs)
-        if sigmoid:
-            X_tilde = self.sigmoid(X_tilde)
+        # Conv1d expects (B, C, T), so transpose → conv → transpose back
+        r_conv = self.conv_refine(r_outputs.transpose(1, 2)).transpose(1, 2)  # (B, T, H)
+        r_outputs = r_outputs + self.relu(r_conv)  # Residual connection
+        X_tilde = self.fc(r_outputs)              # (B, T, 1)
+        # ⚡ Use hard clamp instead of sigmoid for sharp ON/OFF transitions
+        X_tilde = torch.clamp(X_tilde, 0.0, 1.0)
         return X_tilde
 
 
