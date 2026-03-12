@@ -192,7 +192,14 @@ def sample():
     # 3. 加载归一化数据 (Targets + Conditions)
     targets, conditions = load_data(opt)
     actual_dim = targets[0].shape[-1]
+    cond_dim = conditions[0].shape[-1]
+    
     opt.z_dim = actual_dim
+    opt.cond_dim = cond_dim 
+    
+    print(f"📊 Sampling Logic:")
+    print(f"   -> Appliance Dim : {actual_dim}")
+    print(f"   -> Context   Dim : {cond_dim}")
 
     # 4. 初始化模型并加载权重
     print(f"🔄 Loading pre-trained weights from: {weights_path}")

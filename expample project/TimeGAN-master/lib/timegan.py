@@ -55,13 +55,15 @@ class BaseModel():
     print(f"   -> GPU Device  : {self.device}")
     print(f"   -> Save Path   : {os.path.join(self.opt.outf, self.opt.name)}\n")
 
-    # Initialize loss attributes for stability/linting
-    self.err_g = None
-    self.err_d = None
-    self.err_g_tv = None
-    self.err_g_diversity = None
-    self.err_g_freq = None
-    self.err_g_texture = None
+    # Initialize loss attributes for stability
+    self.err_g = torch.tensor(0.0)
+    self.err_d = torch.tensor(0.0)
+    self.err_g_tv = torch.tensor(0.0)
+    self.err_g_diversity = torch.tensor(0.0)
+    self.err_g_freq = torch.tensor(0.0)
+    self.err_g_texture = torch.tensor(0.0)
+    self.err_er = torch.tensor(0.0)
+    self.err_s = torch.tensor(0.0)
 
   def seed(self, seed_value):
     if seed_value == -1: return
