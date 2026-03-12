@@ -132,10 +132,57 @@ class BaseModel():
       self.train_one_iter_g()
       self.train_one_iter_er_()
       self.train_one_iter_d()
+      
+      # ⚡ NEW: Live Waveform Visualization (High Frequency)
+      if (iter + 1) % 10 == 0:
+          self.save_joint_visuals(iter + 1)
+          
       pbar_j.set_postfix({'G_loss': f'{self.err_g.item():.4f}'})
 
     self.save_weights(self.opt.iteration)
     print('\nFinish C-TimeGAN Training')
+
+  def save_joint_visuals(self, iteration):
+    """
+    Saves a plot of Real vs Fake waveforms during training.
+    """
+    import matplotlib.pyplot as plt
+    visual_dir = os.path.join(self.opt.outf, self.opt.name, 'visuals')
+    if not os.path.exists(visual_dir): os.makedirs(visual_dir)
+    
+    # Get a sample for plotting
+    self.netg.eval()
+    self.nets.eval()
+    self.netr.eval()
+    
+    with torch.no_grad():
+        E_hat_plot = self.netg(self.Z, self.C)
+        H_hat_plot = self.nets(E_hat_plot)
+        X_hat_plot = self.netr(H_hat_plot)
+    
+    real_sample = self.X[0, :, 0].cpu().numpy()
+    fake_sample = X_hat_plot[0, :, 0].cpu().numpy()
+    cond_sample = self.C[0, :, 0].cpu().numpy()
+    
+    plt.figure(figsize=(12, 6))
+    plt.plot(cond_sample, label='Aggregate (Condition)', color='gray', alpha=0.3, linestyle='--')
+    plt.plot(real_sample, label='Real Appliance', color='blue', linewidth=2)
+    plt.plot(fake_sample, label='Generated Appliance', color='red', linewidth=1.5, alpha=0.8)
+    
+    plt.title(f"Iteration {iteration}: {self.opt.data_name} Waveform Evolution")
+    plt.xlabel("Time Steps (256)")
+    plt.ylabel("Power (Normalized [0, 1])")
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    save_path = os.path.join(visual_dir, f'joint_iter_{iteration:05d}.png')
+    plt.savefig(save_path)
+    plt.close()
+    
+    # Re-set to train mode
+    self.netg.train()
+    self.nets.train()
+    self.netr.train()
 
   def generation(self, num_samples):
     if num_samples == 0: return None
