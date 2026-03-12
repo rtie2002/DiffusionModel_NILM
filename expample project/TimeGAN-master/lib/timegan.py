@@ -185,19 +185,25 @@ class BaseModel():
         fake_sample = X_hat_plot[0, :, 0].cpu().numpy()
         fake_sample_1 = X_hat_plot[1, :, 0].cpu().numpy() if X_hat_plot.shape[0] > 1 else None
     
-    # Plot only the power waveform (remove condition plotting)
-    fig, ax = plt.subplots(1, 1, figsize=(14, 4))
+    # Plot: 2 subplots — top: Real vs Gen #0, bottom: Real vs Gen #1
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 6), sharex=True)
     
-    ax.plot(real_sample, label='Real Appliance Power', color='blue', linewidth=2)
-    ax.plot(fake_sample, label='Generated Sample #0', color='red', linewidth=1.5, alpha=0.8)
+    # Top: Real vs Generated Sample #0
+    ax1.plot(real_sample, label='Real Appliance Power', color='blue', linewidth=2)
+    ax1.plot(fake_sample, label='Generated Sample #0', color='red', linewidth=1.5, alpha=0.8)
+    ax1.set_ylabel('Power [0,1]')
+    ax1.legend(fontsize=8)
+    ax1.set_title(f"Iteration {iteration}: {self.opt.data_name} Waveform Evolution")
+    ax1.grid(True, alpha=0.3)
+    
+    # Bottom: Real vs Generated Sample #1
+    ax2.plot(real_sample, label='Real Appliance Power', color='blue', linewidth=2)
     if fake_sample_1 is not None:
-        ax.plot(fake_sample_1, label='Generated Sample #1', color='orange', linewidth=1, alpha=0.6)
-        
-    ax.set_ylabel('Power [0,1]')
-    ax.set_xlabel('Time Steps (512)')
-    ax.legend(fontsize=8)
-    ax.set_title(f"Iteration {iteration}: {self.opt.data_name} Waveform Evolution")
-    ax.grid(True, alpha=0.3)
+        ax2.plot(fake_sample_1, label='Generated Sample #1', color='green', linewidth=1.5, alpha=0.8)
+    ax2.set_ylabel('Power [0,1]')
+    ax2.set_xlabel('Time Steps (512)')
+    ax2.legend(fontsize=8)
+    ax2.grid(True, alpha=0.3)
     
     plt.tight_layout()
     save_path = os.path.join(visual_dir, f'joint_iter_{iteration:05d}.png')
