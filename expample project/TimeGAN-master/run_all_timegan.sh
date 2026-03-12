@@ -18,7 +18,7 @@ do
     
     # ⚡ 步骤 1: 训练 (使用 2024 论文推荐的 50,000 次迭代和 60 窗口大小)
     echo "🏗️ Phase 1: Training..."
-    python train.py --data_name "$app" --seq_len 60 --batch_size 512 --iteration 50000
+    python train.py --data_name "$app" --seq_len 60 --batch_size 128 --iteration 50000
     
     if [ $? -eq 0 ]; then
         echo -e "\033[0;32m✅ Training Finished: $app\033[0m"

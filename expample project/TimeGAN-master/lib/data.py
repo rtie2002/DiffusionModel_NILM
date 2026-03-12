@@ -114,9 +114,22 @@ def real_data_loading (data_name, seq_len):
       conditions = np.zeros((len(ori_data), 1))
       targets = ori_data.reshape(-1, 1)
 
-  # Normalize separately
-  conditions = MinMaxScaler(conditions)
-  targets = MinMaxScaler(targets)
+  # ⚡ SMART NORMALIZATION: 
+  # If data is already in [0, 1], don't do anything (prevents double MinMax).
+  # If data is NOT in [0, 1] (like Time Features in [-1, 1]), normalize it to [0, 1] for TimeGAN.
+  
+  def safe_minmax(data):
+      d_min = np.min(data, axis=0)
+      d_max = np.max(data, axis=0)
+      # Tolerance check for existing [0, 1] range
+      if np.all(d_min >= -0.001) and np.all(d_max <= 1.001):
+          print("      -> Column already in [0, 1] range. Skipping re-normalization.")
+          return data
+      return MinMaxScaler(data)
+
+  print(f"   -> Processing {data_name} columns...")
+  conditions = safe_minmax(conditions)
+  targets = safe_minmax(targets)
     
   temp_targets = []
   temp_conds = []

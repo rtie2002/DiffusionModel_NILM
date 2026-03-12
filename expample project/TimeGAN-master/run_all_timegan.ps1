@@ -13,7 +13,7 @@ foreach ($app in $appliances) {
     
     # ⚡ Step 1: Training (Aligned with 2024 Paper)
     Write-Host "🏗️ Phase 1: Training..."
-    python train.py --data_name $app --seq_len 60 --batch_size 512 --iteration 50000
+    python train.py --data_name $app --seq_len 60 --batch_size 128 --iteration 50000
     
     if ($LASTEXITCODE -eq 0) {
         Write-Host "✅ Training Finished: $app" -ForegroundColor Green

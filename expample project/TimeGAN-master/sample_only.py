@@ -186,37 +186,8 @@ def sample():
     weights_path = os.path.join(opt.outf, opt.name, 'train/weights')
     opt.resume = weights_path
     
-    # 2. Load raw CSV to get ORIGINAL min/max for proper inverse normalization
-    # This is critical to match Diffusion Model output format (real Watts)
-    import os as _os
-    raw_csv_path = _os.path.join(
-        _os.path.dirname(_os.path.abspath(__file__)),
-        '..', '..', '..', 'Data', 'datasets', f'{opt.data_name}.csv'
-    )
-    # Try different relative paths to find the data
-    possible_paths = [
-        _os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
-                      '..', '..', '..', 'Data', 'datasets', f'{opt.data_name}.csv'),
-        _os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
-                      '..', 'Data', 'datasets', f'{opt.data_name}.csv'),
-        f'C:/Users/Raymond Tie/Desktop/DiffusionModel_NILM/Data/datasets/{opt.data_name}.csv',
-    ]
-    raw_csv_path = None
-    for p in possible_paths:
-        if _os.path.exists(p):
-            raw_csv_path = p
-            break
+    print("📜 Output mode: Pure MinMax [0, 1] (Aligning with Diffusion Model logic).")
 
-    if raw_csv_path:
-        raw_data = np.loadtxt(raw_csv_path, delimiter=",", skiprows=1)
-        # Column 1 is appliance power (raw Watts)
-        raw_power = raw_data[:, 1]
-        power_min = raw_power.min()
-        power_max = raw_power.max()
-        print(f"✅ Raw CSV loaded. Power range: {power_min:.2f}W ~ {power_max:.2f}W")
-    else:
-        print("⚠️ Raw CSV not found. Power will remain normalized [0,1].")
-        power_min, power_max = 0.0, 1.0
 
     # 3. 加载归一化数据 (Targets + Conditions)
     targets, conditions = load_data(opt)
@@ -242,26 +213,21 @@ def sample():
 
 
     # ─────────────────────────────────────────────────────────────────────────
-    # 8. ⚡ INVERSE NORMALIZATION to match Diffusion Model output format
+    # 8. ⚡ OUTPUT ALIGNMENT (Strictly MinMax [0, 1])
     #
-    #    Diffusion NPY format: [N, L, 9]
-    #      - Channel 0   : power in real Watts  (e.g. 0 ~ 3100 W)
-    #      - Channel 1-8 : time features        (sin/cos, already in [-1, 1])
-    #
-    #    TimeGAN raw output  : [N, L, 9], all channels in [0, 1]
-    #    After this block    : identical to Diffusion format ✅
+    #    User requested to output in MinMax [0, 1] to match Diffusion Model logic.
+    #    - Channel 0   : Power, stays in [0, 1]
+    #    - Channel 1-8 : Time features, restored to [-1, 1]
     # ─────────────────────────────────────────────────────────────────────────
-    print("🔁 Applying inverse normalization to match Diffusion Model format...")
+    print("🔁 Outputting data in MinMax [0, 1] (Aligning with Diffusion Model logic)...")
     final_data = generated_data.copy()
 
-    # Channel 0: power  [0,1] → real Watts
-    final_data[:, :, 0] = (
-        generated_data[:, :, 0] * (power_max - power_min) + power_min
-    )
+    # Channel 0: Stays normalized [0, 1]
+    final_data[:, :, 0] = generated_data[:, :, 0] 
 
-    # Channel 1-8: time features are sin/cos, originally in [-1, 1]
-    # TimeGAN MinMaxScaler maps [-1,1] → [0,1];  inverse: x*2 - 1
+    # Channel 1-8: Still need to go from [0, 1] back to [-1, 1] for SIN/COS features
     final_data[:, :, 1:] = generated_data[:, :, 1:] * 2.0 - 1.0
+
 
     # ─────────────────────────────────────────────────────────────────────────
     # 8.5 ⚡ RESHAPE to match Diffusion Model window size [N, 512, 9]
@@ -274,13 +240,13 @@ def sample():
 
     N, L, V = final_data.shape
     print(f"✅ Final shape : {final_data.shape}")
-    print(f"   Power range : {final_data[:,:,0].min():.2f}W ~ {final_data[:,:,0].max():.2f}W")
+    print(f"   Power range : {final_data[:,:,0].min():.4f} ~ {final_data[:,:,0].max():.4f}")
     print(f"   Time range  : {final_data[:,:,1:].min():.3f} ~ {final_data[:,:,1:].max():.3f}")
 
     # 9. Save
-    output_dir = _os.path.join(opt.outf, opt.name)
-    npy_path   = _os.path.join(output_dir, f'timegan_fake_{opt.data_name}.npy')
-    csv_path   = _os.path.join(output_dir, f'timegan_fake_{opt.data_name}_snippet.csv')
+    output_dir = os.path.join(opt.outf, opt.name)
+    npy_path   = os.path.join(output_dir, f'timegan_fake_{opt.data_name}.npy')
+    csv_path   = os.path.join(output_dir, f'timegan_fake_{opt.data_name}_snippet.csv')
 
     print(f"📁 Saving NPY: {npy_path}")
     np.save(npy_path, final_data)

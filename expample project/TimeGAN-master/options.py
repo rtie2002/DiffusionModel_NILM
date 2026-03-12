@@ -45,12 +45,12 @@ class Options():
         self.parser.add_argument(
             '--hidden_dim',
             help='hidden state dimensions (should be optimized)',
-            default=24,
+            default=64,
             type=int)
         self.parser.add_argument(
             '--num_layers',
             help='number of layers (should be optimized)',
-            default=3,
+            default=4,
             type=int)
         self.parser.add_argument(
             '--iteration',
@@ -60,7 +60,7 @@ class Options():
         self.parser.add_argument(
             '--batch_size',
             help='the number of samples in mini-batch (should be optimized)',
-            default=512,
+            default=128,
             type=int)
         self.parser.add_argument(
             '--metric_iteration',
@@ -96,7 +96,7 @@ class Options():
         self.parser.add_argument('--w_gamma', type=float, default=1, help='Gamma weight')
         self.parser.add_argument('--w_es', type=float, default=0.1, help='Encoder loss weight')
         self.parser.add_argument('--w_e0', type=float, default=10, help='Encoder loss weight')
-        self.parser.add_argument('--w_g', type=float, default=100, help='Generator loss weight.')
+        self.parser.add_argument('--w_g', type=float, default=1, help='Generator loss weight.')
         self.isTrain = True
         self.opt = None
 

@@ -272,18 +272,32 @@ class TimeGAN(BaseModel):
       texture_fake = torch.std(diff_fake, dim=1)
       self.err_g_texture = torch.mean(torch.abs(texture_fake - texture_real))
 
+      # ⚡ NEW: Frequency Domain Loss (FFT Loss)
+      # This forces the model to match the "vibration" and "motor noise" signature
+      # of the real appliance by comparing their power spectrums.
+      real_fft = torch.fft.rfft(self.X[:, :, 0], dim=1)
+      fake_fft = torch.fft.rfft(self.X_hat[:, :, 0], dim=1)
+      self.err_g_freq = torch.mean(torch.abs(torch.abs(fake_fft) - torch.abs(real_fft)))
+
+      # ⚡ NEW: Diversity Loss (Anti-Mode Collapse)
+      # Forces the generator to produce different-looking samples in a single batch
+      # by penalizing it if all samples in a batch look too similar.
+      dist_fake = torch.pdist(self.X_hat.view(self.opt.batch_size, -1))
+      self.err_g_diversity = 1.0 / (torch.mean(dist_fake) + 1e-5)
+
       # Supervisor
       self.err_s = self.l_mse(self.H_supervise[:,:-1,:], self.H[:,1:,:])
       
       # Total G Loss
-      # ⚠️ REMOVED err_g_tv completely because it forces flat blocks!
-      # ⚠️ INCREASED Adversarial & Texture weight to encourage high-frequency learning
-      self.err_g = self.err_g_U * 2.0 + \
+      # ⚠️ Rebalanced weights for the "Ultimate Baseline"
+      self.err_g = self.err_g_U * 3.0 + \
                    self.err_g_U_e * self.opt.w_gamma + \
-                   self.err_g_V1 * (self.opt.w_g * 5.0) + \
-                   self.err_g_V2 * self.opt.w_g + \
+                   self.err_g_V1 * 5.0 + \
+                   self.err_g_V2 * 1.0 + \
                    10.0 * torch.sqrt(self.err_s) + \
-                   5.0 * self.err_g_texture
+                   3.0 * self.err_g_texture + \
+                   2.0 * self.err_g_freq + \
+                   0.5 * self.err_g_diversity
                    
       self.err_g.backward(retain_graph=True)
 
