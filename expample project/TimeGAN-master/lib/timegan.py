@@ -362,26 +362,25 @@ class TimeGAN(BaseModel):
       batch_var = torch.var(self.X_hat.view(self.opt.batch_size, -1), dim=0)
       self.err_g_diversity = 1.0 / (torch.mean(batch_var) + 1e-5)
 
-      # ⚡ NEW: Total Variation (TV) Loss
-      # Mimics the "smoothness" constraint from the CNN-CGAN notebook.
-      # Penalizes random spikes/noise and encourages structural shapes.
-      self.err_g_tv = torch.mean(torch.abs(self.X_hat[:, 1:, 0] - self.X_hat[:, :-1, 0]))
+      # ⚡ TV Loss REMOVED: It was actively smoothing the signal,
+      # preventing the model from learning sharp transitions and ON-period texture.
+      # self.err_g_tv = torch.mean(torch.abs(self.X_hat[:, 1:, 0] - self.X_hat[:, :-1, 0]))
+      self.err_g_tv = torch.tensor(0.0).to(self.device)  # disabled
 
 
       # Supervisor
       self.err_s = self.l_mse(self.H_supervise[:,:-1,:], self.H[:,1:,:])
       
       # Total G Loss
-      # ⚠️ REBALANCED for Sparsity/Pulses (NILM Special)
+      # ⚠️ REBALANCED for Detail/Texture (Phase 2: after flat-line fix)
       self.err_g = self.err_g_U * 1.0 + \
                    self.err_g_U_e * self.opt.w_gamma + \
-                   self.err_g_V1 * 10.0 + \
+                   self.err_g_V1 * 5.0 + \
                    self.err_g_V2 * 1.0 + \
                    1.0 * torch.sqrt(self.err_s) + \
-                   5.0 * self.err_g_texture + \
-                   2.0 * self.err_g_freq + \
-                   1.0 * self.err_g_diversity + \
-                   1.0 * self.err_g_tv
+                   10.0 * self.err_g_texture + \
+                   1.0 * self.err_g_freq + \
+                   0.5 * self.err_g_diversity
                    
       self.err_g.backward(retain_graph=True)
 
