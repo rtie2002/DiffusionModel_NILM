@@ -16,16 +16,16 @@ do
     echo -e "\033[0;36m🚀 STARTING C-TIMEGAN+ FOR: $app\033[0m"
     echo -e "\033[0;36m============================================================\033[0m"
     
-    # ⚡ 步骤 1: 训练 (Using 60 window and 10,000 iterations for efficiency)
+    # ⚡ 步骤 1: 训练 (Using 256 window and 10,000 iterations for efficiency)
     echo "🏗️ Phase 1: Training..."
-    python train.py --data_name "$app" --seq_len 60 --batch_size 128 --iteration 10000
+    python train.py --data_name "$app" --seq_len 256 --batch_size 128 --iteration 10000
     
     if [ $? -eq 0 ]; then
         echo -e "\033[0;32m✅ Training Finished: $app\033[0m"
         
-        # ⚡ 步骤 2: 采样 (采用 60 窗口大小)
+        # ⚡ 步骤 2: 采样 (采用 256 窗口大小)
         echo "🧪 Phase 2: Generating Synthetic Data (with OCSVM Filtering)..."
-        python sample_only.py --data_name "$app" --seq_len 60
+        python sample_only.py --data_name "$app" --seq_len 256
         
         if [ $? -eq 0 ]; then
             echo -e "\033[0;32m🎉 Successfully generated data for: $app\033[0m"

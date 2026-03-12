@@ -51,11 +51,11 @@ def train():
     print("DEVICE INFORMATION")
     print("=" * 60)
     if torch.cuda.is_available():
-        print(f"OK - Using device: CUDA (GPU)")
+        print(f"✓ Using device: CUDA (GPU)")
         print(f"  GPU Name: {torch.cuda.get_device_name(0)}")
         print(f"  GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB")
     else:
-        print(f"WARNING: Using device: CPU (No GPU detected or CUDA disabled)")
+        print(f"⚠ Using device: CPU (No GPU detected or CUDA disabled)")
     print("=" * 60)
     print()
 
@@ -80,7 +80,7 @@ def train():
     opt.z_dim = actual_dim
     opt.cond_dim = cond_dim 
     
-    print(f"\nDIMENSION SUMMARY:")
+    print(f"\n📏 DIMENSION SUMMARY:")
     print(f"   -> Target Dim (Appliance+Time): {actual_dim}")
     print(f"   -> Cond   Dim (Context Source): {cond_dim}")
     print(f"   -> Total RNN Input          : {actual_dim + cond_dim}")
@@ -92,9 +92,9 @@ def train():
     # TRAIN MODEL
     model.train()
     
-    print(f"SUCCESS: Training of {opt.data_name} completed.")
+    print(f"✅ Training of {opt.data_name} completed.")
     print(f"📂 Weights saved in: {os.path.join(opt.outf, opt.name, 'train', 'weights')}")
-    print(f"INFO: You can now run sample_only.py or run_all_timegan.sh to generate data.")
+    print(f"💡 You can now run sample_only.py or run_all_timegan.sh to generate data.")
 
 if __name__ == '__main__':
     train()
