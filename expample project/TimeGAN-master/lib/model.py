@@ -23,6 +23,8 @@ model.py: Network Modules
 import torch
 import torch.nn as nn
 import torch.nn.init as init
+from torch.nn.utils import spectral_norm
+
 
 
 def _weights_init(m):
@@ -183,7 +185,10 @@ class Discriminator(nn.Module):
         combined = torch.cat([input, cond], dim=-1)
         d_outputs, _ = self.rnn(combined)
         d_outputs = self.norm(d_outputs)
-        Y_hat = self.fc(d_outputs)
+        # ⚡ SPECTRAL NORM: Stabilizes training by limiting Lipschitz constant
+        sn_fc = spectral_norm(self.fc)
+        Y_hat = sn_fc(d_outputs)
+
         if sigmoid:
             Y_hat = self.sigmoid(Y_hat)
         return Y_hat

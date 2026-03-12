@@ -285,6 +285,12 @@ class TimeGAN(BaseModel):
       dist_fake = torch.pdist(self.X_hat.view(self.opt.batch_size, -1))
       self.err_g_diversity = 1.0 / (torch.mean(dist_fake) + 1e-5)
 
+      # ⚡ NEW: Total Variation (TV) Loss
+      # Mimics the "smoothness" constraint from the CNN-CGAN notebook.
+      # Penalizes random spikes/noise and encourages structural shapes.
+      self.err_g_tv = torch.mean(torch.abs(self.X_hat[:, 1:, 0] - self.X_hat[:, :-1, 0]))
+
+
       # Supervisor
       self.err_s = self.l_mse(self.H_supervise[:,:-1,:], self.H[:,1:,:])
       
@@ -297,7 +303,8 @@ class TimeGAN(BaseModel):
                    10.0 * torch.sqrt(self.err_s) + \
                    3.0 * self.err_g_texture + \
                    2.0 * self.err_g_freq + \
-                   0.5 * self.err_g_diversity
+                   0.5 * self.err_g_diversity + \
+                   2.0 * self.err_g_tv
                    
       self.err_g.backward(retain_graph=True)
 
