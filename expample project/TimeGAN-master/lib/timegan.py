@@ -146,7 +146,7 @@ class BaseModel():
       if (iter + 1) % 10 == 0:
           self.save_joint_visuals(iter + 1)
           
-      pbar_j.set_postfix({'G_loss': f'{self.err_g.item():.4f}'})
+      pbar_j.set_postfix({'G_loss': f'{self.err_g.item():.4f}', 'D_loss': f'{self.err_d.item():.4f}'})
 
     self.save_weights(self.opt.iteration)
     print('\nFinish C-TimeGAN Training')
@@ -171,12 +171,13 @@ class BaseModel():
     
     real_sample = self.X[0, :, 0].cpu().numpy()
     fake_sample = X_hat_plot[0, :, 0].cpu().numpy()
-    cond_sample = self.C[0, :, 0].cpu().numpy()
+    # If cond is 8-dim, take the first one or a relevant one for background context
+    cond_sample = self.C[0, :, 0].cpu().numpy() 
     
     plt.figure(figsize=(12, 6))
-    plt.plot(cond_sample, label='Aggregate (Condition)', color='gray', alpha=0.3, linestyle='--')
-    plt.plot(real_sample, label='Real Appliance', color='blue', linewidth=2)
-    plt.plot(fake_sample, label='Generated Appliance', color='red', linewidth=1.5, alpha=0.8)
+    plt.plot(cond_sample, label='Condition Pattern (Sample)', color='gray', alpha=0.3, linestyle='--')
+    plt.plot(real_sample, label='Real Appliance Power', color='blue', linewidth=2)
+    plt.plot(fake_sample, label='Generated Appliance Power', color='red', linewidth=1.5, alpha=0.8)
     
     plt.title(f"Iteration {iteration}: {self.opt.data_name} Waveform Evolution")
     plt.xlabel("Time Steps (256)")
@@ -201,9 +202,10 @@ class BaseModel():
     self.nets.eval()
     self.netr.eval()
     
-    # ⚡ 100W DATA OPTIMIZATION: Zero-Spike Pre-allocation
-    print(f"📦 Pre-allocating memory for {num_samples} samples...")
-    out_array = np.zeros((num_samples, self.opt.seq_len, self.opt.z_dim), dtype=np.float32)
+    # ⚡ DATA ASSEMBLY: Target (1) + Conditions (8) = Total 9 Columns for Diffusion
+    final_dim = self.opt.z_dim + self.opt.cond_dim
+    print(f"📦 Pre-allocating memory for {num_samples} samples (Final Dim: {final_dim})...")
+    out_array = np.zeros((num_samples, self.opt.seq_len, final_dim), dtype=np.float32)
     
     iterations = (num_samples // batch_size) + (1 if num_samples % batch_size != 0 else 0)
     from tqdm import tqdm
@@ -211,26 +213,35 @@ class BaseModel():
         curr_batch_size = batch_size if i < iterations - 1 else num_samples - i * batch_size
         if curr_batch_size <= 0: break
 
-        # Get real conditions (Aggregate) for context
+        # Get real conditions for context (e.g. 8-dim Time Features)
         _, T_samples, C_mb = batch_generator(self.ori_data, self.ori_conds, curr_batch_size)
+        C_mb_np = np.stack(C_mb)
         
         Z = random_generator(curr_batch_size, self.opt.latent_dim, T_samples, self.opt.seq_len)
         Z_tensor = torch.tensor(np.stack(Z), dtype=torch.float32).to(self.device).contiguous()
-        C_tensor = torch.tensor(np.stack(C_mb), dtype=torch.float32).to(self.device).contiguous()
+        C_tensor = torch.tensor(C_mb_np, dtype=torch.float32).to(self.device).contiguous()
         
         with torch.no_grad():
             E_hat = self.netg(Z_tensor, C_tensor)
             H_hat = self.nets(E_hat)
-            gen_batch = self.netr(H_hat).cpu().numpy()
+            gen_batch = self.netr(H_hat).cpu().numpy() # (Batch, Seq, 1)
 
         start_idx = i * batch_size
         for j in range(curr_batch_size):
-            temp = gen_batch[j, :T_samples[j], :]
-            # Re-normalize
-            temp = temp * (self.max_val + 1e-7)
-            temp = temp + self.min_val
+            # 1. Take generated appliance power (1 dim)
+            temp_gen = gen_batch[j, :T_samples[j], :] 
+            # Re-normalize only the power column
+            temp_gen = temp_gen * (self.max_val + 1e-7)
+            temp_gen = temp_gen + self.min_val
+            
+            # 2. Take real-time features (8 dims) from the conditioning input
+            temp_cond = C_mb_np[j, :T_samples[j], :]
+            
+            # 3. Concatenate: [Gen Power (1), Real Time (8)] -> Total 9
+            temp_combined = np.column_stack([temp_gen, temp_cond])
+            
             # Fill pre-allocated block
-            out_array[start_idx + j, :T_samples[j], :] = temp
+            out_array[start_idx + j, :T_samples[j], :] = temp_combined
             
     return out_array
 
@@ -304,13 +315,13 @@ class TimeGAN(BaseModel):
       self.err_er.backward(retain_graph=True)
 
     def backward_er_(self):
-      # Weighted MSE for Power column (Index 0)
-      power_mse = self.l_mse(self.X_tilde[:, :, 0], self.X[:, :, 0])
-      feat_mse = self.l_mse(self.X_tilde[:, :, 1:], self.X[:, :, 1:])
-      self.err_er_raw = 10.0 * power_mse + 1.0 * feat_mse
+      # Focus high-weight MSE on the Appliance Power (The only target column now)
+      power_mse = self.l_mse(self.X_tilde, self.X)
+      self.err_er_raw = power_mse
       self.err_s = self.l_mse(self.H_supervise[:,:-1,:], self.H[:,1:,:])
       
-      self.err_er = 10 * torch.sqrt(self.err_er_raw) + 0.1 * self.err_s
+      # Combined Reconstruction + Supervisor loss
+      self.err_er = 10.0 * torch.sqrt(self.err_er_raw) + 0.1 * self.err_s
       self.err_er.backward(retain_graph=True)
 
     def backward_g(self):

@@ -105,25 +105,27 @@ def real_data_loading (data_name, seq_len):
   
   ori_data = np.loadtxt(file_path, delimiter=",", skiprows=1)
   
-  # ⚡ C-TimeGAN INTELLIGENT DIMENSION DETECTION:
+  # ⚡ C-TimeGAN LEAN ARCHITECTURE (Requested Fix):
   if ori_data.shape[1] == 9:
-      print(f"✅ 9-Column Mode Detected (No separate Aggregate):")
-      print(f"   -> Mapping Col 0 as Appliance Power (Target).")
-      print(f"   -> Mapping Cols 1-8 as Time Features (Conditions).")
-      # TARGET: Power + Time (Total 9)
-      targets = ori_data[:, 0:]    
-      # CONDITION: Time features (Total 8) act as the generation control
+      print(f"✅ 9-Column Mode Detected:")
+      print(f"   -> TARGET: Appliance Power (Col 0) | Dim: 1")
+      print(f"   -> COND  : Time Features (Col 1-8) | Dim: 8")
+      # TARGET: Only Appliance Power (1 column)
+      targets = ori_data[:, 0:1]    
+      # CONDITION: Time features (8 columns)
       conditions = ori_data[:, 1:] 
   elif ori_data.shape[1] >= 10:
-      print(f"✅ 10+ Column Mode Detected (Aggregate + Appliance + Time):")
-      # Aggregated Power (Col 0) is the CONDITION
-      conditions = ori_data[:, 0:1] 
-      # Appliance (Col 1) + Time features (Col 2-9) are TARGETS (Total 9)
-      targets = ori_data[:, 1:10]    
+      print(f"✅ 10+ Column Mode Detected:")
+      print(f"   -> TARGET: Appliance Power (Col 1) | Dim: 1")
+      print(f"   -> COND  : Aggregate + Time (Col 0, 2-9) | Dim: 9")
+      # TARGET: Only Appliance Power
+      targets = ori_data[:, 1:2]
+      # CONDITION: Aggregate (Col 0) + Time (Col 2-9)
+      conditions = np.column_stack([ori_data[:, 0:1], ori_data[:, 2:10]])
   else:
-      print(f"⚠️ Low Dimension Data ({ori_data.shape[1]} cols). Defaulting to self-conditioning.")
+      print(f"⚠️ Low Dimension Data ({ori_data.shape[1]} cols).")
       conditions = ori_data[:, 0:1]
-      targets = ori_data[:, 0:]
+      targets = ori_data[:, 0:1]
 
   # ⚡ SMART NORMALIZATION: 
   # If data is already in [0, 1], don't do anything (prevents double MinMax).
