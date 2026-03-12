@@ -16,9 +16,9 @@ do
     echo -e "\033[0;36m🚀 STARTING C-TIMEGAN+ FOR: $app\033[0m"
     echo -e "\033[0;36m============================================================\033[0m"
     
-    # ⚡ 步骤 1: 训练 (Using 60 window and 10,000 iterations for efficiency)
+    # ⚡ 步骤 1: 训练 (C-TimeGAN Paper: window=60, hidden=24, iter=50k, lr=0.001)
     echo "🏗️ Phase 1: Training..."
-    python train.py --data_name "$app" --seq_len 60 --batch_size 128 --iteration 10000
+    python train.py --data_name "$app" --seq_len 60 --hidden_dim 24 --batch_size 128 --iteration 50000 --lr 0.001
     
     if [ $? -eq 0 ]; then
         echo -e "\033[0;32m✅ Training Finished: $app\033[0m"

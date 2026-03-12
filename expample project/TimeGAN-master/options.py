@@ -35,7 +35,7 @@ class Options():
         self.parser.add_argument(
             '--latent_dim',
             help='latent/noise dimension',
-            default=64,
+            default=24,
             type=int)
         self.parser.add_argument(
             '--seq_len',
@@ -50,7 +50,7 @@ class Options():
         self.parser.add_argument(
             '--hidden_dim',
             help='hidden state dimensions (should be optimized)',
-            default=128,
+            default=24,
             type=int)
         self.parser.add_argument(
             '--num_layers',
@@ -60,7 +60,7 @@ class Options():
         self.parser.add_argument(
             '--iteration',
             help='Training iterations (should be optimized)',
-            default=10000,
+            default=50000,
             type=int)
         self.parser.add_argument(
             '--batch_size',
@@ -96,7 +96,7 @@ class Options():
         self.parser.add_argument('--resume', default='', help="path to checkpoints (to continue training)")
 
         self.parser.add_argument('--beta1', type=float, default=0.9, help='momentum term of adam')
-        self.parser.add_argument('--lr', type=float, default=0.0002, help='initial learning rate for adam')
+        self.parser.add_argument('--lr', type=float, default=0.001, help='initial learning rate for adam (C-TimeGAN paper: 0.001)')
 
         self.parser.add_argument('--w_gamma', type=float, default=1, help='Gamma weight')
         self.parser.add_argument('--w_es', type=float, default=0.1, help='Encoder loss weight')

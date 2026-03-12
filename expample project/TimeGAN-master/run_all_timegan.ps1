@@ -11,9 +11,9 @@ foreach ($app in $appliances) {
     Write-Host "🚀 STARTING C-TIMEGAN+ FOR: $app" -ForegroundColor Cyan
     Write-Host ("=" * 60) -ForegroundColor Cyan
     
-    # ⚡ Step 1: Training (Using 60 window and 10,000 iterations for rapid results)
+    # ⚡ Step 1: Training (C-TimeGAN Paper: window=60, hidden=24, iter=50k, lr=0.001)
     Write-Host "🏗️ Phase 1: Training..."
-    python train.py --data_name $app --seq_len 60 --batch_size 128 --iteration 10000
+    python train.py --data_name $app --seq_len 60 --hidden_dim 24 --batch_size 128 --iteration 50000 --lr 0.001
     
     if ($LASTEXITCODE -eq 0) {
         Write-Host "✅ Training Finished: $app" -ForegroundColor Green

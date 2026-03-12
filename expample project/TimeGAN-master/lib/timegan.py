@@ -334,12 +334,17 @@ class TimeGAN(BaseModel):
       self.err_er.backward(retain_graph=True)
 
     def backward_g(self):
-      # Adversarial (This is what actually learns the realistic shape!)
+      # ─────────────────────────────────────────────────────────────────────────
+      # C-TimeGAN Paper Loss (Eq. 13-14)
+      #   min_{θ_g} (η * L_σ + max_{θ_d} L_U)
+      #   where η = 15 (Table I), λ = 1
+      # ─────────────────────────────────────────────────────────────────────────
+
+      # 1. Adversarial Loss L_U (Eq. 11)
       self.err_g_U = self.l_bce(self.Y_fake, torch.ones_like(self.Y_fake))
       self.err_g_U_e = self.l_bce(self.Y_fake_e, torch.ones_like(self.Y_fake_e))
       
-      # Moments matching (V1 = Std Dev matching, V2 = Mean matching)
-      # Calculated across Batch for each Time Step
+      # 2. Moments matching (V1 = Std Dev, V2 = Mean)
       real_std = torch.std(self.X, dim=0) 
       fake_std = torch.std(self.X_hat, dim=0) 
       self.err_g_V1 = torch.mean(torch.abs(fake_std - real_std))
@@ -347,49 +352,17 @@ class TimeGAN(BaseModel):
       real_mean = torch.mean(self.X, dim=0)
       fake_mean = torch.mean(self.X_hat, dim=0)
       self.err_g_V2 = torch.mean(torch.abs(fake_mean - real_mean))   
-      
-      # Difference/Texture Loss: Instead of rigid MSE which smooths things out,
-      # we force the VARIANCE (roughness) of the fake signal's steps to match the real signal's steps.
-      diff_real = self.X[:, 1:, 0] - self.X[:, :-1, 0]
-      diff_fake = self.X_hat[:, 1:, 0] - self.X_hat[:, :-1, 0]
-      
-      # Match the "amount of jitter" (std of diff) rather than the exact exact placement
-      texture_real = torch.std(diff_real, dim=1)
-      texture_fake = torch.std(diff_fake, dim=1)
-      self.err_g_texture = torch.mean(torch.abs(texture_fake - texture_real))
 
-      # ⚡ NEW: Frequency Domain Loss (FFT Loss)
-      # This forces the model to match the "vibration" and "motor noise" signature
-      # of the real appliance by comparing their power spectrums.
-      real_fft = torch.fft.rfft(self.X[:, :, 0], dim=1)
-      fake_fft = torch.fft.rfft(self.X_hat[:, :, 0], dim=1)
-      self.err_g_freq = torch.mean(torch.abs(torch.abs(fake_fft) - torch.abs(real_fft)))
-
-      # ⚡ SPEED OPTIMIZATION: Variance-based Diversity Loss
-      # pdist is O(N^2) - very slow. Variance is O(N) - very fast.
-      # This still forces the batch to be diverse by ensuring individual samples don't collapse.
-      batch_var = torch.var(self.X_hat.view(self.opt.batch_size, -1), dim=0)
-      self.err_g_diversity = 1.0 / (torch.mean(batch_var) + 1e-5)
-
-      # ⚡ TV Loss REMOVED: It was actively smoothing the signal,
-      # preventing the model from learning sharp transitions and ON-period texture.
-      # self.err_g_tv = torch.mean(torch.abs(self.X_hat[:, 1:, 0] - self.X_hat[:, :-1, 0]))
-      self.err_g_tv = torch.tensor(0.0).to(self.device)  # disabled
-
-
-      # Supervisor
+      # 3. Supervised Loss L_σ (Eq. 12) — η = 15 per paper Table I
       self.err_s = self.l_mse(self.H_supervise[:,:-1,:], self.H[:,1:,:])
       
-      # Total G Loss
-      # ⚠️ REBALANCED for Detail/Texture (Phase 2: after flat-line fix)
+      # Total G Loss (Paper Eq. 13-14)
+      #   L_U (adversarial) + η * sqrt(L_σ) (supervised) + moments
       self.err_g = self.err_g_U * 1.0 + \
                    self.err_g_U_e * self.opt.w_gamma + \
-                   self.err_g_V1 * 5.0 + \
-                   self.err_g_V2 * 1.0 + \
-                   1.0 * torch.sqrt(self.err_s) + \
-                   10.0 * self.err_g_texture + \
-                   1.0 * self.err_g_freq + \
-                   0.5 * self.err_g_diversity
+                   self.err_g_V1 * 100.0 + \
+                   self.err_g_V2 * 100.0 + \
+                   15.0 * torch.sqrt(self.err_s)
                    
       self.err_g.backward(retain_graph=True)
 
