@@ -60,114 +60,120 @@ class CustomDataset(Dataset):
         self.sample_num = self.samples.shape[0]
 
     def __getsamples(self, data, proportion, seed):
-        x = np.zeros((self.sample_num_total, self.window, self.var_num))
-        for i in range(self.sample_num_total):
-            start = i
-            end = i + self.window
-            x[i, :, :] = data[start:end, :]
-
-        train_data, test_data = self.divide(x, proportion, seed)
-
+        # Create indices instead of materializing all windows
+        indices = np.arange(self.sample_num_total)
+        
+        # Divide indices into train/test
+        train_indices, test_indices = self.divide_indices(indices, proportion, seed)
+        
         if self.save2npy:
-            if 1 - proportion > 0:
-                np.save(os.path.join(self.dir, f"{self.name}_ground_truth_{self.window}_test.npy"), self.unnormalize(test_data))
-            np.save(os.path.join(self.dir, f"{self.name}_ground_truth_{self.window}_train.npy"), self.unnormalize(train_data))
-            if self.auto_norm:
-                if 1 - proportion > 0:
-                    np.save(os.path.join(self.dir, f"{self.name}_norm_truth_{self.window}_test.npy"), unnormalize_to_zero_to_one(test_data))
-                np.save(os.path.join(self.dir, f"{self.name}_norm_truth_{self.window}_train.npy"), unnormalize_to_zero_to_one(train_data))
-            else:
-                if 1 - proportion > 0:
-                    np.save(os.path.join(self.dir, f"{self.name}_norm_truth_{self.window}_test.npy"), test_data)
-                np.save(os.path.join(self.dir, f"{self.name}_norm_truth_{self.window}_train.npy"), train_data)
+            print(f"  [Info] save2npy is enabled. Saving base sequence and indices to save space.")
+            # Saving 1M overlapping windows is redundant (takes 512x more space).
+            # We save the base sequence and the indices instead.
+            np.save(os.path.join(self.dir, f"{self.name}_base_data_norm.npy"), self.data)
+            np.save(os.path.join(self.dir, f"{self.name}_indices_{self.period}.npy"), train_indices if self.period == 'train' else test_indices)
 
-        return train_data, test_data
+        return train_indices, test_indices
+
+    @staticmethod
+    def divide_indices(indices, ratio, seed=2024):
+        size = len(indices)
+        st0 = np.random.get_state()
+        np.random.seed(seed)
+        
+        id_rdm = np.random.permutation(size)
+        train_num = int(np.ceil(size * ratio))
+        
+        train_id = indices[id_rdm[:train_num]]
+        test_id = indices[id_rdm[train_num:]]
+        
+        np.random.set_state(st0)
+        return train_id, test_id
 
     def normalize(self, sq):
-        d = sq.reshape(-1, self.var_num)
+        # sq shape: (N, L, V)
+        N, L, V = sq.shape
+        d = sq.reshape(-1, V)
         d = self.scaler.transform(d)
         if self.auto_norm:
             d = normalize_to_neg_one_to_one(d)
-        return d.reshape(-1, self.window, self.var_num)
+        return d.reshape(N, L, V)
 
     def unnormalize(self, sq):
-        d = self.__unnormalize(sq.reshape(-1, self.var_num))
-        return d.reshape(-1, self.window, self.var_num)
+        # sq shape: (N, L, V)
+        N, L, V = sq.shape
+        d = sq.reshape(-1, V)
+        if self.auto_norm:
+            d = unnormalize_to_zero_to_one(d)
+        d = self.scaler.inverse_transform(d)
+        return d.reshape(N, L, V)
     
     def __normalize(self, rawdata):
         data = self.scaler.transform(rawdata)
         if self.auto_norm:
             data = normalize_to_neg_one_to_one(data)
-        return data
+        return data.astype(np.float32)
 
     def __unnormalize(self, data):
         if self.auto_norm:
             data = unnormalize_to_zero_to_one(data)
-        x = data
-        return self.scaler.inverse_transform(x)
+        return self.scaler.inverse_transform(data)
     
     @staticmethod
     def divide(data, ratio, seed=2024):
-        size = data.shape[0]
-        # Store the state of the RNG to restore later.
-        st0 = np.random.get_state()
-        np.random.seed(seed)
-
-        regular_train_num = int(np.ceil(size * ratio))
-        id_rdm = np.random.permutation(size)
-        regular_train_id = id_rdm[:regular_train_num]
-        irregular_train_id = id_rdm[regular_train_num:]
-
-        regular_data = data[regular_train_id, :]
-        irregular_data = data[irregular_train_id, :]
-
-        # Restore RNG.
-        np.random.set_state(st0)
-        return regular_data, irregular_data
+        # Legacy support
+        return CustomDataset.divide_indices(data, ratio, seed)
 
     @staticmethod
     def read_data(filepath, name=''):
-        """Reads a single .csv
+        """Reads target column efficiently without loading entire CSV
         """
-        df = pd.read_csv(filepath, header=0)
-        if df.shape[1] > 1:
-            # If multiple columns, try to find the one matching the appliance name.
-            # If not found, follow user request to "just take the first one".
-            matched_cols = [c for c in df.columns if c.lower() == name.lower()]
-            if matched_cols:
-                df = df[[matched_cols[0]]]
+        # 1. Identify correct column index
+        headers = pd.read_csv(filepath, nrows=0).columns.tolist()
+        use_cols = [0]
+        if len(headers) > 1:
+            matched = [i for i, c in enumerate(headers) if c.lower() == name.lower()]
+            if matched:
+                use_cols = [matched[0]]
+                print(f"  [Data] Selecting column: '{name}' (Index: {matched[0]})")
             else:
-                df = df.iloc[:, [0]]
-        data = df.values
+                print(f"  [Data] '{name}' not found, defaulting to first column.")
+        
+        # 2. Optimized read
+        df = pd.read_csv(filepath, usecols=use_cols, engine='c')
+        data = df.values.astype(np.float32)
+        
         scaler = MinMaxScaler()
         scaler = scaler.fit(data)
         return data, scaler
     
     def mask_data(self, seed=2024):
-        masks = np.ones_like(self.samples)
-        # Store the state of the RNG to restore later.
+        # For testing/imputation periods
+        masks = np.ones((len(self.samples), self.window, self.var_num), dtype=bool)
         st0 = np.random.get_state()
         np.random.seed(seed)
 
-        for idx in range(self.samples.shape[0]):
-            x = self.samples[idx, :, :]  # (seq_length, feat_dim) array
+        for i, idx in enumerate(self.samples):
+            x = self.data[idx : idx + self.window] 
             mask = noise_mask(x, self.missing_ratio, self.mean_mask_length, self.style,
-                              self.distribution)  # (seq_length, feat_dim) boolean array
-            masks[idx, :, :] = mask
+                               self.distribution) 
+            masks[i, :, :] = mask
 
         if self.save2npy:
             np.save(os.path.join(self.dir, f"{self.name}_masking_{self.window}.npy"), masks)
 
-        # Restore RNG.
         np.random.set_state(st0)
-        return masks.astype(bool)
+        return masks
 
     def __getitem__(self, ind):
+        idx = self.samples[ind]
+        # Dynamically slice the window from the sequence (Lazy Loading)
+        x = self.data[idx : idx + self.window] 
+        
         if self.period == 'test':
-            x = self.samples[ind, :, :]  # (seq_length, feat_dim) array
-            m = self.masking[ind, :, :]  # (seq_length, feat_dim) boolean array
+            m = self.masking[ind]
             return torch.from_numpy(x).float(), torch.from_numpy(m)
-        x = self.samples[ind, :, :]  # (seq_length, feat_dim) array
+        
         return torch.from_numpy(x).float()
 
     def __len__(self):
