@@ -130,6 +130,14 @@ class CustomDataset(Dataset):
         """Reads a single .csv
         """
         df = pd.read_csv(filepath, header=0)
+        if df.shape[1] > 1:
+            # If multiple columns, try to find the one matching the appliance name.
+            # If not found, follow user request to "just take the first one".
+            matched_cols = [c for c in df.columns if c.lower() == name.lower()]
+            if matched_cols:
+                df = df[[matched_cols[0]]]
+            else:
+                df = df.iloc[:, [0]]
         data = df.values
         scaler = MinMaxScaler()
         scaler = scaler.fit(data)

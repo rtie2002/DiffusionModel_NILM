@@ -20,7 +20,7 @@ model:
 solver:
   base_lr: 1.0e-6
   max_epochs: 20000
-  results_folder: .Checkpoints/Checkpoints_microwave
+  results_folder: .Checkpoints/Checkpoints_dishwasher
   gradient_accumulate_every: 2
   save_cycle: 2000
   ema:
@@ -43,9 +43,9 @@ dataloader:
   train_dataset:
     target: Utils.Data_utils.real_datasets.CustomDataset
     params:
-      name: Microwave
+      name: Dishwasher
       proportion: 1.0
-      data_root: ./Data/datasets/microwave_multivariate.csv
+      data_root: ./Data/datasets/dishwasher_multivariate.csv
       window: 512  # seq_length
       save2npy: True
       neg_one_to_one: True
