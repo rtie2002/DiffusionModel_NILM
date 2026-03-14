@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ====================================================
-#   Diffusion Model Automation: Linux (WSL2)
+#   Diffusion Model Automation: main branch compatible
 # ====================================================
 
 # Default values
@@ -42,7 +42,7 @@ if [ "$TRAIN" = false ] && [ "$SAMPLE" = false ]; then
 fi
 
 echo "===================================================="
-echo "   Linux Diffusion Automation: ACTIVE"
+echo "   Diffusion Automation: main Branch"
 echo "===================================================="
 echo "Appliances: ${APPLIANCES[*]}"
 echo "GPU ID: $GPU"
@@ -62,12 +62,11 @@ for app in "${APPLIANCES[@]}"; do
     # --- Step 1: Training ---
     if [ "$TRAIN" = true ]; then
         echo "--- [1/2] Starting Training for $app ---"
-        python main.py --train \
-            --name "${app}_multivariate" \
+        python main.py \
+            --name "$app" \
             --config "$configPath" \
-            --tensorboard \
+            --train \
             --gpu $GPU \
-            --opts dataloader.train_dataset.params.save2npy False \
             dataloader.train_dataset.params.proportion $PROPORTION
         
         if [ $? -ne 0 ]; then
@@ -79,7 +78,7 @@ for app in "${APPLIANCES[@]}"; do
     # --- Step 2: Sampling ---
     if [ "$SAMPLE" = true ]; then
         echo "--- [2/2] Starting Sampling for $app ---"
-        
+
         # Calculate dynamic sample number if not specified
         dynamicSampleNum=$SAMPLE_NUM
         if [ "$dynamicSampleNum" -eq 0 ]; then
@@ -94,17 +93,8 @@ for app in "${APPLIANCES[@]}"; do
                 # Handle relative paths properly (remove leading ./)
                 checkPath="${dataPath#./}"
                 
-                # Check original path, then fallback to root if not found
-                # This handles cases where data is moved but YAML isn't updated
-                if [ ! -f "$checkPath" ]; then
-                    filename=$(basename "$checkPath")
-                    if [ -f "$filename" ]; then
-                        checkPath="$filename"
-                    fi
-                fi
-
                 if [ -f "$checkPath" ]; then
-                    # Fast line count in Linux
+                    # Fast line count (Works in WSL/Linux/PowerShell with proper setup)
                     totalLines=$(wc -l < "$checkPath")
                     totalPoints=$((totalLines - 1))
                     # Dynamic SampleNum: (Points/Window + 1) * 2 to ensure 200% coverage
@@ -119,12 +109,10 @@ for app in "${APPLIANCES[@]}"; do
         fi
 
         python main.py \
-            --name "${app}_multivariate" \
+            --name "$app" \
             --config "$configPath" \
-            --sample 1 \
             --milestone $MILESTONE \
             --sample_num $dynamicSampleNum \
-            --sampling_mode "ordered_non_overlapping" \
             --gpu $GPU
             
         if [ $? -ne 0 ]; then
@@ -135,5 +123,5 @@ for app in "${APPLIANCES[@]}"; do
 done
 
 echo -e "\n===================================================="
-echo "   All Linux tasks completed successfully!"
+echo "   All tasks completed successfully!"
 echo "===================================================="

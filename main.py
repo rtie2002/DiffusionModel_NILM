@@ -29,10 +29,13 @@ def parse_args():
     parser.add_argument('--gpu', type=int, default=None,
                         help='GPU id to use. If given, only the specific gpu will be'
                         ' used, and ddp will be disabled')
+    parser.add_argument('opts', help='Modify config options using the command-line',
+                        default=None, nargs=argparse.REMAINDER)
 
     # args for training
     parser.add_argument('--train', action='store_true', default=False, help='Train or Test.')
     parser.add_argument('--sample', type=int, default=0)
+    parser.add_argument('--sample_num', type=int, default=None, help='number of samples to generate')
     parser.add_argument('--milestone', type=int, default=1000)
 
     args = parser.parse_args()
@@ -64,10 +67,23 @@ def main():
     else:
         trainer.load(args.milestone)
         dataset = dataloader_info['dataset']
-        samples = trainer.sample(num=len(dataset), size_every=400, shape=[dataset.window, dataset.var_num])
+        
+        num_samples = args.sample_num if args.sample_num is not None else len(dataset)
+        print(f"Sampling {num_samples} samples...")
+        
+        samples = trainer.sample(num=num_samples, size_every=400, shape=[dataset.window, dataset.var_num])
+        
         if dataset.auto_norm:
             samples = unnormalize_to_zero_to_one(samples)
-            np.save(os.path.join(args.save_dir, f'ddpm_fake_{args.name}.npy'), samples)
+            
+        # Unscale from [0, 1] to original value range
+        N, L, V = samples.shape
+        samples_flat = samples.reshape(-1, V)
+        samples_recovered = dataset.scaler.inverse_transform(samples_flat)
+        samples = samples_recovered.reshape(N, L, V)
+        
+        print(f"Generated data shape: {samples.shape}")
+        np.save(os.path.join(args.save_dir, f'ddpm_fake_{args.name}.npy'), samples)
 
 if __name__ == '__main__':
     main()
