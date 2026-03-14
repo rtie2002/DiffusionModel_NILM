@@ -227,13 +227,16 @@ def sample():
     #    - Channel 1-8 : Time features, restored to [-1, 1]
     # ─────────────────────────────────────────────────────────────────────────
     print("🔁 Outputting data in MinMax [0, 1] (Aligning with Diffusion Model logic)...")
-    final_data = generated_data.copy()
+    
+    # ⚡ FIX: Remove the last channel (First-Order Difference) which was appended 
+    # strictly for TimeGAN training and does not exist in the Diffusion Model.
+    final_data = generated_data[:, :, :-1].copy()
 
     # Channel 0: Stays normalized [0, 1]
-    final_data[:, :, 0] = generated_data[:, :, 0] 
+    final_data[:, :, 0] = final_data[:, :, 0]
 
-    # Channel 1-8: Still need to go from [0, 1] back to [-1, 1] for SIN/COS features
-    final_data[:, :, 1:] = generated_data[:, :, 1:] * 2.0 - 1.0
+    # Channel 1 to end (Time/Aggregate features): restored to [-1, 1]
+    final_data[:, :, 1:] = final_data[:, :, 1:] * 2.0 - 1.0
 
 
     # ─────────────────────────────────────────────────────────────────────────
