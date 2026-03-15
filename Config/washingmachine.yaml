@@ -3,14 +3,15 @@ model:
   params:
     seq_length: 512
     feature_size: 1
-    n_layer_enc: 2
-    n_layer_dec: 2
-    d_model: 128
+    condition_dim: 0  # No conditional data for this branch
+    n_layer_enc: 3    # Increased for better pattern recognition
+    n_layer_dec: 3    # Increased for better pattern recognition
+    d_model: 256      # Doubled for 1M+ data capacity
     timesteps: 2000
     sampling_timesteps: 2000
     loss_type: 'l1'
     beta_schedule: 'cosine'
-    n_heads: 4
+    n_heads: 8        # Increased to match larger d_model
     mlp_hidden_times: 4
     attn_pd: 0.0
     resid_pd: 0.0
@@ -18,9 +19,9 @@ model:
     padding_size: 0
 
 solver:
-  base_lr: 1.0e-6
+  base_lr: 1.0e-4      # Increased to match larger dataset and scheduler
   max_epochs: 20000
-  results_folder: .Checkpoints/Checkpoints_washingmachine
+  results_folder: .Checkpoints/Checkpoints_washingmachine_multivariate
   gradient_accumulate_every: 2
   save_cycle: 2000
   ema:
@@ -46,12 +47,12 @@ dataloader:
       name: Washingmachine
       proportion: 1.0
       data_root: ./Data/datasets/washingmachine_multivariate.csv
-      window: 512  # seq_length
+      window: 512
       save2npy: True
       neg_one_to_one: True
       seed: 2024
       period: train
 
-  batch_size: 64
+  batch_size: 128     # Increased for 4090 efficiency
   sample_size: 256
-  shuffle: False
+  shuffle: True       # Enabled shuffling for better generalization
