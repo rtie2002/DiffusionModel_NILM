@@ -1,101 +1,13 @@
-{
- "cells": [
-  {
-   "cell_type": "markdown",
-   "metadata": {},
-   "source": [
-    "# Local Train CNN CGAN Baseline\n",
-    "\n",
-    "This notebook is the local version of the training script, optimized for running on your RTX 4090 with live plotting."
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": null,
-   "metadata": {},
-   "outputs": [],
-   "source": [
-    "import os\n",
-    "import sys\n",
-    "import numpy as np\n",
-    "import pandas as pd\n",
-    "import matplotlib.pyplot as plt\n",
-    "import torch\n",
-    "import torch.nn as nn\n",
-    "from torch.utils.data import DataLoader, Dataset\n",
-    "from torch.nn.utils import spectral_norm\n",
-    "from IPython.display import clear_output\n",
-    "\n",
-    "# ==========================================\n",
-    "# CONFIGURATION\n",
-    "# ==========================================\n",
-    "APPLIANCES = [\"dishwasher\", \"washingmachine\", \"fridge\", \"kettle\", \"microwave\"]\n",
-    "WINDOW_SIZE = 512\n",
-    "BATCH_SIZE = 64\n",
-    "EPOCHS_PER_APP = 2000\n",
-    "\n",
-    "# DYNAMIC PATH: Automatically uses the folder where the notebook is located\n",
-    "BASE_DIR = os.getcwd() \n",
-    "print(f\"\ud83d\udcc2 Project Root: {BASE_DIR}\")\n",
-    "\n",
-    "# Check Device\n",
-    "if torch.cuda.is_available():\n",
-    "    device = torch.device(\"cuda\")\n",
-    "    print(f\"\u2705 Using GPU: {torch.cuda.get_device_name(0)}\")\n",
-    "else:\n",
-    "    device = torch.device(\"cpu\")\n",
-    "    print(\"\u26a0\ufe0f GPU not found. Using CPU!\")\n"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": null,
-   "metadata": {},
-   "outputs": [],
-   "source": [
-    "# ==========================================\n",
-    "# MODEL DEFINITIONS\n",
-    "# ==========================================\n",
-    "class Generator(nn.Module):\n",
-    "    def __init__(self):\n",
-    "        super().__init__()\n",
-    "        self.fc = nn.Linear(100, 128 * 16)\n",
-    "        def up(ic, oc): return nn.Sequential(\n",
-    "            nn.Upsample(scale_factor=2, mode='linear', align_corners=False),\n",
-    "            nn.Conv1d(ic, oc, 3, 1, 1),\n",
-    "            nn.BatchNorm1d(oc),\n",
-    "            nn.ReLU(True))\n",
-    "        self.model = nn.Sequential(up(128,64), up(64,32), up(32,16), up(16,8),\n",
-    "                                nn.Upsample(scale_factor=2, mode='linear', align_corners=False),\n",
-    "                                nn.Conv1d(8, 1, 3, 1, 1), nn.Tanh())\n",
-    "    def forward(self, z): return self.model(self.fc(z).view(-1, 128, 16))\n",
-    "\n",
-    "class Discriminator(nn.Module):\n",
-    "    def __init__(self):\n",
-    "        super().__init__()\n",
-    "        def cb(ic, oc, s=2): return nn.Sequential(spectral_norm(nn.Conv1d(ic, oc, 4, s, 1)), nn.LeakyReLU(0.2))\n",
-    "        self.conv = nn.Sequential(cb(1, 16), cb(16, 32), cb(32, 64), cb(64, 128),\n",
-    "                                  nn.AdaptiveAvgPool1d(1), nn.Flatten(), nn.Linear(128,1), nn.Sigmoid())\n",
-    "    def forward(self, x): return self.conv(x)\n",
-    "\n",
-    "class NILM_Dataset(Dataset):\n",
-    "    def __init__(self, p, t):\n",
-    "        self.data = []\n",
-    "        stride = 64\n",
-    "        for i in range(0, len(p) - WINDOW_SIZE, stride):\n",
-    "            if np.max(p[i:i+WINDOW_SIZE]) > -0.9: self.data.append((p[i:i+WINDOW_SIZE], t[i:i+WINDOW_SIZE]))\n",
-    "    def __len__(self): return len(self.data)\n",
-    "    def __getitem__(self, idx):\n",
-    "        p, t = self.data[idx]\n",
-    "        return torch.from_numpy(p).float().unsqueeze(0), torch.from_numpy(t).float()"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": null,
-   "metadata": {},
-   "outputs": [],
-   "source": [
+import json
+import os
+
+notebook_path = r"c:\Users\Raymond Tie\Desktop\DiffusionModel_NILM\Train_CNN_CGAN_Baseline_Local.ipynb"
+
+with open(notebook_path, 'r', encoding='utf-8') as f:
+    nb = json.load(f)
+
+# Update the training loop cell (index 3) with speed optimizations
+new_source = [
     "# ==========================================\n",
     "# TRAINING LOOP (OPTIMIZED FOR SPEED)\n",
     "# ==========================================\n",
@@ -140,7 +52,7 @@
     "    opt_D = torch.optim.Adam(D.parameters(), lr=0.0001, betas=(0.5, 0.999))\n",
     "    criterion = nn.BCELoss()\n",
     "\n",
-    "    print(f'\ud83d\udd25 Fast Training with Mixed Precision (AMP)...')\n",
+    "    print(f'🔥 Fast Training with Mixed Precision (AMP)...')\n",
     "    for epoch in range(1, EPOCHS_PER_APP + 1):\n",
     "        last_real_p, last_fake_p = None, None\n",
     "\n",
@@ -176,8 +88,8 @@
     "        # SPEED OPTIMIZATION: Plot every 50 epochs instead of 10 to reduce UI overhead\n",
     "        if epoch % 50 == 0 or epoch == 1:\n",
     "            clear_output(wait=True)\n",
-    "            if completed_appliances: print(f\"\u2705 DONE: {', '.join(completed_appliances)}\")\n",
-    "            print(f'\ud83d\ude80 {appliance.upper()} | Epoch {epoch}/{EPOCHS_PER_APP} | Speed: Optimized AMP')\n",
+    "            if completed_appliances: print(f\"✅ DONE: {', '.join(completed_appliances)}\")\n",
+    "            print(f'🚀 {appliance.upper()} | Epoch {epoch}/{EPOCHS_PER_APP} | Speed: Optimized AMP')\n",
     "            plt.figure(figsize=(10, 3))\n",
     "            plt.plot((last_real_p[0,0]+1)/2, label='Real', alpha=0.5)\n",
     "            plt.plot((last_fake_p[0,0]+1)/2, label='Generated', color='orange')\n",
@@ -203,28 +115,11 @@
     "    \n",
     "    # Cleanup\n",
     "    import gc; del G, D, df, dataset; gc.collect(); torch.cuda.empty_cache(); plt.close('all')\n"
-   ]
-  }
- ],
- "metadata": {
-  "kernelspec": {
-   "display_name": "Python 3",
-   "language": "python",
-   "name": "python3"
-  },
-  "language_info": {
-   "codemirror_mode": {
-    "name": "ipython",
-    "version": 3
-   },
-   "file_extension": ".py",
-   "mimetype": "text/x-python",
-   "name": "python",
-   "nbconvert_exporter": "python",
-   "pygments_lexer": "ipython3",
-   "version": "3.8.5"
-  }
- },
- "nbformat": 4,
- "nbformat_minor": 4
-}
+]
+
+nb['cells'][3]['source'] = new_source
+
+with open(notebook_path, 'w', encoding='utf-8') as f:
+    json.dump(nb, f, indent=1)
+
+print('Speed optimizations applied successfully.')
