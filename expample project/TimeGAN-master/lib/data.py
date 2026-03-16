@@ -173,23 +173,33 @@ def real_data_loading (data_name, seq_len):
   temp_targets = []
   temp_conds = []
   
-  # ⚡ FULL DATASET MODE: No filtering, using sliding windows for 100% coverage
-  print(f"   -> Processing FULL dataset for overall waveform (Window Size: {seq_len})...")
+  # ⚡ MAJOR IMPROVEMENT: EVENT-BASED SAMPLING
+  # Instead of learning 95% "OFF" periods (flat lines), we filter windows 
+  # to ensure the model focuses on actual appliance activations.
+  print(f"   -> Filtering informative windows (Window Size: {seq_len})...")
   
-  # Use stride=1 for complete sliding window coverage
-  stride = 1 
+  # Strided search for speed
+  stride = max(1, seq_len // 4) 
   active_count = 0
   
   for i in range(0, len(targets) - seq_len, stride):
     window_t = targets[i:i + seq_len]
     window_c = conditions[i:i + seq_len]
     
-    # Logic: No threshold check. We want to handle the whole dataset (ON and OFF).
-    temp_targets.append(window_t)
-    temp_conds.append(window_c)
-    active_count += 1
+    # Check if appliance is ACTIVE in this window (Column 0 of targets is appliance power)
+    # Threshold 0.1 means we want windows where the appliance actually does something.
+    if np.max(window_t[:, 0]) > 0.1:
+        temp_targets.append(window_t)
+        temp_conds.append(window_c)
+        active_count += 1
   
-  print(f"✅ Processed {active_count} windows covering the entire sequence.")
+  if active_count == 0:
+      print("⚠️ WARNING: No active windows found with threshold 0.1. Falling back to random sampling.")
+      for i in range(0, len(targets) - seq_len, seq_len):
+          temp_targets.append(targets[i:i + seq_len])
+          temp_conds.append(conditions[i:i + seq_len])
+  else:
+      print(f"✅ Extracted {active_count} active informative windows.")
         
   # Shuffle indices
   idx = np.random.permutation(len(temp_targets))    
