@@ -65,6 +65,11 @@ def load_data(appliance, sequence_length=480, max_samples=20000, mode='multivari
     df_real = pd.read_csv(real_path)
     df_synth = pd.read_csv(synth_path)
 
+    # FIX: Handle dimension mismatch (synthetic might have 10th col for derivative)
+    if df_synth.shape[1] > df_real.shape[1]:
+        print(f"  [Fix] Truncating synthetic data from {df_synth.shape[1]} to {df_real.shape[1]} columns (ignoring 10th col/derivative)...")
+        df_synth = df_synth.iloc[:, :df_real.shape[1]]
+    
     # Column Filtering based on Mode
     if mode == 'power':
         # Keep only the appliance power column (usually the first one)
