@@ -24,7 +24,8 @@ def run_evaluation():
     parser = argparse.ArgumentParser(description="Run TS2Vec Evaluation for ALL Appliances")
     parser.add_argument("--mode", type=str, choices=['multivariate', 'power', 'time', 'all'], default='multivariate',
                         help="Evaluation mode: multivariate, power, time, or all (runs all three)")
-    parser.add_argument("--seq_len", type=int, default=60, help="Sequence length for evaluation")
+    parser.add_argument("--seq_len", type=int, default=120, help="Sequence length for evaluation")
+    parser.add_argument("--force_retrain", action="store_true", help="Force retraining all encoders")
     
     args = parser.parse_args()
     
@@ -57,6 +58,8 @@ def run_evaluation():
                 "--seq_len", str(args.seq_len),
                 "--mode", mode
             ]
+            if args.force_retrain:
+                cmd.append("--force_retrain")
             
             try:
                 process = subprocess.Popen(

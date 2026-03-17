@@ -51,6 +51,8 @@ RESULTS_DIR = os.environ.get('RESULTS_DIR_OVERRIDE',
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
 APPLIANCES = ["dishwasher", "fridge", "kettle", "microwave", "washingmachine"]
+JUDGES_DIR = os.path.join(PROJECT_ROOT, "Data Quality Checking", "pretrained_judges")
+os.makedirs(JUDGES_DIR, exist_ok=True)
 
 def load_data(appliance, sequence_length=480, max_samples=20000, mode='multivariate'):
     """Load and preprocess real and synthetic data."""
@@ -280,6 +282,7 @@ def main():
     parser.add_argument("--train_on_synth", action="store_true", help="If set, train encoder on Synthetic data instead of Real")
     parser.add_argument("--mode", type=str, choices=['multivariate', 'power', 'time'], default='multivariate', 
                         help="Evaluation mode: multivariate (all), power (only power), time (only sin/cos)")
+    parser.add_argument("--force_retrain", action="store_true", help="Force retraining the encoder even if a saved one exists")
     
     args = parser.parse_args()
     
@@ -290,11 +293,29 @@ def main():
     real_data = np.nan_to_num(real_data)
     synth_data = np.nan_to_num(synth_data)
     
-    # 2. Train TS2Vec
-    # Typically we train on Real data to verify if Synthetic data maps to the same manifold
-    train_source = synth_data if args.train_on_synth else real_data
+    # 2. Handle TS2Vec Encoder (Load or Train)
+    model_name = f"{args.appliance}_{args.mode}_encoder.pth"
+    model_path = os.path.join(JUDGES_DIR, model_name)
     
-    model, _ = train_ts2vec(train_source, input_dims=real_data.shape[-1])
+    model = TS2Vec(
+        input_dims=real_data.shape[-1],
+        output_dims=320,
+        hidden_dims=64,
+        depth=10,
+        device='cuda' if torch.cuda.is_available() else 'cpu'
+    )
+
+    if os.path.exists(model_path) and not args.force_retrain:
+        print(f"\n📂 Loading Pre-trained Judge: {model_name}")
+        model.load(model_path)
+    else:
+        print(f"\n🧬 Training New Judge for {args.appliance} ({args.mode})...")
+        # Typically we train on Real data to verify if Synthetic data maps to the same manifold
+        train_source = synth_data if args.train_on_synth else real_data
+        model.fit(train_source, n_epochs=100, verbose=True)
+        
+        print(f"💾 Saving Judge to: {model_path}")
+        model.save(model_path)
     
     # 3. Evaluate
     evaluate_embeddings(model, real_data, synth_data, args.appliance, mode=args.mode)
