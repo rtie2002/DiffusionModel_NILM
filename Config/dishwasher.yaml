@@ -52,6 +52,8 @@ dataloader:
       neg_one_to_one: True
       seed: 2024
       period: train
+      boost_factor: 4
+      boost_threshold: 0.1  # Highly sensitive: 10% of peak power (0.1 * 2 - 1 = -0.8 normalized)
 
   batch_size: 128     # Increased for 4090 efficiency
   sample_size: 256

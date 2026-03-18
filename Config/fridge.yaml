@@ -52,6 +52,8 @@ dataloader:
       neg_one_to_one: True
       seed: 2024
       period: train
+      boost_factor: 1
+      boost_threshold: 0.6  # Percentage of peak power (0.6 * 2 - 1 = 0.2 normalized)
 
   batch_size: 128     # Increased for 4090 efficiency
   sample_size: 256

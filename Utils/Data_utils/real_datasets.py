@@ -70,7 +70,9 @@ class CustomDataset(Dataset):
         self.name, self.pred_len, self.missing_ratio = name, predict_length, missing_ratio
         self.style, self.distribution, self.mean_mask_length = style, distribution, mean_mask_length
         self.boost_factor = boost_factor
-        self.boost_threshold = boost_threshold
+        # CONVERSION: Treat input as percentage (0~1) and convert to normalized range (-1~1)
+        # Formula: Normalized = 2 * Percentage - 1
+        self.boost_threshold = boost_threshold * 2 - 1 if boost_threshold is not None else 0.2
         self.save_train_npy = save_train_npy
         self.rawdata, self.scaler = self.read_data(data_root, self.name)
         self.dir = os.path.join(output_dir, 'samples')
@@ -123,10 +125,13 @@ class CustomDataset(Dataset):
 
         # DENSITY & CONTINUITY BOOSTER (Apply to Training only)
         if self.period == 'train' and len(train_indices) > 0:
-            if self.name.lower() == 'fridge':
-                print(f"  [Continuity Booster] Skipping for {self.name} as requested (Avoiding over-boosting)")
+            # Check if booster is enabled (factor > 1)
+            current_boost = self.boost_factor if self.boost_factor is not None else 4
+            
+            if current_boost <= 1:
+                print(f"  [Continuity Booster] Boost factor is {current_boost}. Skipping dataset expansion.")
             else:
-                print(f"  [Continuity Booster] Analyzing training windows for transitions...")
+                print(f"  [Continuity Booster] Analyzing training windows for transitions (Threshold: {self.boost_threshold})...")
                 active_ids = []
                 threshold = self.boost_threshold
                 for idx in train_indices:
