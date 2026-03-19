@@ -18,8 +18,8 @@ def linear_beta_schedule(timesteps):
     beta_end = scale * 0.02
     return torch.linspace(beta_start, beta_end, timesteps, dtype=torch.float64)
 
-def huber_loss_fn(input, target):
-    return F.huber_loss(input, target,  delta=0.5)
+def huber_loss_fn(input, target, reduction='none'):
+    return F.huber_loss(input, target, delta=0.5, reduction=reduction)
 
 def cosine_beta_schedule(timesteps, s=0.008):
 
