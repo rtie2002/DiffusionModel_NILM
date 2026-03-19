@@ -334,13 +334,18 @@ class Diffusion(nn.Module):
         # NEW: Only compute loss on power part
         model_out_power = model_out[:, :, :self.feature_size]
 
-        # 🚀 ASYMMETRIC LOSS WEIGHTING (Addressing ON-period Scarcity)
-        # 1. Base Huber Loss (delta=0.5)
+        # UNIFORM LOSS WEIGHTING (Fair, Dataset-Agnostic)
+        # We use Huber Loss without any ON/OFF weighting.
+        # Reason: Asymmetric loss weights (5x or 2.5x) are dataset-specific and cannot
+        # generalize across appliances (washing machine vs fridge vs microwave have very
+        # different natural ON-period ratios). They also distort the loss landscape,
+        # causing the model to "shout" about ON-periods at the cost of waveform shape quality.
+        #
+        # ON-period scarcity is already addressed at the DATA LEVEL by the Continuity Booster
+        # (4x oversampling of active windows with ±2pt jitter), which is the correct and
+        # natural approach — it lets the model see more ON-period data without biasing gradients.
         base_loss = self.loss_fn(model_out_power, target, reduction='none')
-        
-        # 2. Reward/Penalty Mask: 5x weight on ON-periods to force the model out of its "Conservative" shell
-        # threshold 0.05 (normalized) corresponds to ~10-15W depending on appliance
-        weight_mask = torch.where(target > 0.05, 5.0, 1.0)
+        weight_mask = torch.ones_like(target)  # Uniform weights = fair loss
         train_loss = base_loss * weight_mask
 
         fourier_loss = torch.tensor([0.])
