@@ -334,7 +334,14 @@ class Diffusion(nn.Module):
         # NEW: Only compute loss on power part
         model_out_power = model_out[:, :, :self.feature_size]
 
-        train_loss = self.loss_fn(model_out_power, target, reduction='none')
+        # 🚀 ASYMMETRIC LOSS WEIGHTING (Addressing ON-period Scarcity)
+        # 1. Base Huber Loss (delta=0.5)
+        base_loss = self.loss_fn(model_out_power, target, reduction='none')
+        
+        # 2. Reward/Penalty Mask: 5x weight on ON-periods to force the model out of its "Conservative" shell
+        # threshold 0.05 (normalized) corresponds to ~10-15W depending on appliance
+        weight_mask = torch.where(target > 0.05, 5.0, 1.0)
+        train_loss = base_loss * weight_mask
 
         fourier_loss = torch.tensor([0.])
         if self.use_ff:
@@ -342,9 +349,11 @@ class Diffusion(nn.Module):
             fft1 = torch.fft.fft(model_out_power.transpose(1, 2), norm='forward')
             fft2 = torch.fft.fft(target.transpose(1, 2), norm='forward')
             fft1, fft2 = fft1.transpose(1, 2), fft2.transpose(1, 2)
-            fourier_loss = self.loss_fn(torch.real(fft1), torch.real(fft2), reduction='none')\
+            
+            f_loss = self.loss_fn(torch.real(fft1), torch.real(fft2), reduction='none')\
                            + self.loss_fn(torch.imag(fft1), torch.imag(fft2), reduction='none')
-            train_loss +=  self.ff_weight * fourier_loss
+            # Fourier loss also gets the weight mask for spectral consistency in ON-periods
+            train_loss +=  self.ff_weight * (f_loss * weight_mask)
         
         train_loss = reduce(train_loss, 'b ... -> b (...)', 'mean')
         train_loss = train_loss * extract(self.loss_weight, t, train_loss.shape)
