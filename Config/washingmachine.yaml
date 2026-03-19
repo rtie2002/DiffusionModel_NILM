@@ -9,7 +9,7 @@ model:
     d_model: 256      # Doubled for 1M+ data capacity
     timesteps: 2000
     sampling_timesteps: 2000
-    loss_type: 'l1'
+    loss_type: 'huber'  # Huber: L2 (smooth) for small errors, L1 (robust) for large transients
     beta_schedule: 'cosine'
     n_heads: 8        # Increased to match larger d_model
     mlp_hidden_times: 4
