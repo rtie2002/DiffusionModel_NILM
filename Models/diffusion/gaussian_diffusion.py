@@ -285,13 +285,16 @@ class Diffusion(nn.Module):
         return sample_fn((batch_size, seq_length, feature_size))
 
     @torch.no_grad()
-    def generate_with_conditions(self, condition, batch_size=None):
+    def generate_with_conditions(self, condition, batch_size=None, boundary_conditions=None):
         """
         Generate data with time features preserved (outputs 9 dimensions)
         
         Args:
             condition: (B, seq_length, condition_dim) - Time features to condition on
             batch_size: Optional, inferred from condition if not provided
+            boundary_conditions: Optional (B, overlap_len, feature_size + condition_dim) 
+                                 Power and time data from the END of the PREVIOUS window
+                                 to ensure seamless stitching.
         
         Returns:
             (B, seq_length, feature_size + condition_dim) - Generated power + time features
@@ -319,7 +322,21 @@ class Diffusion(nn.Module):
 
         # Reverse diffusion process
         for t in pbar:
+            # ⚓ BOUNDARY STITCHING: If we have boundary conditions from a previous window,
+            # we inject them as noisy anchors at step t to force continuity.
+            if boundary_conditions is not None:
+                overlap_len = boundary_conditions.shape[1]
+                t_tensor = torch.full((batch_size,), t, device=condition.device).long()
+                # Noisify the boundary 'anchor' to the current timestep t
+                # Only noisify the power dimension (0), keep time features (1-8) clean
+                boundary_power = boundary_conditions[:, :, :self.feature_size]
+                noisy_boundary_power = self.q_sample(x_start=boundary_power, t=t_tensor)
+                
+                img[:, :overlap_len, :self.feature_size] = noisy_boundary_power
+                img[:, :overlap_len, self.feature_size:] = boundary_conditions[:, :, self.feature_size:]
+
             img, _ = self.p_sample(img, t)
+            
             # Force time features to stay as conditions (prevent drift)
             img[:, :, self.feature_size:] = condition
         
@@ -383,8 +400,17 @@ class Diffusion(nn.Module):
         # ON-period scarcity is already addressed at the DATA LEVEL by the Continuity Booster
         # (4x oversampling of active windows with ±2pt jitter), which is the correct and
         # natural approach — it lets the model see more ON-period data without biasing gradients.
+        # STATE-AWARE LOSS WEIGHTING (Targeted Noise Suppression)
         base_loss = self.loss_fn(model_out_power, target, reduction='none')
-        weight_mask = torch.ones_like(target)  # Uniform weights = fair loss
+        
+        # We apply an asymmetric penalty: if the target power is in the OFF-period
+        # (near zero), we double the loss weight. This forces the model to 
+        # achieve absolute stability and eliminate "flutter" in idle states.
+        # Threshold: 0.05 (Normalized power value)
+        # Penalty: 2.0x
+        off_penalty = 2.0
+        weight_mask = torch.where(target < 0.05, off_penalty, 1.0)
+        
         train_loss = base_loss * weight_mask
 
         fourier_loss = torch.tensor([0.])
@@ -396,8 +422,8 @@ class Diffusion(nn.Module):
             
             f_loss = self.loss_fn(torch.real(fft1), torch.real(fft2), reduction='none')\
                            + self.loss_fn(torch.imag(fft1), torch.imag(fft2), reduction='none')
-            # Fourier loss also gets the weight mask for spectral consistency in ON-periods
-            train_loss +=  self.ff_weight * (f_loss * weight_mask)
+            # Transpose f_loss back to (B, L, 1) to match train_loss and prevent broadcasting OOM
+            train_loss +=  self.ff_weight * f_loss.transpose(1, 2)
         
         train_loss = reduce(train_loss, 'b ... -> b (...)', 'mean')
         train_loss = train_loss * extract(self.loss_weight, t, train_loss.shape)

@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import math
 import torch
 import numpy as np
 
@@ -189,55 +190,84 @@ class Trainer(object):
         else:
             print("✓ Using UNCONDITIONAL generation")
 
-        for batch_idx in range(num_cycle):
-            windows_completed = batch_idx * size_every
-            windows_this_batch = min(size_every, num - windows_completed)
-            
-            if windows_this_batch <= 0:
-                break
-                
-            print(f"Batch {batch_idx + 1}/{num_cycle} | Generating steps {windows_completed} to {windows_completed + windows_this_batch}...")
-            
-            if use_conditional:
-                if ordered:
-                    # SEQUENTIAL: Take indices in exact order with STRIDE
-                    # Use modulo to wrap around if num > dataset_size
-                    indices = [(windows_completed + i * stride) % dataset_size for i in range(windows_this_batch)]
-                else:
-                    # RANDOM: Sample indices randomly
-                    indices = np.random.choice(dataset_size, size=windows_this_batch, replace=(num > dataset_size))
-                
-                # Extract time features from dataset based on indices
-                conditions = []
-                for idx in indices:
-                    window_data = dataset.samples[idx]  # (512, 9)
-                    # For conditioning, we need 8 features (minute_sin to month_cos)
-                    time_features = window_data[:, 1:9]  # (512, 8)
-                    conditions.append(time_features)
-                
-                conditions = torch.FloatTensor(np.stack(conditions)).to(self.device)  # (batch, 512, 8)
-                
-                # 🚀 RTX 4090 NATIVE SAMPLING BOOST: High-speed BF16
-                with torch.inference_mode():
-                    with torch.amp.autocast('cuda', dtype=torch.bfloat16):
-                        sample = self.ema.ema_model.generate_with_conditions(conditions)
-                
-                # DIAGNOSTIC: Check the month of the first sample in this batch
-                first_window_month = conditions[0, 0, 7].item() # Month sin column
-                print(f"  -> Progress: Sampling from Month features starting at Batch {batch_idx + 1}")
+        # 🧵 THE LONG-RIBBON SLICING STRATEGY (Sequential Stitching)
+        # We generate a single continuous long sequence and then re-slice it to (N, 512, 9).
+        overlap_len = 64
+        stride = self.seq_length - overlap_len  # 512 - 64 = 448
+        
+        # Calculate how many steps we need to cover 'num' windows of 512
+        total_points_needed = num * self.seq_length
+        # windows_needed = ceil((total_points - 512) / 448) + 1
+        num_windows_needed = math.ceil((total_points_needed - self.seq_length) / stride) + 1
+        
+        # We process windows one-by-one to maintain the sequential physical anchor
+        all_fresh_points = []
+        prev_window_tail = None
+        
+        print(f"🚀 STITCHED SAMPLING: Generating {num_windows_needed} overlapping windows for {num} target blocks...")
 
+        for window_idx in range(num_windows_needed):
+            # Sequential Index calculation (from dataset)
+            # Each step moves forward by 'stride' (448) instead of 512
+            start_idx = (window_idx * stride) % dataset_size
+            
+            # Extract time features for the current 512-point window
+            # Handle wrap-around at the end of dataset
+            if start_idx + self.seq_length <= dataset_size:
+                window_data = dataset.samples[start_idx : start_idx + self.seq_length]
             else:
-                # 🚀 RTX 4090 NATIVE SAMPLING BOOST: High-speed BF16
-                with torch.inference_mode():
-                    with torch.amp.autocast('cuda', dtype=torch.bfloat16):
-                        sample = self.ema.ema_model.generate_mts(batch_size=windows_this_batch)
+                # Wrap around
+                p1 = dataset.samples[start_idx:]
+                p2 = dataset.samples[:(start_idx + self.seq_length) % dataset_size]
+                window_data = np.concatenate([p1, p2], axis=0)
             
-            # Use non_blocking to transfer results back to CPU
-            samples = np.row_stack([samples, sample.detach().cpu().numpy()])
+            time_features = window_data[:, 1:9] # (512, 8)
+            conditions = torch.FloatTensor(time_features).unsqueeze(0).to(self.device) # (1, 512, 8)
             
-            # Only clear cache occasionally, and keep it on the GPU as long as possible
-            if batch_idx % 20 == 0 and size_every > 512:
+            # Boundary Persistence: Provide context from Window N to guide Window N+1
+            boundary_conditions = None
+            if window_idx > 0 and prev_window_tail is not None:
+                boundary_conditions = prev_window_tail.to(self.device).unsqueeze(0) # (1, 64, 9)
+
+            # Generate 512 points with 64-point anchor
+            with torch.inference_mode():
+                with torch.amp.autocast('cuda', dtype=torch.bfloat16):
+                    # Output: (1, 512, 9)
+                    sample = self.ema.ema_model.generate_with_conditions(
+                        conditions, 
+                        boundary_conditions=boundary_conditions
+                    )
+            
+            # Extract only the "Fresh" part to build the ribbon
+            # For Window 0: Keep all 512 points
+            # For Window > 0: Skip the first 64 points (which were anchors)
+            if window_idx == 0:
+                fresh_part = sample[0].detach().cpu().numpy() # (512, 9)
+            else:
+                fresh_part = sample[0, overlap_len:].detach().cpu().numpy() # (448, 9)
+            
+            all_fresh_points.append(fresh_part)
+            
+            # Update tail (the last 64 points of the current window) for the next one
+            prev_window_tail = sample[0, -overlap_len:, :].clone()
+            
+            if (window_idx + 1) % 10 == 0:
+                print(f"  -> Progress: {window_idx + 1}/{num_windows_needed} windows stitched...")
                 torch.cuda.empty_cache()
+
+        # ⛓️ CONCATENATE & RE-SLICE
+        ribbon = np.concatenate(all_fresh_points, axis=0) # (L, 9)
+        
+        # Ensure we have precisely the right amount for (num, 512, 9)
+        if ribbon.shape[0] < total_points_needed:
+            # This shouldn't happen with math.ceil, but for safety:
+            print("  [Warning] Ribbon too short, padding...")
+            pad = np.zeros((total_points_needed - ribbon.shape[0], 9))
+            ribbon = np.concatenate([ribbon, pad], axis=0)
+        
+        # Final Truncate & Reshape to User's Format
+        final_samples = ribbon[:total_points_needed, :].reshape(num, self.seq_length, 9)
+        samples = final_samples # Match the variable name for further processing
             
         print(f"\n{'='*70}")
         print(f"✓ All {num} windows generated successfully!")
