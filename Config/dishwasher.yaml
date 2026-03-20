@@ -11,6 +11,7 @@ model:
     sampling_timesteps: 2000
     loss_type: 'huber'
     cond_drop_prob: 0.1
+    guidance_scale: 3.0
     beta_schedule: 'cosine'
     n_heads: 8        # Increased to match larger d_model
     mlp_hidden_times: 4
