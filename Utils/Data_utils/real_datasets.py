@@ -346,7 +346,7 @@ class CustomDataset(Dataset):
             # Time features are already sin/cos in [-1,1], don't scale them!
             scaler = MinMaxScaler()
             scaler = scaler.fit(data[:, 0:1])  # Fit only on power column
-            print(f"  [Scaler] Fitted on power column only (range: {scaler.data_min_[0]:.2f} to {scaler.data_max_[0]:.2f}W)")
+            print(f"  [Scaler] Fitted on power column only (CSV raw range: {scaler.data_min_[0]:.4f} to {scaler.data_max_[0]:.4f})")
         elif app_col:
             print(f"[OK] Found target column '{app_col}', no time features found.")
             data = df[[app_col]].values

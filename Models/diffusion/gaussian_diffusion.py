@@ -406,10 +406,10 @@ class Diffusion(nn.Module):
         # We apply an asymmetric penalty: if the target power is in the OFF-period
         # (near zero), we double the loss weight. This forces the model to 
         # achieve absolute stability and eliminate "flutter" in idle states.
-        # Threshold: 0.05 (Normalized power value)
-        # Penalty: 2.0x
+        # Normalized [-1, 1] OFF-period threshold: -0.9 (corresponds to 5% of peak power)
+        # Previously set to 0.05, which was too high and suppressed real ON-period activity.
         off_penalty = 2.0
-        weight_mask = torch.where(target < 0.05, off_penalty, 1.0)
+        weight_mask = torch.where(target < -0.9, off_penalty, 1.0)
         
         train_loss = base_loss * weight_mask
 
