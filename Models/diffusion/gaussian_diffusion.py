@@ -138,7 +138,11 @@ class Diffusion(nn.Module):
         self.cond_drop_prob = kwargs.get('cond_drop_prob', 0.1)
         self.guidance_scale = kwargs.get('guidance_scale', 1.0)
         
+        # DIAGNOSTIC PRINT: So you can see if CFG is active!
+        print(f"\n[{'🔥 CFG ENABLED' if self.guidance_scale > 1.0 else '⚠️ CFG DISABLED'}] Guidance Scale is set to: {self.guidance_scale}\n")
+        
         register_buffer('loss_weight', torch.sqrt(alphas) * torch.sqrt(1. - alphas_cumprod) / betas / 100)
+
 
     def predict_noise_from_start(self, x_t, t, x0):
         return (
