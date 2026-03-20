@@ -198,8 +198,16 @@ class Diffusion(nn.Module):
             x_uncond = torch.cat([x_power, torch.zeros_like(x_cond)], dim=-1)
             model_output_uncond = self.output(x_uncond, t, padding_masks)
             
-            # 4. Apply Guidance Scale (w): (1+w)*eps_cond - w*eps_uncond
-            model_output = model_output_uncond + self.guidance_scale * (model_output_cond - model_output_uncond)
+            # CRITICAL FIX: Only apply Guidance Scale to the POWER dimension!
+            # If we apply it to the time features, they get multiplied by 3 and clamped, 
+            # ruining the time perception for the next loop.
+            power_cond = model_output_cond[:, :, :self.feature_size]
+            power_uncond = model_output_uncond[:, :, :self.feature_size]
+            
+            power_cfg = power_uncond + self.guidance_scale * (power_cond - power_uncond)
+            
+            # Re-attach the pure, unscaled Original Time Conditions (x_cond)
+            model_output = torch.cat([power_cfg, x_cond], dim=-1)
 
         maybe_clip = partial(torch.clamp, min=-1., max=1.) if clip_x_start else identity
         x_start = maybe_clip(model_output)
