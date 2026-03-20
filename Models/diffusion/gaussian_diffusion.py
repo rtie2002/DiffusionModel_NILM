@@ -422,8 +422,9 @@ class Diffusion(nn.Module):
             
             f_loss = self.loss_fn(torch.real(fft1), torch.real(fft2), reduction='none')\
                            + self.loss_fn(torch.imag(fft1), torch.imag(fft2), reduction='none')
-            # Transpose f_loss back to (B, L, 1) to match train_loss and prevent broadcasting OOM
-            train_loss +=  self.ff_weight * f_loss.transpose(1, 2)
+            # ⚓ DIMENSION ANCHOR: Force f_loss to match train_loss shape exactly
+            # This prevents broadcasting errors if f_loss is (B, 1, L) and train_loss is (B, L, 1)
+            train_loss +=  self.ff_weight * f_loss.reshape_as(train_loss)
         
         train_loss = reduce(train_loss, 'b ... -> b (...)', 'mean')
         train_loss = train_loss * extract(self.loss_weight, t, train_loss.shape)
