@@ -69,17 +69,59 @@ class Trainer(object):
         if self.logger is not None:
             self.logger.log_info(str(get_model_parameters_info(self.model)))
         self.log_frequency = 100
+        self.loss_history = []
+        self.best_loss = float('inf')
+
+    def plot_loss(self):
+        """Generates and saves an updated loss plot in the results folder."""
+        if not self.loss_history:
+            return
+            
+        import matplotlib.pyplot as plt
+        import numpy as np
+        
+        plt.figure(figsize=(10, 5))
+        
+        # Plot raw loss with deeper blue and higher visibility (Deep Blue: #003366)
+        plt.plot(self.loss_history, alpha=0.5, color='#003366', label='Raw Loss', linewidth=0.8)
+        
+        # Plot moving average for smoothness
+        if len(self.loss_history) > 10:
+            window_size = min(50, len(self.loss_history) // 5)
+            smooth_loss = np.convolve(self.loss_history, np.ones(window_size)/window_size, mode='valid')
+            plt.plot(range(window_size-1, len(self.loss_history)), smooth_loss, color='#ff7f0e', linewidth=2.5, label='Smooth (MA)')
+            
+        plt.xlabel('Training Steps')
+        plt.ylabel('Loss (Huber/MSE)')
+        plt.title(f'Training Progress: {self.args.name}')
+        plt.grid(True, linestyle='--', alpha=0.5)
+        plt.legend()
+        
+        # 📈 REAL-TIME RAW FEED: No filtering, absolute scale
+        if len(self.loss_history) > 0:
+            current_max = np.max(self.loss_history) * 1.05
+            current_min = np.min(self.loss_history) * 0.95
+            plt.ylim(max(0, current_min), current_max)
+        
+        plt.tight_layout()
+        plt.savefig(str(self.results_folder / 'loss_curve.png'))
+        plt.close()
 
     def save(self, milestone, verbose=False):
+        # Allow milestone to be a string like 'best' or an integer
+        file_name = f'checkpoint-{milestone}.pt'
+        save_path = str(self.results_folder / file_name)
+        
         if self.logger is not None and verbose:
-            self.logger.log_info('Save current model to {}'.format(str(self.results_folder / f'checkpoint-{milestone}.pt')))
+            self.logger.log_info(f'Save model to {save_path}')
+            
         data = {
             'step': self.step,
             'model': self.model.state_dict(),
             'ema': self.ema.state_dict(),
             'opt': self.opt.state_dict(),
         }
-        torch.save(data, str(self.results_folder / f'checkpoint-{milestone}.pt'))
+        torch.save(data, save_path)
 
     def load(self, milestone, verbose=False):
         if self.logger is not None and verbose:
@@ -142,22 +184,26 @@ class Trainer(object):
                 self.step += 1
                 step += 1
                 self.ema.update()
+                self.loss_history.append(total_loss)
 
                 with torch.no_grad():
                     if self.step != 0 and self.step % self.save_cycle == 0:
                         self.milestone += 1
                         self.save(self.milestone)
-                        # self.logger.log_info('saved in {}'.format(str(self.results_folder / f'checkpoint-{self.milestone}.pt')))
                     
-                    if self.logger is not None and self.step % self.log_frequency == 0:
-                        # info = '{}: train'.format(self.args.name)
-                        # info = info + ': Epoch {}/{}'.format(self.step, self.train_num_steps)
-                        # info += ' ||'
-                        # info += '' if loss_f == 'none' else ' Fourier Loss: {:.4f}'.format(loss_f.item())
-                        # info += '' if loss_r == 'none' else ' Reglarization: {:.4f}'.format(loss_r.item())
-                        # info += ' | Total Loss: {:.6f}'.format(total_loss)
-                        # self.logger.log_info(info)
-                        self.logger.add_scalar(tag='train/loss', scalar_value=total_loss, global_step=self.step)
+                    if self.step % self.log_frequency == 0:
+                        # Update the visual Loss Plot
+                        self.plot_loss()
+                        
+                        # Check for Best Loss (using average of last 100 steps to filter noise)
+                        if len(self.loss_history) >= self.log_frequency:
+                            avg_loss = np.mean(self.loss_history[-self.log_frequency:])
+                            if avg_loss < self.best_loss:
+                                self.best_loss = avg_loss
+                                self.save('best', verbose=True)
+                        
+                        if self.logger is not None:
+                            self.logger.add_scalar(tag='train/loss', scalar_value=total_loss, global_step=self.step)
 
                 pbar.update(1)
 
