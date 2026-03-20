@@ -19,7 +19,8 @@ def linear_beta_schedule(timesteps):
     return torch.linspace(beta_start, beta_end, timesteps, dtype=torch.float64)
 
 def huber_loss_fn(input, target, reduction='none'):
-    return F.huber_loss(input, target, delta=0.5, reduction=reduction)
+    # delta=0.01 ensures L1-like strictness for signals > 1%, eliminating OFF-period blurriness
+    return F.huber_loss(input, target, delta=0.01, reduction=reduction)
 
 def cosine_beta_schedule(timesteps, s=0.008):
 
@@ -133,6 +134,10 @@ class Diffusion(nn.Module):
 
         # calculate reweighting
         
+        # Classifier-Free Guidance (CFG)
+        self.cond_drop_prob = kwargs.get('cond_drop_prob', 0.1)
+        self.guidance_scale = kwargs.get('guidance_scale', 1.0)
+        
         register_buffer('loss_weight', torch.sqrt(alphas) * torch.sqrt(1. - alphas_cumprod) / betas / 100)
 
     def predict_noise_from_start(self, x_t, t, x0):
@@ -175,9 +180,25 @@ class Diffusion(nn.Module):
         if padding_masks is None:
             padding_masks = torch.ones(x.shape[0], self.seq_length, dtype=bool, device=x.device)
 
+        # 1. Split x into power and condition for CFG
+        x_power = x[:, :, :self.feature_size]
+        x_cond = x[:, :, self.feature_size:]
+        
+        # 2. Get Standard (Conditional) prediction
+        model_output_cond = self.output(x, t, padding_masks)
+        
+        if self.guidance_scale == 1.0:
+            model_output = model_output_cond
+        else:
+            # 3. Get Unconditional prediction (zeroed condition vector)
+            x_uncond = torch.cat([x_power, torch.zeros_like(x_cond)], dim=-1)
+            model_output_uncond = self.output(x_uncond, t, padding_masks)
+            
+            # 4. Apply Guidance Scale (w): (1+w)*eps_cond - w*eps_uncond
+            model_output = model_output_uncond + self.guidance_scale * (model_output_cond - model_output_uncond)
+
         maybe_clip = partial(torch.clamp, min=-1., max=1.) if clip_x_start else identity
-        x_start = self.output(x, t, padding_masks)
-        x_start = maybe_clip(x_start)
+        x_start = maybe_clip(model_output)
         pred_noise = self.predict_noise_from_start(x, t, x_start)
         return pred_noise, x_start
 
@@ -326,7 +347,13 @@ class Diffusion(nn.Module):
         # Noise sample (only power)
         x_power_noisy = self.q_sample(x_start=x_power, t=t, noise=noise)
         
-        # NEW: Concatenate noisy power with clean conditions
+        # CFG: Randomly drop condition vector to train unconditional distribution
+        if self.training and self.cond_drop_prob > 0:
+            # Create a mask of (B, 1, 1) to drop entire sequences within the batch
+            mask = torch.bernoulli(torch.full((x_condition.shape[0], 1, 1), 1 - self.cond_drop_prob)).to(x_condition.device)
+            x_condition = x_condition * mask 
+        
+        # NEW: Concatenate noisy power with (potentially masked) conditions
         x = torch.cat([x_power_noisy, x_condition], dim=-1)  # (B, seq_length, 9)
         
         model_out = self.output(x, t, padding_masks)

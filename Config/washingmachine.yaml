@@ -9,7 +9,8 @@ model:
     d_model: 256      # Doubled for 1M+ data capacity
     timesteps: 2000
     sampling_timesteps: 2000
-    loss_type: 'l1'
+    loss_type: 'huber'
+    cond_drop_prob: 0.1
     beta_schedule: 'cosine'
     n_heads: 8        # Increased to match larger d_model
     mlp_hidden_times: 4
@@ -52,7 +53,7 @@ dataloader:
       neg_one_to_one: True
       seed: 2024
       period: train
-      boost_factor: 4
+      boost_factor: 6
       boost_threshold: 0.1  # Highly sensitive: 10% of peak power (0.1 * 2 - 1 = -0.8 normalized)
 
   batch_size: 128     # Increased for 4090 efficiency
