@@ -60,6 +60,9 @@ def parse_args():
                         choices=['random', 'ordered', 'ordered_non_overlapping'],
                         help='Sampling mode: random (default), ordered (sequential overlap), or ordered_non_overlapping (sequential non-overlap)')
 
+    parser.add_argument('--cfg_scale', type=float, default=None,
+                        help='Classifier-Free Guidance Scale (1.0 = No CFG)')
+
     args = parser.parse_args()
     
     # Get the directory where main.py is located (project root)
@@ -112,6 +115,13 @@ def main():
 
     config = load_yaml_config(args.config)
     config = merge_opts_to_config(config, args.opts)
+    
+    # --- 🔥 CFG OVERRIDE ---
+    # Allow command line --cfg_scale to override YAML config
+    if args.cfg_scale is not None:
+        if 'model' in config and 'params' in config['model']:
+            config['model']['params']['guidance_scale'] = args.cfg_scale
+            print(f"⚡ Command Line Override: Setting Guidance Scale to {args.cfg_scale}")
 
     logger = Logger(args)
     logger.save_config(config)

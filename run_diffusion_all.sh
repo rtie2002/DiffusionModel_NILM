@@ -125,7 +125,6 @@ for app in "${APPLIANCES[@]}"; do
             --milestone $MILESTONE \
             --sample_num $dynamicSampleNum \
             --sampling_mode "ordered_non_overlapping" \
-            --cfg_scale 1.0 \
             --gpu $GPU
             
         if [ $? -ne 0 ]; then
