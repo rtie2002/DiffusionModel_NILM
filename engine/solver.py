@@ -206,7 +206,8 @@ class Trainer(object):
         
         print(f"🚀 STITCHED SAMPLING: Generating {num_windows_needed} overlapping windows for {num} target blocks...")
 
-        for window_idx in range(num_windows_needed):
+        from tqdm.auto import tqdm
+        for window_idx in tqdm(range(num_windows_needed), desc='[Total Windows]', position=0):
             # Sequential Index calculation (from global flattened dataset)
             dataset_size = len(dataset.data)
             # Each step moves forward by 'stride' (448) instead of 512
