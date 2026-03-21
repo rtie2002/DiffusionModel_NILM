@@ -201,61 +201,45 @@ class Trainer(object):
         num_windows_needed = math.ceil((total_points_needed - shape[0]) / stride) + 1
         
         # We process windows one-by-one to maintain the sequential physical anchor
-        all_fresh_points = []
-        prev_window_tail = None
+        # We process all windows simultaneously using batch dimension
+        all_conditions = []
+        dataset_size = len(dataset.data)
         
-        print(f"🚀 STITCHED SAMPLING: Generating {num_windows_needed} overlapping windows for {num} target blocks...")
-
-        from tqdm.auto import tqdm
-        for window_idx in tqdm(range(num_windows_needed), desc='[Total Windows]', position=0):
-            # Sequential Index calculation (from global flattened dataset)
-            dataset_size = len(dataset.data)
-            # Each step moves forward by 'stride' (448) instead of 512
+        print(f"🚀 PARALLEL STITCHING: Preparing {num_windows_needed} overlapping windows for batch generation...")
+        
+        for window_idx in range(num_windows_needed):
             start_idx = (window_idx * stride) % dataset_size
-            
-            # Extract time features for the current 512-point window
-            # Handle wrap-around at the end of dataset
             if start_idx + shape[0] <= dataset_size:
                 window_data = dataset.data[start_idx : start_idx + shape[0]]
             else:
-                # Wrap around
                 p1 = dataset.data[start_idx:]
                 p2 = dataset.data[:(start_idx + shape[0]) % dataset_size]
                 window_data = np.concatenate([p1, p2], axis=0)
+            all_conditions.append(window_data[:, 1:9])
             
-            time_features = window_data[:, 1:9] # (512, 8)
-            conditions = torch.FloatTensor(time_features).unsqueeze(0).to(self.device) # (1, 512, 8)
-            
-            # Boundary Persistence: Provide context from Window N to guide Window N+1
-            boundary_conditions = None
-            if window_idx > 0 and prev_window_tail is not None:
-                boundary_conditions = prev_window_tail.to(self.device).unsqueeze(0) # (1, 64, 9)
+        print(f"🚀 PARALLEL STITCHING: Generating all {num_windows_needed} windows simultaneously (Full 2000-step Quality)!")
+        
+        # Batch shape: [num_windows_needed, 512, 8]
+        conditions = torch.FloatTensor(np.stack(all_conditions)).to(self.device)
+        
+        # Free up memory before massive generation
+        torch.cuda.empty_cache()
 
-            # Generate 512 points with 64-point anchor
-            with torch.inference_mode():
-                with torch.amp.autocast('cuda', dtype=torch.bfloat16):
-                    # Output: (1, 512, 9)
-                    sample = self.ema.ema_model.generate_with_conditions(
-                        conditions, 
-                        boundary_conditions=boundary_conditions
-                    )
-            
-            # Extract only the "Fresh" part to build the ribbon
-            # For Window 0: Keep all 512 points
-            # For Window > 0: Skip the first 64 points (which were anchors)
-            if window_idx == 0:
-                fresh_part = sample[0].detach().cpu().numpy() # (512, 9)
-            else:
-                fresh_part = sample[0, overlap_len:].detach().cpu().numpy() # (448, 9)
-            
-            all_fresh_points.append(fresh_part)
-            
-            # Update tail (the last 64 points of the current window) for the next one
-            prev_window_tail = sample[0, -overlap_len:, :].clone()
-            
-            if (window_idx + 1) % 10 == 0:
-                print(f"  -> Progress: {window_idx + 1}/{num_windows_needed} windows stitched...")
-                torch.cuda.empty_cache()
+        with torch.inference_mode():
+            with torch.amp.autocast('cuda', dtype=torch.bfloat16):
+                # Output: (num_windows_needed, 512, 9)
+                sample = self.ema.ema_model.generate_with_conditions(
+                    conditions, 
+                    sync_overlap_len=overlap_len
+                )
+                
+        sample_np = sample.detach().cpu().numpy()
+        
+        # Extract the "Fresh" part to build the ribbon
+        all_fresh_points = [sample_np[0]] # Window 0 is fully fresh (512 points)
+        for i in range(1, num_windows_needed):
+            all_fresh_points.append(sample_np[i, overlap_len:]) # Next windows contribute the 448 non-overlap points
+
 
         # ⛓️ CONCATENATE & RE-SLICE
         ribbon = np.concatenate(all_fresh_points, axis=0) # (L, 9)

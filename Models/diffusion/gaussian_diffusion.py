@@ -285,7 +285,7 @@ class Diffusion(nn.Module):
         return sample_fn((batch_size, seq_length, feature_size))
 
     @torch.no_grad()
-    def generate_with_conditions(self, condition, batch_size=None, boundary_conditions=None):
+    def generate_with_conditions(self, condition, batch_size=None, boundary_conditions=None, sync_overlap_len=None):
         """
         Generate data with time features preserved (outputs 9 dimensions)
         
@@ -295,6 +295,9 @@ class Diffusion(nn.Module):
             boundary_conditions: Optional (B, overlap_len, feature_size + condition_dim) 
                                  Power and time data from the END of the PREVIOUS window
                                  to ensure seamless stitching.
+            sync_overlap_len: Optional int. If provided, applies Joint Parallel Stitching
+                              by averaging the overlap between batch_idx and batch_idx+1
+                              at each denoising step.
         
         Returns:
             (B, seq_length, feature_size + condition_dim) - Generated power + time features
@@ -336,6 +339,15 @@ class Diffusion(nn.Module):
                 img[:, :overlap_len, self.feature_size:] = boundary_conditions[:, :, self.feature_size:]
 
             img, _ = self.p_sample(img, t)
+            
+            # ⚓ PARALLEL JOINT STITCHING (Strict Causal Overwrite)
+            if sync_overlap_len is not None and sync_overlap_len > 0 and img.shape[0] > 1:
+                # Based on your brilliant logic: The PAST should dictate the FUTURE, not the other way around.
+                # So we take the tail of Window N (the past) and forcefully overwrite the head of Window N+1 (the future).
+                tail = img[:-1, -sync_overlap_len:, :self.feature_size].clone()
+                
+                # Apply strict causal overwrite (No averaging!)
+                img[1:, :sync_overlap_len, :self.feature_size] = tail
             
             # Force time features to stay as conditions (prevent drift)
             img[:, :, self.feature_size:] = condition
