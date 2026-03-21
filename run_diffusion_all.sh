@@ -12,11 +12,12 @@ MILESTONE=10
 GPU=0
 PROPORTION=1.0
 SAMPLE_NUM=0
+CFG_SCALE=""
 
 # Help message
 usage() {
-    echo "Usage: $0 [--train] [--sample] [--milestone M] [--gpu G] [--proportion P] [--sample_num N] [--appliances a,b,c]"
-    echo "Example: $0 --train --sample --appliances fridge,microwave"
+    echo "Usage: $0 [--train] [--sample] [--milestone M] [--gpu G] [--proportion P] [--sample_num N] [--cfg_scale C] [--appliances a,b,c]"
+    echo "Example: $0 --sample --cfg_scale 2.0 --appliances washingmachine"
     exit 1
 }
 
@@ -29,6 +30,7 @@ while [[ "$#" -gt 0 ]]; do
         --gpu) GPU="$2"; shift ;;
         --proportion) PROPORTION="$2"; shift ;;
         --sample_num) SAMPLE_NUM="$2"; shift ;;
+        --cfg_scale) CFG_SCALE="$2"; shift ;;
         --appliances) IFS=',' read -ra APPLIANCES <<< "$2"; shift ;;
         *) usage ;;
     esac
@@ -67,6 +69,7 @@ for app in "${APPLIANCES[@]}"; do
             --config "$configPath" \
             --tensorboard \
             --gpu $GPU \
+            ${CFG_SCALE:+--cfg_scale $CFG_SCALE} \
             --opts dataloader.train_dataset.params.save2npy False \
             dataloader.train_dataset.params.proportion $PROPORTION
         
@@ -125,6 +128,7 @@ for app in "${APPLIANCES[@]}"; do
             --milestone $MILESTONE \
             --sample_num $dynamicSampleNum \
             --sampling_mode "ordered_non_overlapping" \
+            ${CFG_SCALE:+--cfg_scale $CFG_SCALE} \
             --gpu $GPU
             
         if [ $? -ne 0 ]; then
