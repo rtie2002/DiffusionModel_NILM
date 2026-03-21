@@ -207,18 +207,19 @@ class Trainer(object):
         print(f"🚀 STITCHED SAMPLING: Generating {num_windows_needed} overlapping windows for {num} target blocks...")
 
         for window_idx in range(num_windows_needed):
-            # Sequential Index calculation (from dataset)
+            # Sequential Index calculation (from global flattened dataset)
+            dataset_size = len(dataset.data)
             # Each step moves forward by 'stride' (448) instead of 512
             start_idx = (window_idx * stride) % dataset_size
             
             # Extract time features for the current 512-point window
             # Handle wrap-around at the end of dataset
             if start_idx + shape[0] <= dataset_size:
-                window_data = dataset.samples[start_idx : start_idx + shape[0]]
+                window_data = dataset.data[start_idx : start_idx + shape[0]]
             else:
                 # Wrap around
-                p1 = dataset.samples[start_idx:]
-                p2 = dataset.samples[:(start_idx + shape[0]) % dataset_size]
+                p1 = dataset.data[start_idx:]
+                p2 = dataset.data[:(start_idx + shape[0]) % dataset_size]
                 window_data = np.concatenate([p1, p2], axis=0)
             
             time_features = window_data[:, 1:9] # (512, 8)
