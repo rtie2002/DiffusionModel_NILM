@@ -193,12 +193,12 @@ class Trainer(object):
         # 🧵 THE LONG-RIBBON SLICING STRATEGY (Sequential Stitching)
         # We generate a single continuous long sequence and then re-slice it to (N, 512, 9).
         overlap_len = 64
-        stride = self.seq_length - overlap_len  # 512 - 64 = 448
+        stride = shape[0] - overlap_len  # 512 - 64 = 448
         
         # Calculate how many steps we need to cover 'num' windows of 512
-        total_points_needed = num * self.seq_length
+        total_points_needed = num * shape[0]
         # windows_needed = ceil((total_points - 512) / 448) + 1
-        num_windows_needed = math.ceil((total_points_needed - self.seq_length) / stride) + 1
+        num_windows_needed = math.ceil((total_points_needed - shape[0]) / stride) + 1
         
         # We process windows one-by-one to maintain the sequential physical anchor
         all_fresh_points = []
@@ -213,12 +213,12 @@ class Trainer(object):
             
             # Extract time features for the current 512-point window
             # Handle wrap-around at the end of dataset
-            if start_idx + self.seq_length <= dataset_size:
-                window_data = dataset.samples[start_idx : start_idx + self.seq_length]
+            if start_idx + shape[0] <= dataset_size:
+                window_data = dataset.samples[start_idx : start_idx + shape[0]]
             else:
                 # Wrap around
                 p1 = dataset.samples[start_idx:]
-                p2 = dataset.samples[:(start_idx + self.seq_length) % dataset_size]
+                p2 = dataset.samples[:(start_idx + shape[0]) % dataset_size]
                 window_data = np.concatenate([p1, p2], axis=0)
             
             time_features = window_data[:, 1:9] # (512, 8)
@@ -266,7 +266,7 @@ class Trainer(object):
             ribbon = np.concatenate([ribbon, pad], axis=0)
         
         # Final Truncate & Reshape to User's Format
-        final_samples = ribbon[:total_points_needed, :].reshape(num, self.seq_length, 9)
+        final_samples = ribbon[:total_points_needed, :].reshape(num, shape[0], 9)
         samples = final_samples # Match the variable name for further processing
             
         print(f"\n{'='*70}")
