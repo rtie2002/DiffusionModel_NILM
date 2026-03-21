@@ -221,16 +221,32 @@ class Trainer(object):
         
         # Free up memory before massive generation
         torch.cuda.empty_cache()
+        
+        # OOM PREVENTION: Process in safe chunks of 800 windows
+        # 4453 windows at once exceeds 24GB VRAM. We process them sequentially in large batch chunks!
+        chunk_size = 800
+        num_chunks = math.ceil(num_windows_needed / chunk_size)
+        print(f"🚀 PARALLEL STITCHING: Generating {num_windows_needed} windows in {num_chunks} safe chunks (Chunk size: {chunk_size})...")
+        
+        all_samples = []
 
         with torch.inference_mode():
             with torch.amp.autocast('cuda', dtype=torch.bfloat16):
-                # Output: (num_windows_needed, 512, 9)
-                sample = self.ema.ema_model.generate_with_conditions(
-                    conditions, 
-                    sync_overlap_len=overlap_len
-                )
+                for i in range(num_chunks):
+                    start_i = i * chunk_size
+                    end_i = min((i + 1) * chunk_size, num_windows_needed)
+                    chunk_cond = conditions[start_i:end_i]
+                    
+                    print(f"  -> Processing Chunk [{i+1}/{num_chunks}] ({end_i - start_i} windows)...")
+                    chunk_sample = self.ema.ema_model.generate_with_conditions(
+                        chunk_cond, 
+                        sync_overlap_len=overlap_len
+                    )
+                    all_samples.append(chunk_sample.detach().cpu().numpy())
+                    torch.cuda.empty_cache()  # Keep VRAM clean between chunks
                 
-        sample_np = sample.detach().cpu().numpy()
+        # Reconstruct the continuous matrix
+        sample_np = np.concatenate(all_samples, axis=0)
         
         # Extract the "Fresh" part to build the ribbon
         all_fresh_points = [sample_np[0]] # Window 0 is fully fresh (512 points)
