@@ -402,28 +402,11 @@ class Diffusion(nn.Module):
         # NEW: Only compute loss on power part
         model_out_power = model_out[:, :, :self.feature_size]
 
-        # UNIFORM LOSS WEIGHTING (Fair, Dataset-Agnostic)
-        # We use Huber Loss without any ON/OFF weighting.
-        # Reason: Asymmetric loss weights (5x or 2.5x) are dataset-specific and cannot
-        # generalize across appliances (washing machine vs fridge vs microwave have very
-        # different natural ON-period ratios). They also distort the loss landscape,
-        # causing the model to "shout" about ON-periods at the cost of waveform shape quality.
-        #
-        # ON-period scarcity is already addressed at the DATA LEVEL by the Continuity Booster
-        # (4x oversampling of active windows with ±2pt jitter), which is the correct and
-        # natural approach — it lets the model see more ON-period data without biasing gradients.
-        # STATE-AWARE LOSS WEIGHTING (Targeted Noise Suppression)
-        base_loss = self.loss_fn(model_out_power, target, reduction='none')
-        
-        # We apply an asymmetric penalty: if the target power is in the OFF-period
-        # (near zero), we double the loss weight. This forces the model to 
-        # achieve absolute stability and eliminate "flutter" in idle states.
-        # Normalized [-1, 1] OFF-period threshold: -0.9 (corresponds to 5% of peak power)
-        # Previously set to 0.05, which was too high and suppressed real ON-period activity.
-        off_penalty = 2.0
-        weight_mask = torch.where(target < -0.9, off_penalty, 1.0)
-        
-        train_loss = base_loss * weight_mask
+        # UNIFORM LOSS WEIGHTING (Fair, unbiased learning)
+        # Any asymmetric penalties distort the extremely fragile DDPM loss landscape at high noise levels,
+        # leading to catastrophic mode collapse (the model flatlines everything to avoid punishment).
+        # We restore the mathematically pure, unbiased Huber Loss.
+        train_loss = self.loss_fn(model_out_power, target, reduction='none')
 
         fourier_loss = torch.tensor([0.])
         if self.use_ff:

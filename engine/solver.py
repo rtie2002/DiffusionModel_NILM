@@ -187,13 +187,10 @@ class Trainer(object):
             print("✓ Using CONDITIONAL generation with time features from dataset")
             dataset_size = len(dataset.samples)
             print(f"  Available time templates in dataset: {dataset_size} windows")
-        else:
-            print("✓ Using UNCONDITIONAL generation")
-
-        # 🧵 DISABLING STITCHING FOR A PURE QUALITY TEST
-        # We process completely independent windows (like before) to see if the "Overwrite" trick caused the noise.
-        overlap_len = 0
-        stride = shape[0]  # 512
+        # 🧵 THE CONTINUOUS RIBBON STITCHING STRATEGY
+        # We generate sequential windows with a 64-point anchor for seamless connections.
+        overlap_len = 64
+        stride = shape[0] - overlap_len  # 512 - 64 = 448
         
         # Calculate how many steps we need to cover 'num' windows of 512
         total_points_needed = num * shape[0]
