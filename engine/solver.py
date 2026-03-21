@@ -190,10 +190,10 @@ class Trainer(object):
         else:
             print("✓ Using UNCONDITIONAL generation")
 
-        # 🧵 THE LONG-RIBBON SLICING STRATEGY (Sequential Stitching)
-        # We generate a single continuous long sequence and then re-slice it to (N, 512, 9).
-        overlap_len = 64
-        stride = shape[0] - overlap_len  # 512 - 64 = 448
+        # 🧵 DISABLING STITCHING FOR A PURE QUALITY TEST
+        # We process completely independent windows (like before) to see if the "Overwrite" trick caused the noise.
+        overlap_len = 0
+        stride = shape[0]  # 512
         
         # Calculate how many steps we need to cover 'num' windows of 512
         total_points_needed = num * shape[0]
