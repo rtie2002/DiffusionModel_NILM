@@ -21,7 +21,7 @@ model:
     padding_size: 0
 
 solver:
-  base_lr: 1.0e-4      # Increased to match larger dataset and scheduler
+  base_lr: 1.0e-6      # Increased to match larger dataset and scheduler
   max_epochs: 20000
   results_folder: .Checkpoints/Checkpoints_kettle_multivariate
   gradient_accumulate_every: 2
