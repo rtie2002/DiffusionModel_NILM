@@ -288,13 +288,6 @@ class Diffusion(nn.Module):
     def generate_with_conditions(self, condition, batch_size=None):
         """
         Generate data with time features preserved (outputs 9 dimensions)
-        
-        Args:
-            condition: (B, seq_length, condition_dim) - Time features to condition on
-            batch_size: Optional, inferred from condition if not provided
-        
-        Returns:
-            (B, seq_length, feature_size + condition_dim) - Generated power + time features
         """
         if condition is not None:
             batch_size = condition.shape[0]
@@ -306,24 +299,39 @@ class Diffusion(nn.Module):
         
         # Initialize noise for full dimensions (power + time features)
         img = torch.randn(batch_size, seq_length, self.feature_size + self.condition_dim).to(condition.device)
-        
-        # Replace time feature part with actual conditions
         img[:, :, self.feature_size:] = condition
         
-        # 🚀 REAL-TIME PROGRESS MONITOR (For RTX 4090 Denoising)
         from tqdm.auto import tqdm
-        pbar = tqdm(reversed(range(0, self.num_timesteps)), 
-                    total=self.num_timesteps, 
-                    desc='[Denoising Step]', 
-                    leave=False)
 
-        # Reverse diffusion process
-        for t in pbar:
-            img, _ = self.p_sample(img, t)
-            # Force time features to stay as conditions (prevent drift)
-            img[:, :, self.feature_size:] = condition
+        if self.fast_sampling:
+            # --- DDIM (Deterministic, eta=0) ---
+            times = torch.linspace(-1, self.num_timesteps - 1, steps=self.sampling_timesteps + 1)
+            times = list(reversed(times.int().tolist()))
+            time_pairs = list(zip(times[:-1], times[1:]))
+            
+            pbar = tqdm(time_pairs, desc='[DDIM Denoising Step]', leave=False)
+            for time, time_next in pbar:
+                time_cond = torch.full((batch_size,), time, device=condition.device, dtype=torch.long)
+                pred_noise, x_start = self.model_predictions(img, time_cond, clip_x_start=True)
+                
+                if time_next < 0:
+                    img = x_start
+                else:
+                    alpha = self.alphas_cumprod[time]
+                    alpha_next = self.alphas_cumprod[time_next]
+                    c = (1 - alpha_next).sqrt()
+                    img = x_start * alpha_next.sqrt() + c * pred_noise
+                
+                # RE-INJECT: Keep conditions perfect
+                img[:, :, self.feature_size:] = condition
+        else:
+            # --- DDPM (Stochastic) ---
+            pbar = tqdm(reversed(range(0, self.num_timesteps)), total=self.num_timesteps, desc='[DDPM Denoising Step]', leave=False)
+            for t in pbar:
+                img, _ = self.p_sample(img, t)
+                img[:, :, self.feature_size:] = condition
         
-        return img  # (B, seq_length, feature_size + condition_dim)
+        return img
 
 
 
