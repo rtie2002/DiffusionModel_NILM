@@ -9,44 +9,48 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = os.path.join(BASE_DIR, 'Config/preprocess/preprocess_multivariate.yaml')
 
-def remove_isolated_spikes(power_sequence, window_size=5, spike_threshold=3.0, 
-                          background_threshold=50):
+def remove_isolated_spikes(power_sequence, min_duration=80, background_threshold=15.0, 
+                          min_peak=1000.0, bridge_gap=20):
     """
-    Remove isolated spikes (like the 200W glitch in your image) that appear 
-    in middle of OFF periods.
+    3-Stage Signature Filter for Washing Machines:
+    Stage 1: Base Filtering (already done outside or at start)
+    Stage 2: Bridging (connect gaps < 20 steps)
+    Stage 3: Signature Verdict (Must hit 1000W OR last 80 steps)
     """
     power_sequence = power_sequence.copy()
     n = len(power_sequence)
-    num_spikes = 0
     
-    # Pad array for edge handling
-    half_window = window_size // 2
-    padded = np.pad(power_sequence, half_window, mode='edge')
+    # --- STAGE 1: Ensure background is already clean ---
+    is_active = (power_sequence >= background_threshold).astype(int)
     
-    for i in range(n):
-        current_value = power_sequence[i]
-        if current_value < 1.0: # Already silent
-            continue
+    # --- STAGE 2: BRIDGING ---
+    # Connect pulses that are very close to each other
+    for i in range(1, n - bridge_gap):
+        if is_active[i-1] == 1 and is_active[i] == 0:
+            upcoming = is_active[i:i+bridge_gap]
+            if np.any(upcoming == 1):
+                next_active = np.where(upcoming == 1)[0][0]
+                is_active[i:i+next_active] = 1
+
+    # --- STAGE 3: SIGNATURE VERDICT ---
+    diff = np.diff(np.concatenate(([0], is_active, [0])))
+    starts = np.where(diff == 1)[0]
+    ends = np.where(diff == -1)[0]
+    
+    num_removed = 0
+    for start, end in zip(starts, ends):
+        segment = power_sequence[start:end]
+        duration = end - start
+        max_p = np.max(segment)
         
-        # Get surrounding values (excluding center point)
-        window_start, window_end = i, i + window_size
-        window = padded[window_start:window_end]
-        surrounding = np.concatenate([window[:half_window], window[half_window+1:]])
+        # Verify if this is a real washing machine cycle
+        is_real = (max_p >= min_peak) or (duration >= min_duration)
         
-        # LONELINESS FILTER:
-        # If current > 50W AND everything around it is < 15W
-        # AND current is MUCH higher than the local median
-        median_surrounding = np.median(surrounding)
-        
-        if current_value > background_threshold:
-            # Check if surroundings are mostly 'OFF' (near zero)
-            is_background_quiet = np.all(surrounding < 15.0)
-            
-            if is_background_quiet and current_value > spike_threshold * (median_surrounding + 1.0):
-                power_sequence[i] = 0
-                num_spikes += 1
+        if not is_real:
+            power_sequence[start:end] = 0
+            num_removed += 1
                 
-    return power_sequence, num_spikes
+    return power_sequence, num_removed
 
 def load_config():
     try:
@@ -109,21 +113,19 @@ def convert_zscore_to_minmax(file_path, appliance_name, specs):
     # Use the threshold from config (preprocess_multivariate.yaml)
     noise_threshold = specs.get('on_power_threshold', 15.0)
         
-    print(f"  ✓ Noise Filter: Setting values < {noise_threshold}W to 0W...")
-    watts_data[watts_data < noise_threshold] = 0
-
-    # 4.3 LONELINESS FILTER (Filtering Spikes in quiet periods)
-    # Applied ONLY to washingmachine as requested
+    # 4.3 3-STAGE SIGNATURE FILTER
+    # Applied ONLY to washingmachine to handle complex noise patterns
     if appliance_name.lower() == 'washingmachine':
-        print(f"  ✓ Spike Filter: Searching for isolated spikes > 50W for '{appliance_name}'...")
-        watts_data, n_spikes = remove_isolated_spikes(
+        print(f"  ✓ Signature Filter: Verifying cycles for '{appliance_name}'...")
+        watts_data, n_cleaned = remove_isolated_spikes(
             watts_data, 
-            window_size=5, 
-            spike_threshold=3.0, 
-            background_threshold=15.0  # Lowered to 15W to catch small 25W spikes
+            min_duration=80, 
+            background_threshold=15.0,
+            min_peak=1000.0,
+            bridge_gap=20
         )
-        if n_spikes > 0:
-            print(f"  ✓ Loneliness Filter: Successfully removed {n_spikes} isolated glitches in washingmachine.")
+        if n_cleaned > 0:
+            print(f"  ✓ Cleanup: Removed {n_cleaned} suspicious noise segments.")
 
     # 4.5 Apply Clipping if defined
     if clip_max is not None:
