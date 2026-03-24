@@ -120,7 +120,7 @@ def convert_zscore_to_minmax(file_path, appliance_name, specs):
             watts_data, 
             window_size=5, 
             spike_threshold=3.0, 
-            background_threshold=50.0
+            background_threshold=15.0  # Lowered to 15W to catch small 25W spikes
         )
         if n_spikes > 0:
             print(f"  ✓ Loneliness Filter: Successfully removed {n_spikes} isolated glitches in washingmachine.")
