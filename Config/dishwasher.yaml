@@ -8,10 +8,10 @@ model:
     n_layer_dec: 3    # Increased for better pattern recognition
     d_model: 256      # Doubled for 1M+ data capacity
     timesteps: 2000
-    sampling_timesteps: 2000
+    sampling_timesteps: 400   # Activated DDIM (Deterministic)
     loss_type: 'huber'
     cond_drop_prob: 0.1
-    guidance_scale: 3.0
+    guidance_scale: 1.5
     beta_schedule: 'cosine'
     n_heads: 8        # Increased to match larger d_model
     mlp_hidden_times: 4
