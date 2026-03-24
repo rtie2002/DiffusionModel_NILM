@@ -255,7 +255,57 @@ def main():
 
             print(f"Generated data shape: {samples.shape}")
             print(f"Data Unnormalized Range: {samples[:,:,0].min():.4f} to {samples[:,:,0].max():.4f}W")
-            np.save(os.path.join(args.save_dir, f'ddpm_fake_{args.name}.npy'), samples)
+            
+            # --- TASK 1: SAVE ORIGINAL (RAW) NPY ---
+            raw_path = os.path.join(args.save_dir, f'ddpm_fake_{args.name}_raw.npy')
+            np.save(raw_path, samples)
+            print(f"✓ Saved original RAW samples to: {raw_path}")
+            
+            # --- TASK 2: FILTER NOISE (Identical to convert_zscore_to_minmax.py) ---
+            try:
+                import convert_zscore_to_minmax as postprocess
+                config_path = os.path.join(os.path.dirname(__file__), 'Config/preprocess/preprocess_multivariate.yaml')
+                specs = postprocess.load_config()
+                
+                if specs and args.name in specs:
+                    print(f"\n🚀 Applying Post-Processing Filters for {args.name}...")
+                    app_specs = specs[args.name]
+                    noise_thres = app_specs.get('on_power_threshold', 15.0)
+                    
+                    # Work on the power sequence
+                    N, L, V = samples.shape
+                    power_seq = samples[:, :, 0].flatten()
+                    
+                    # 1. Base Noise Filter (Apply to ALL appliances)
+                    print(f"  ✓ Noise Filter: Setting values < {noise_thres}W to 0W...")
+                    power_seq[power_seq < noise_thres] = 0
+                    
+                    # 2. Advanced Washing Machine Extra Steps
+                    if args.name.lower() == 'washingmachine':
+                        print("  ✓ Spike Filter: Searching for isolated spikes > 50W...")
+                        power_seq, n_spikes = postprocess.remove_isolated_spikes(
+                            power_seq, window_size=5, spike_threshold=3.0, background_threshold=15.0
+                        )
+                        if n_spikes > 0:
+                            print(f"    - Cleaned {n_spikes} isolated glitches.")
+                            
+                        print("  ✓ Signature Filter: Checking for 1000W Peak in clusters...")
+                        power_seq, n_fake = postprocess.validate_full_cycles(
+                            power_seq, min_peak=1000.0, bridge_gap=20, min_duration=80
+                        )
+                        if n_fake > 0:
+                            print(f"    - Removed {n_fake} fake cycles without 1000W peaks.")
+                    
+                    # Put filtered power back into samples
+                    samples[:, :, 0] = power_seq.reshape(N, L)
+                    
+            except Exception as e:
+                print(f"⚠️ Could not apply noise filters automatically: {e}")
+
+            # --- TASK 3: SAVE FILTERED NPY ---
+            filt_path = os.path.join(args.save_dir, f'ddpm_fake_{args.name}.npy')
+            np.save(filt_path, samples)
+            print(f"✓ Saved FILTERED samples to: {filt_path}")
 
 if __name__ == '__main__':
     main()
