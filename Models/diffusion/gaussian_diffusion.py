@@ -383,20 +383,27 @@ class Diffusion(nn.Module):
         # ON-period scarcity is already addressed at the DATA LEVEL by the Continuity Booster
         # (4x oversampling of active windows with ±2pt jitter), which is the correct and
         # natural approach — it lets the model see more ON-period data without biasing gradients.
+        # ASYMMETRIC LOSS WEIGHTING (Suppress OFF-period noise)
+        # We apply a 5.0x penalty to errors in regions where target is near -1.0 (OFF).
+        # This forces the model to learn that "OFF" must be a clean, noise-free line.
         base_loss = self.loss_fn(model_out_power, target, reduction='none')
-        weight_mask = torch.ones_like(target)  # Uniform weights = fair loss
+        
+        # -0.98 threshold roughly captures the "zero" line in -1 to 1 space
+        off_mask = (target < -0.98).float()
+        weight_mask = 1.0 + (off_mask * 4.0)  # 1.0 (ON) vs 5.0 (OFF)
+        
         train_loss = base_loss * weight_mask
 
         fourier_loss = torch.tensor([0.])
         if self.use_ff:
-            # NEW: Use only power part for Fourier loss
+            # NEW: Spectral loss on power signal (B, T, 1)
             fft1 = torch.fft.fft(model_out_power.transpose(1, 2), norm='forward')
             fft2 = torch.fft.fft(target.transpose(1, 2), norm='forward')
             fft1, fft2 = fft1.transpose(1, 2), fft2.transpose(1, 2)
             
             f_loss = self.loss_fn(torch.real(fft1), torch.real(fft2), reduction='none')\
                            + self.loss_fn(torch.imag(fft1), torch.imag(fft2), reduction='none')
-            # Fourier loss also gets the weight mask for spectral consistency in ON-periods
+            # Apply same weight mask to Fourier loss to keep spectral zero clean
             train_loss +=  self.ff_weight * (f_loss * weight_mask)
         
         train_loss = reduce(train_loss, 'b ... -> b (...)', 'mean')

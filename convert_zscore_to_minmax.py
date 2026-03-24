@@ -9,6 +9,45 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = os.path.join(BASE_DIR, 'Config/preprocess/preprocess_multivariate.yaml')
 
+def remove_isolated_spikes(power_sequence, window_size=5, spike_threshold=3.0, 
+                          background_threshold=50):
+    """
+    Remove isolated spikes (like the 200W glitch in your image) that appear 
+    in middle of OFF periods.
+    """
+    power_sequence = power_sequence.copy()
+    n = len(power_sequence)
+    num_spikes = 0
+    
+    # Pad array for edge handling
+    half_window = window_size // 2
+    padded = np.pad(power_sequence, half_window, mode='edge')
+    
+    for i in range(n):
+        current_value = power_sequence[i]
+        if current_value < 1.0: # Already silent
+            continue
+        
+        # Get surrounding values (excluding center point)
+        window_start, window_end = i, i + window_size
+        window = padded[window_start:window_end]
+        surrounding = np.concatenate([window[:half_window], window[half_window+1:]])
+        
+        # LONELINESS FILTER:
+        # If current > 50W AND everything around it is < 15W
+        # AND current is MUCH higher than the local median
+        median_surrounding = np.median(surrounding)
+        
+        if current_value > background_threshold:
+            # Check if surroundings are mostly 'OFF' (near zero)
+            is_background_quiet = np.all(surrounding < 15.0)
+            
+            if is_background_quiet and current_value > spike_threshold * (median_surrounding + 1.0):
+                power_sequence[i] = 0
+                num_spikes += 1
+                
+    return power_sequence, num_spikes
+
 def load_config():
     try:
         with open(CONFIG_PATH, 'r') as f:
@@ -65,6 +104,26 @@ def convert_zscore_to_minmax(file_path, appliance_name, specs):
     else:
          print("  ✓ Detected Watts/Positive. Skipping Denormalization...")
          watts_data = z_data
+
+    # 4.2 NOISE FILTERING (Filtering at the Source/Watts level)
+    # Use the threshold from config (preprocess_multivariate.yaml)
+    noise_threshold = specs.get('on_power_threshold', 15.0)
+        
+    print(f"  ✓ Noise Filter: Setting values < {noise_threshold}W to 0W...")
+    watts_data[watts_data < noise_threshold] = 0
+
+    # 4.3 LONELINESS FILTER (Filtering Spikes in quiet periods)
+    # Applied ONLY to washingmachine as requested
+    if appliance_name.lower() == 'washingmachine':
+        print(f"  ✓ Spike Filter: Searching for isolated spikes > 50W for '{appliance_name}'...")
+        watts_data, n_spikes = remove_isolated_spikes(
+            watts_data, 
+            window_size=5, 
+            spike_threshold=3.0, 
+            background_threshold=50.0
+        )
+        if n_spikes > 0:
+            print(f"  ✓ Loneliness Filter: Successfully removed {n_spikes} isolated glitches in washingmachine.")
 
     # 4.5 Apply Clipping if defined
     if clip_max is not None:
