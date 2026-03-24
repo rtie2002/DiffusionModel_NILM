@@ -43,10 +43,41 @@ def remove_isolated_spikes(power_sequence, window_size=5, spike_threshold=3.0,
             is_background_quiet = np.all(surrounding < 15.0)
             
             if is_background_quiet and current_value > spike_threshold * (median_surrounding + 1.0):
-                power_sequence[i] = 0
                 num_spikes += 1
                 
     return power_sequence, num_spikes
+
+def validate_full_cycles(power_sequence, background_threshold=15.0, 
+                        min_peak=1000.0, bridge_gap=20, min_duration=80):
+    """
+    NEW: Cycle-wise Validation.
+    Groups clusters and kills those without a 1000W signature (Fake Periods).
+    """
+    power_sequence = power_sequence.copy()
+    n = len(power_sequence)
+    is_active = (power_sequence >= background_threshold).astype(int)
+    
+    # Bridge small gaps
+    for i in range(1, n - bridge_gap):
+        if is_active[i-1] == 1 and is_active[i] == 0:
+            upcoming = is_active[i:i+bridge_gap]
+            if np.any(upcoming == 1):
+                next_active = np.where(upcoming == 1)[0][0]
+                is_active[i:i+next_active] = 1
+
+    # Analyze segments
+    diff = np.diff(np.concatenate(([0], is_active, [0])))
+    starts = np.where(diff == 1)[0]
+    ends = np.where(diff == -1)[0]
+    
+    num_fake_segments = 0
+    for start, end in zip(starts, ends):
+        segment = power_sequence[start:end]
+        if np.max(segment) < min_peak and (end-start) < min_duration:
+            power_sequence[start:end] = 0
+            num_fake_segments += 1
+                
+    return power_sequence, num_fake_segments
 
 def load_config():
     try:
@@ -124,6 +155,17 @@ def convert_zscore_to_minmax(file_path, appliance_name, specs):
         )
         if n_spikes > 0:
             print(f"  ✓ Loneliness Filter: Successfully removed {n_spikes} isolated glitches in washingmachine.")
+
+        # --- NEW STAGE: Cycle Validation ---
+        print(f"  ✓ Signature Filter: Checking for 1000W Peak in '{appliance_name}' clusters...")
+        watts_data, n_fake = validate_full_cycles(
+            watts_data, 
+            min_peak=1000.0, 
+            bridge_gap=20,
+            min_duration=80
+        )
+        if n_fake > 0:
+            print(f"  ✓ Signature Filter: Removed {n_fake} additional fake cycles.")
 
     # 4.5 Apply Clipping if defined
     if clip_max is not None:
