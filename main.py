@@ -267,9 +267,10 @@ def main():
                 config_path = os.path.join(os.path.dirname(__file__), 'Config/preprocess/preprocess_multivariate.yaml')
                 specs = postprocess.load_config()
                 
-                if specs and args.name in specs:
+                # FIX: We must look inside the 'appliances' block of the YAML
+                if specs and 'appliances' in specs and args.name in specs['appliances']:
                     print(f"\n🚀 Applying Post-Processing Filters for {args.name}...")
-                    app_specs = specs[args.name]
+                    app_specs = specs['appliances'][args.name]
                     noise_thres = app_specs.get('on_power_threshold', 15.0)
                     
                     # Work on the power sequence
