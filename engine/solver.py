@@ -109,6 +109,9 @@ class Trainer(object):
     def train(self):
         device = self.device
         step = 0
+        best_loss = float('inf')
+        loss_ema = None
+        
         if self.logger is not None:
             tic = time.time()
             self.logger.log_info('{}: start training...'.format(self.args.name), check_primary=False)
@@ -130,7 +133,14 @@ class Trainer(object):
                     self.scaler.scale(loss).backward()
                     total_loss += loss.item()
 
-                pbar.set_description(f'loss: {total_loss:.6f}')
+                # Maintain an Exponential Moving Average (EMA) of the loss to prevent 
+                # random mini-batch spikes from hiding the true convergence line.
+                if loss_ema is None:
+                    loss_ema = total_loss
+                else:
+                    loss_ema = 0.95 * loss_ema + 0.05 * total_loss
+
+                pbar.set_description(f'loss (EMA): {loss_ema:.6f}')
 
                 # Unscale gradients before clipping
                 self.scaler.unscale_(self.opt)
@@ -145,19 +155,18 @@ class Trainer(object):
                 self.ema.update()
 
                 with torch.no_grad():
+                    # --- NORMALLY SCHEDULED SAVING ---
                     if self.step != 0 and self.step % self.save_cycle == 0:
                         self.milestone += 1
                         self.save(self.milestone)
-                        # self.logger.log_info('saved in {}'.format(str(self.results_folder / f'checkpoint-{self.milestone}.pt')))
+                    
+                    # --- 🌟 SAVE THE BEST CHECKPOINT ---
+                    # Check every 50 steps (to avoid saving every single step)
+                    if step % 50 == 0 and loss_ema < best_loss:
+                        best_loss = loss_ema
+                        self.save('best', verbose=False)
                     
                     if self.logger is not None and self.step % self.log_frequency == 0:
-                        # info = '{}: train'.format(self.args.name)
-                        # info = info + ': Epoch {}/{}'.format(self.step, self.train_num_steps)
-                        # info += ' ||'
-                        # info += '' if loss_f == 'none' else ' Fourier Loss: {:.4f}'.format(loss_f.item())
-                        # info += '' if loss_r == 'none' else ' Reglarization: {:.4f}'.format(loss_r.item())
-                        # info += ' | Total Loss: {:.6f}'.format(total_loss)
-                        # self.logger.log_info(info)
                         self.logger.add_scalar(tag='train/loss', scalar_value=total_loss, global_step=self.step)
 
                 pbar.update(1)
