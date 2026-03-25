@@ -43,6 +43,7 @@ def remove_isolated_spikes(power_sequence, window_size=5, spike_threshold=3.0,
             is_background_quiet = np.all(surrounding < 15.0)
             
             if is_background_quiet and current_value > spike_threshold * (median_surrounding + 1.0):
+                power_sequence[i] = 0
                 num_spikes += 1
                 
     return power_sequence, num_spikes
@@ -73,7 +74,8 @@ def validate_full_cycles(power_sequence, background_threshold=15.0,
     num_fake_segments = 0
     for start, end in zip(starts, ends):
         segment = power_sequence[start:end]
-        if np.max(segment) < min_peak and (end-start) < min_duration:
+        # Kills if peak is too low OR if the total duration is too short to be a real cycle
+        if np.max(segment) < min_peak or (end-start) < min_duration:
             power_sequence[start:end] = 0
             num_fake_segments += 1
                 

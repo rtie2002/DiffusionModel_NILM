@@ -277,22 +277,23 @@ def main():
                     N, L, V = samples.shape
                     power_seq = samples[:, :, 0].flatten()
                     
-                    # 1. Base Noise Filter (Apply to ALL appliances)
-                    print(f"  ✓ Noise Filter: Setting values < {noise_thres}W to 0W...")
+                    # --- ROUND 1: Base Noise Filter (Global) ---
+                    print(f"  ✓ Round 1: Global Noise Filter (< {noise_thres}W -> 0W)...")
                     power_seq[power_seq < noise_thres] = 0
                     
-                    # 2. Advanced Washing Machine Extra Steps
+                    # --- ROUND 2: Appliance-Specific Advanced Filters ---
                     if args.name.lower() == 'washingmachine':
-                        print("  ✓ Spike Filter: Searching for isolated spikes > 50W...")
+                        print(f"  ✓ Round 2: Searching for isolated spikes (using {noise_thres}W BG)...")
                         power_seq, n_spikes = postprocess.remove_isolated_spikes(
-                            power_seq, window_size=5, spike_threshold=3.0, background_threshold=15.0
+                            power_seq, window_size=5, spike_threshold=3.0, background_threshold=noise_thres
                         )
                         if n_spikes > 0:
                             print(f"    - Cleaned {n_spikes} isolated glitches.")
                             
-                        print("  ✓ Signature Filter: Checking for 1000W Peak in clusters...")
+                        print("  ✓ Round 2: Validating Washing Machine 1000W Signature...")
                         power_seq, n_fake = postprocess.validate_full_cycles(
-                            power_seq, min_peak=1000.0, bridge_gap=20, min_duration=80
+                            power_seq, background_threshold=noise_thres, 
+                            min_peak=1000.0, bridge_gap=20, min_duration=80
                         )
                         if n_fake > 0:
                             print(f"    - Removed {n_fake} fake cycles without 1000W peaks.")

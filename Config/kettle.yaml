@@ -4,8 +4,8 @@ model:
     seq_length: 512
     feature_size: 1
     condition_dim: 8  # 8 time features (minute, hour, dow, month sin/cos)
-    n_layer_enc: 3    # Reduced to 4 as requested
-    n_layer_dec: 3    # Reduced to 4 as requested
+    n_layer_enc: 4    # Reduced to 4 as requested
+    n_layer_dec: 4    # Reduced to 4 as requested
     d_model: 256      # Doubled for 1M+ data capacity
     timesteps: 2000
     sampling_timesteps: 2000
@@ -54,7 +54,7 @@ dataloader:
       neg_one_to_one: True
       seed: 2024
       period: train
-      boost_factor: 3
+      boost_factor: 6
       boost_threshold: 0.1
 
   batch_size: 128     # Increased for 4090 efficiency
