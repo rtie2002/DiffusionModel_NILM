@@ -108,7 +108,8 @@ def convert_file(file_path, output_dir, config):
     import pandas as pd
     df = pd.DataFrame(flat_data, columns=cols)
     
-    out_name = filename.replace('.npy', '_zscore.csv')
+    # 6. Save as CSV
+    out_name = f"{appliance}_multivariate.csv"
     out_path = os.path.join(output_dir, out_name)
     df.to_csv(out_path, index=False)
     

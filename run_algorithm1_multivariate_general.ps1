@@ -2,8 +2,8 @@
 # This processes the Z-Score Converted TimeGAN data to calculate On/Off events and Energy.
 
 $script = "synthetic_data_multivariate/algorithm1_v2_multivariate.py"
-$input_base = "Data/datasets/timeGAN_synthetic/zscore_converted"
-$output_dir = "Data/datasets/timeGAN_synthetic"
+$input_base = "synthetic_data_multivariate/zscore_converted"
+$output_dir = "Data/datasets/synthetic_processed"
 
 # Dishwasher
 Write-Host "Processing Dishwasher (TimeGAN)..."
