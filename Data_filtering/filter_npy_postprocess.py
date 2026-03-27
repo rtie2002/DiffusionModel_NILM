@@ -459,8 +459,30 @@ if __name__ == "__main__":
         print("❌ Error: No input path provided. Exiting.")
         exit(1)
 
+    # --- AUTO-DETECT APPLIANCE ---
     if appliance is None:
-        print("\nAvailable Appliances: kettle, microwave, fridge, dishwasher, washingmachine")
-        appliance = input("➤ Enter the appliance name: ").strip().lower()
+        filename = os.path.basename(input_path).lower()
+        
+        # Load valid appliances from config
+        try:
+            with open(CONFIG_PATH, 'r') as f:
+                config = yaml.safe_load(f)
+            valid_appliances = list(config['appliances'].keys())
+        except:
+            valid_appliances = ["kettle", "microwave", "fridge", "dishwasher", "washingmachine"]
+
+        # Try to find a match in the filename
+        detected = None
+        for app in valid_appliances:
+            if app in filename:
+                detected = app
+                break
+        
+        if detected:
+            print(f"🤖 Auto-detected appliance: {detected}")
+            appliance = detected
+        else:
+            print("\nAvailable Appliances: " + ", ".join(valid_appliances))
+            appliance = input("➤ Could not auto-detect. Enter the appliance name: ").strip().lower()
 
     process_npy_file(input_path, appliance, visualize=visualize)
