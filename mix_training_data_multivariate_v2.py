@@ -15,6 +15,8 @@ import pandas as pd
 import argparse
 import yaml
 import random
+import os
+import glob
 from pathlib import Path
 
 # Load configuration
@@ -49,12 +51,36 @@ if CONFIG:
 else:
     AGG_MEAN, AGG_STD = 522, 814
 
+def find_synthetic_file(appliance_name, synthetic_dir):
+    """Find synthetic NPY file in synthetic_dir by appliance name.
+    1. Try exact names first.
+    2. Fallback: scan the directory for any .npy file containing the appliance name.
+    """
+    # Exact name candidates (in order of preference)
+    exact_names = [
+        f'ddpm_fake_{appliance_name}_multivariate.npy',
+        f'ddpm_fake_{appliance_name}_512.npy',
+    ]
+    for name in exact_names:
+        candidate = Path(synthetic_dir) / name
+        if candidate.exists():
+            return candidate
+
+    # Fallback: keyword search inside synthetic_dir
+    print(f"  [INFO] Exact file not found for '{appliance_name}'. Scanning {synthetic_dir} for keyword match...")
+    for f in Path(synthetic_dir).glob('*.npy'):
+        if appliance_name in f.name.lower() and 'zscore' not in f.name.lower() and not f.name.endswith('.bak'):
+            print(f"  [FOUND] Matched by keyword: {f.name}")
+            return f
+
+    return None
+
 def load_synthetic_appliance(appliance_name, synthetic_dir):
     """Load synthetic [0,1] power and convert to Watts"""
-    npy_path = Path(synthetic_dir) / f'ddpm_fake_{appliance_name}_multivariate.npy'
-    if not npy_path.exists():
-        # Try fallback path
-        npy_path = Path(f'OUTPUT/{appliance_name}_512/ddpm_fake_{appliance_name}_512.npy')
+    npy_path = find_synthetic_file(appliance_name, synthetic_dir)
+    
+    if not npy_path or not npy_path.exists():
+        raise FileNotFoundError(f"Error: Could not find any synthetic NPY file for '{appliance_name}' in {synthetic_dir} or OUTPUT/")
     
     print(f"Loading synthetic data from: {npy_path}")
     data = np.load(npy_path)

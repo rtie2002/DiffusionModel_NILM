@@ -23,19 +23,28 @@ import shutil
 # Target size: 2500 windows * 512 points = 1.28M points (enough for >100% of ~1M real data)
 TARGET_WINDOWS = 2500 
 
-search_path = os.path.join('synthetic_data_multivariate', 'ddpm_fake_*_multivariate.npy')
-files = glob.glob(search_path)
+import glob
+import re
 
-print(f'\n[Auto-Expand] Checking {len(files)} synthetic files...')
+search_path = os.path.join('synthetic_data_multivariate', '*.npy')
+all_files = glob.glob(search_path)
+
+# Filter out backups and zscore files
+files = [f for f in all_files if not f.endswith('.bak') and 'zscore' not in f.lower()]
+# Remove duplicates
+files = list(set(files))
+
+print(f'\n[Auto-Expand] Checking {len(files)} synthetic files in synthetic_data_multivariate/ ...')
 
 for f in files:
     try:
         data = np.load(f)
         if data.shape[0] < TARGET_WINDOWS:
-            print(f'  Expanding {os.path.basename(f)}: {data.shape[0]} windows -> {TARGET_WINDOWS} windows')
+            print(f'  Expanding {os.path.basename(f)} ({os.path.dirname(f)}): {data.shape[0]} windows -> {TARGET_WINDOWS} windows')
             
             # Backup original if not exists
             if not os.path.exists(f + '.bak'):
+                import shutil
                 shutil.copy2(f, f + '.bak')
             
             # Tile/Repeat data to reach target size
