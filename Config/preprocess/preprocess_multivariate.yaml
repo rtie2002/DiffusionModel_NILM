@@ -94,7 +94,7 @@ appliances:
     mean: 700
     std: 1000
     max_power: 3964
-    on_power_threshold: 10
+    on_power_threshold: 50
     real_max_power: 3964
     max_power_clip: 3964
     train:
