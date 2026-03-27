@@ -21,6 +21,103 @@ from Models.diffusion.model_utils import unnormalize_to_zero_to_one
 from Utils.io_utils import load_yaml_config, seed_everything, merge_opts_to_config, instantiate_from_config
 
 
+def apply_base_noise_filter(power_sequence, background_threshold=15.0, bridge_gap=30):
+    """
+    Zeroes out noise below the threshold globally, but PROTECTS temporary dips 
+    that occur inside an active appliance cycle by bridging gaps forward.
+    """
+    power_sequence = power_sequence.copy()
+    n = len(power_sequence)
+    
+    # 1. Identify raw active points
+    is_active = (power_sequence >= background_threshold).astype(int)
+    
+    # 2. Bridge small gaps (protect internal dips)
+    for i in range(1, n - bridge_gap):
+        if is_active[i-1] == 1 and is_active[i] == 0:
+            upcoming = is_active[i:i+bridge_gap]
+            if np.any(upcoming == 1):
+                next_active = np.where(upcoming == 1)[0][0]
+                is_active[i:i+next_active] = 1
+                
+    # 3. Apply mask to zero out ONLY the TRUE background noise outside of cycles
+    power_sequence[is_active == 0] = 0.0
+    
+    return power_sequence
+
+
+def remove_isolated_spikes(power_sequence, window_size=5, spike_threshold=3.0, 
+                          background_threshold=50):
+    """
+    Remove isolated spikes that appear in the middle of OFF periods.
+    Works entirely in WATTS space.
+    """
+    power_sequence = power_sequence.copy()
+    n = len(power_sequence)
+    num_spikes = 0
+    
+    # Pad array for edge handling
+    half_window = window_size // 2
+    padded = np.pad(power_sequence, half_window, mode='edge')
+    
+    for i in range(n):
+        current_value = power_sequence[i]
+        # Skip checking if already silently low
+        if current_value < max(1.0, background_threshold * 0.1): 
+            continue
+        
+        # Get surrounding values (excluding center point)
+        window_start, window_end = i, i + window_size
+        window = padded[window_start:window_end]
+        surrounding = np.concatenate([window[:half_window], window[half_window+1:]])
+        
+        median_surrounding = np.median(surrounding)
+        
+        if current_value > background_threshold:
+            # Check if surroundings are mostly 'OFF' (near zero, e.g. < 15W)
+            is_background_quiet = np.all(surrounding < 15.0)
+            
+            if is_background_quiet and current_value > spike_threshold * (median_surrounding + 1.0):
+                power_sequence[i] = 0
+                num_spikes += 1
+                
+    return power_sequence, num_spikes
+
+def validate_full_cycles(power_sequence, background_threshold=15.0, 
+                        min_peak=1000.0, bridge_gap=20, min_duration=80):
+    """
+    Cycle-wise Validation.
+    Groups clusters and zeroes out those without a required Watts signature.
+    Works entirely in WATTS space.
+    """
+    power_sequence = power_sequence.copy()
+    n = len(power_sequence)
+    is_active = (power_sequence >= background_threshold).astype(int)
+    
+    # Bridge small gaps
+    for i in range(1, n - bridge_gap):
+        if is_active[i-1] == 1 and is_active[i] == 0:
+            upcoming = is_active[i:i+bridge_gap]
+            if np.any(upcoming == 1):
+                next_active = np.where(upcoming == 1)[0][0]
+                is_active[i:i+next_active] = 1
+
+    # Analyze segments
+    diff = np.diff(np.concatenate(([0], is_active, [0])))
+    starts = np.where(diff == 1)[0]
+    ends = np.where(diff == -1)[0]
+    
+    num_fake_segments = 0
+    for start, end in zip(starts, ends):
+        segment = power_sequence[start:end]
+        # Kill if peak is too low OR if totally duration is too short to be a real cycle
+        if np.max(segment) < min_peak or (end-start) < min_duration:
+            power_sequence[start:end] = 0
+            num_fake_segments += 1
+                
+    return power_sequence, num_fake_segments
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description='PyTorch Training Script')
     parser.add_argument('--name', type=str, default=None)
@@ -260,46 +357,66 @@ def main():
             raw_path = os.path.join(args.save_dir, f'ddpm_fake_{args.name}_raw.npy')
             np.save(raw_path, samples)
             print(f"✓ Saved original RAW samples to: {raw_path}")
-            
-            # --- TASK 2: FILTER NOISE (Identical to convert_zscore_to_minmax.py) ---
+            # --- TASK 2: FILTER NOISE (Apply Algorithm 1 Logic & EWMA) ---
             try:
-                import convert_zscore_to_minmax as postprocess
+                # Load configuration without importing the external postprocess file
+                import yaml
                 config_path = os.path.join(os.path.dirname(__file__), 'Config/preprocess/preprocess_multivariate.yaml')
-                specs = postprocess.load_config()
+                with open(config_path, 'r') as f:
+                    specs = yaml.safe_load(f)
                 
-                # FIX: We must look inside the 'appliances' block of the YAML
                 if specs and 'appliances' in specs and args.name in specs['appliances']:
                     print(f"\n🚀 Applying Post-Processing Filters for {args.name}...")
                     app_specs = specs['appliances'][args.name]
-                    noise_thres = app_specs.get('on_power_threshold', 15.0)
+                    max_power = app_specs.get('max_power', 1000.0)
+                    
+                    noise_thres_watts = app_specs.get('on_power_threshold', 15.0)
+                    clip_max_watts = app_specs.get('max_power_clip', None)
                     
                     # Work on the power sequence
                     N, L, V = samples.shape
-                    power_seq = samples[:, :, 0].flatten()
                     
-                    # --- ROUND 1: Base Noise Filter (Global) ---
-                    print(f"  ✓ Round 1: Global Noise Filter (< {noise_thres}W -> 0W)...")
-                    power_seq[power_seq < noise_thres] = 0
+                    # Store original time features since we only filter power
+                    if V > 1:
+                        time_feats = samples[:, :, 1:].copy()
+                    
+                    # Flatten power for 1D filtering functions and CONVERT TO WATTS
+                    power_seq_minmax = samples[:, :, 0].flatten()
+                    power_seq_watts = power_seq_minmax * max_power
+                    
+                    # --- ROUND 1: Base Noise Filter (Smart Masking) ---
+                    print(f"  ✓ Round 1: Smart Noise Filter (< {noise_thres_watts}W protected inside cycles)...")
+                    power_seq_watts = apply_base_noise_filter(power_seq_watts, background_threshold=noise_thres_watts, bridge_gap=30)
                     
                     # --- ROUND 2: Appliance-Specific Advanced Filters ---
                     if args.name.lower() == 'washingmachine':
-                        print(f"  ✓ Round 2: Searching for isolated spikes (using {noise_thres}W BG)...")
-                        power_seq, n_spikes = postprocess.remove_isolated_spikes(
-                            power_seq, window_size=5, spike_threshold=3.0, background_threshold=noise_thres
+                        print(f"  ✓ Round 2: Searching for isolated spikes (using {noise_thres_watts}W BG)...")
+                        power_seq_watts, n_spikes = remove_isolated_spikes(
+                            power_seq_watts, window_size=5, spike_threshold=3.0, background_threshold=noise_thres_watts
                         )
                         if n_spikes > 0:
                             print(f"    - Cleaned {n_spikes} isolated glitches.")
                             
-                        print("  ✓ Round 2: Validating Washing Machine 1000W Signature...")
-                        power_seq, n_fake = postprocess.validate_full_cycles(
-                            power_seq, background_threshold=noise_thres, 
+                        print("  ✓ Round 2: Validating Washing Machine signature...")
+                        power_seq_watts, n_fake = validate_full_cycles(
+                            power_seq_watts, background_threshold=noise_thres_watts, 
                             min_peak=1000.0, bridge_gap=20, min_duration=80
                         )
                         if n_fake > 0:
                             print(f"    - Removed {n_fake} fake cycles without 1000W peaks.")
                     
-                    # Put filtered power back into samples
-                    samples[:, :, 0] = power_seq.reshape(N, L)
+                    # --- ROUND 3: Hard Clip ---
+                    if clip_max_watts is not None:
+                        print(f"  ✓ Round 3: Clipping max power to {clip_max_watts}W...")
+                        power_seq_watts = np.clip(power_seq_watts, 0.0, clip_max_watts)
+                    
+                    # Put filtered power back into samples array (CONVERT BACK TO MINMAX)
+                    power_seq_minmax = power_seq_watts / max_power
+                    samples[:, :, 0] = power_seq_minmax.reshape(N, L)
+                    
+                    # Restore time features just to be safe
+                    if V > 1:
+                        samples[:, :, 1:] = time_feats
                     
             except Exception as e:
                 print(f"⚠️ Could not apply noise filters automatically: {e}")
