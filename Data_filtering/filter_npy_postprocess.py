@@ -434,12 +434,33 @@ def process_npy_file(input_file, appliance_name, visualize=False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Standalone NPY Noise Filter")
-    parser.add_argument("--input", type=str, required=True, help="Path to the original .npy file")
-    parser.add_argument("--appliance", type=str, required=True, 
+    parser.add_argument("--input", type=str, required=False, help="Path to the original .npy file")
+    parser.add_argument("--appliance", type=str, required=False, 
                         choices=["kettle", "microwave", "fridge", "dishwasher", "washingmachine"],
                         help="Appliance name for fetching YAML thresholds")
     parser.add_argument("--visualize", action="store_true", 
                         help="Open an interactive matplotlib window to compare Before/After before saving")
     args = parser.parse_args()
     
-    process_npy_file(args.input, args.appliance, visualize=args.visualize)
+    # --- INTERACTIVE FALLBACK ---
+    input_path = args.input
+    appliance = args.appliance
+    visualize = args.visualize
+
+    if input_path is None:
+        print("\n" + "="*60)
+        print("NPY POST-PROCESSOR: INTERACTIVE MODE")
+        print("="*60)
+        input_path = input("\n➤ Enter the path to your .npy file: ").strip().strip('"').strip("'")
+        # If run interactively, default visualize to True unless explicitly disabled
+        visualize = True 
+
+    if not input_path:
+        print("❌ Error: No input path provided. Exiting.")
+        exit(1)
+
+    if appliance is None:
+        print("\nAvailable Appliances: kettle, microwave, fridge, dishwasher, washingmachine")
+        appliance = input("➤ Enter the appliance name: ").strip().lower()
+
+    process_npy_file(input_path, appliance, visualize=visualize)
