@@ -92,8 +92,8 @@ function Run-Mix-Ratios {
             Write-Host "  > Synthetic Rows: $synRows"
             
             # Execute python script with specific suffix
-            $suffix = "synthetic_${percent}%"
-            python mix_training_data_multivariate.py --appliance $Appliance --real_rows $totalRealPoints --synthetic_rows $synRows --real_path "$fullPath" --suffix "$suffix"
+            $suffix = "synthetic_${percent}%_v2"
+            python mix_training_data_multivariate_v2.py --appliance $Appliance --real_rows $totalRealPoints --synthetic_rows $synRows --real_path "$fullPath" --suffix "$suffix"
         }
     }
     else {

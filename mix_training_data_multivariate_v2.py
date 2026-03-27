@@ -187,19 +187,33 @@ if __name__ == '__main__':
     parser.add_argument('--real_rows', type=int, default=200000)
     parser.add_argument('--synthetic_rows', type=int, default=200000)
     parser.add_argument('--suffix', type=str, default="200k+200k_bg_v2")
-    parser.add_argument('--shuffle', action='store_true', help='Enable window shuffling')
+    parser.add_argument('--shuffle', action='store_true', default=None, help='Enable window shuffling')
     parser.add_argument('--no-shuffle', action='store_false', dest='shuffle', help='Disable window shuffling')
-    parser.set_defaults(shuffle=True)
     parser.add_argument('--window_size', type=int, default=600, help='Window size for slicing and shuffling')
     parser.add_argument('--real_path', type=str, default=None, help='Path to real CSV file (optional)')
     args = parser.parse_args()
     
+    # Determine shuffle logic:
+    # 1. Start with config value (or False if config missing)
+    # 2. If user explicitly passed --shuffle or --no-shuffle, that wins.
+    # 3. Otherwise, use config value.
+    config_shuffle = False
+    if CONFIG and 'mixing' in CONFIG:
+        config_shuffle = CONFIG['mixing'].get('shuffle', False)
+    
+    # If args.shuffle is None, it means no flag was passed -> Use Config.
+    # If args.shuffle is True/False, it means a flag was passed -> Use Flag.
+    should_shuffle = config_shuffle if args.shuffle is None else args.shuffle
+
+    if not should_shuffle:
+        print("-> Shuffling DISABLED (via Config or CLI)")
+
     mix_data_v2(
         appliance_name=args.appliance,
         real_rows=args.real_rows,
         synthetic_rows=args.synthetic_rows,
         real_path=args.real_path,
         suffix=args.suffix,
-        shuffle=args.shuffle,
+        shuffle=should_shuffle,
         window_size=args.window_size,
     )
