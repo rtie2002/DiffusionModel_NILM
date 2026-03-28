@@ -91,7 +91,7 @@ END
         echo "   Real rows      : $total_real_points"
         echo "   Synthetic rows : $syn_rows"
 
-        python mix_training_data_multivariate_v2.py \
+        python mix_training_data_multivariate.py \
             --appliance "$appliance" \
             --real_rows "$total_real_points" \
             --synthetic_rows "$syn_rows" \
