@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import argparse
 import yaml
+import os
 from pathlib import Path
 
 # Load configuration
@@ -78,8 +79,22 @@ def load_synthetic_data(appliance_name, custom_folder=None, return_full=False):
     print(f"\n=== Loading Synthetic Data for {appliance_name} ===")
     
     if custom_folder:
-        # Use filename pattern for files in synthetic_data_multivariate
-        npy_path = f'{custom_folder}/ddpm_fake_{appliance_name}_multivariate.npy'
+        # DYNAMIC KEYWORD SEARCH: Look for any .npy containing {appliance_name} and "multivariate"
+        import glob
+        pattern = os.path.join(custom_folder, f"*{appliance_name}*multivariate*.npy")
+        possible_files = glob.glob(pattern)
+        
+        # Filter out backups
+        possible_files = [f for f in possible_files if not f.endswith('.bak')]
+        
+        if not possible_files:
+            raise FileNotFoundError(f"Error: Could not find any .npy file containing '{appliance_name}' and 'multivariate' in {custom_folder}")
+        
+        npy_path = possible_files[0]
+        if len(possible_files) > 1:
+            print(f"  [WARNING] Multiple matches found. Using: {os.path.basename(npy_path)}")
+        else:
+            print(f"  [FOUND] Matched file: {os.path.basename(npy_path)}")
     else:
         npy_path = f'OUTPUT/{appliance_name}_512/ddpm_fake_{appliance_name}_512.npy'
 

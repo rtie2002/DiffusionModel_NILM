@@ -22,7 +22,7 @@ cat > "$TEMP_EXPAND_SCRIPT" << 'PYEOF'
 import numpy as np, glob, os, shutil
 
 TARGET_WINDOWS = 2500  # 2500 windows * 512 points ≈ 1.28M points
-search_path = os.path.join('synthetic_data_multivariate', 'ddpm_fake_*_multivariate.npy')
+search_path = os.path.join('synthetic_data_multivariate', '*.npy')
 files = glob.glob(search_path)
 
 print(f"\n[Auto‑Expand] Checking {len(files)} synthetic files...")
