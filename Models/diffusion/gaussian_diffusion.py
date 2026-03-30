@@ -252,7 +252,7 @@ class Diffusion(nn.Module):
         return sample_fn((batch_size, seq_length, feature_size))
 
     @torch.no_grad()
-    def generate_with_conditions(self, condition, batch_size=None):
+    def generate_with_conditions(self, condition, batch_size=None, sync_overlap_len=None):
         """
         Generate data with time features preserved (outputs 9 dimensions)
         
@@ -287,6 +287,12 @@ class Diffusion(nn.Module):
         # Reverse diffusion process
         for t in pbar:
             img, _ = self.p_sample(img, t)
+            
+            # ⚓ PARALLEL JOINT STITCHING (Strict Causal Overwrite)
+            if sync_overlap_len is not None and sync_overlap_len > 0 and img.shape[0] > 1:
+                tail = img[:-1, -sync_overlap_len:, :self.feature_size].clone()
+                img[1:, :sync_overlap_len, :self.feature_size] = tail
+                
             # Force time features to stay as conditions (prevent drift)
             img[:, :, self.feature_size:] = condition
         
