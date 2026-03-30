@@ -122,33 +122,33 @@ class CustomDataset(Dataset):
         train_indices, test_indices = self.divide(indices, proportion, seed)
 
         # DENSITY & CONTINUITY BOOSTER (Apply to Training only)
-        if self.period == 'train' and len(train_indices) > 0:
-            if self.name.lower() == 'fridge':
-                print(f"  [Continuity Booster] Skipping for {self.name} as requested (Avoiding over-boosting)")
-            else:
-                print(f"  [Continuity Booster] Analyzing training windows for transitions...")
-                active_ids = []
-                threshold = self.boost_threshold
-                for idx in train_indices:
-                    if np.max(data[idx : idx + self.window, 0]) > threshold:
-                        active_ids.append(idx)
+        # Activation: Only runs if 'boost_factor' is explicitly defined in YAML and > 1
+        if self.period == 'train' and len(train_indices) > 0 and self.boost_factor is not None and self.boost_factor > 1:
+            print(f"  [Continuity Booster] Analyzing training windows for transitions (Factor: {self.boost_factor}, Threshold: {self.boost_threshold})...")
+            active_ids = []
+            threshold = self.boost_threshold
+            for idx in train_indices:
+                if np.max(data[idx : idx + self.window, 0]) > threshold:
+                    active_ids.append(idx)
+            
+            active_ids = np.array(active_ids)
+            if len(active_ids) > 0:
+                current_boost = int(self.boost_factor)
                 
-                active_ids = np.array(active_ids)
-                if len(active_ids) > 0:
-                    # Default to 4 (previous behavior) unless manually overridden
-                    current_boost = self.boost_factor if self.boost_factor is not None else 4
-                    
-                    if current_boost > 1:
-                        boosted_versions = [train_indices]
-                        for _ in range(int(current_boost) - 1):
-                            jitter = np.random.randint(-2, 3, size=len(active_ids))
-                            jittered_active = np.clip(active_ids + jitter, 0, self.sample_num_total - 1)
-                            boosted_versions.append(jittered_active)
-                        
-                        train_indices = np.concatenate(boosted_versions)
-                        print(f"  [Continuity Booster] Found {len(active_ids)} active windows. Training set boosted to {len(train_indices)} samples (Factor: {current_boost}).")
-                    else:
-                        print(f"  [Continuity Booster] Boost factor is 1. No dataset expansion applied.")
+                boosted_versions = [train_indices]
+                for _ in range(current_boost - 1):
+                    # Multi-scale jittering: helps model generalize to shift invariance
+                    jitter = np.random.randint(-2, 3, size=len(active_ids))
+                    jittered_active = np.clip(active_ids + jitter, 0, self.sample_num_total - 1)
+                    boosted_versions.append(jittered_active)
+                
+                train_indices = np.concatenate(boosted_versions)
+                print(f"  [Continuity Booster] Found {len(active_ids)} active windows. Training set boosted to {len(train_indices)} samples.")
+            else:
+                print(f"  [Continuity Booster] No windows above threshold {threshold} found. Skipping expansion.")
+        else:
+            if self.period == 'train':
+                print(f"  [Continuity Booster] Inactive (Boost Factor: {self.boost_factor})")
 
         # CRITICAL FIX: Sort indices to maintain temporal order (Jan -> Dec)
         # Without this, 'divide' returns shuffled random indices!
