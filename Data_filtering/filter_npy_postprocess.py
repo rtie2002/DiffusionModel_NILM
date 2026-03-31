@@ -389,7 +389,7 @@ def process_npy_file(input_file, appliance_name, visualize=False):
         print("  ✓ Round 2: Validating Washing Machine signature...")
         power_seq_watts, n_fake = validate_full_cycles(
             power_seq_watts, background_threshold=noise_thres_watts, 
-            min_peak=1000.0, bridge_gap=20, min_duration=80
+            min_peak=1000.0, bridge_gap=20, min_duration=30
         )
         if n_fake > 0:
             print(f"    - Removed {n_fake} fake cycles without 1000W peaks.")
