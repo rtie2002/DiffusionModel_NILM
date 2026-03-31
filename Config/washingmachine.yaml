@@ -10,6 +10,8 @@ model:
     timesteps: 2000
     sampling_timesteps: 2000
     loss_type: 'l1'
+    cond_drop_prob: 0.1
+    guidance_scale: 2.0
     beta_schedule: 'cosine'
     n_heads: 8        # Increased to match larger d_model
     mlp_hidden_times: 4
@@ -52,7 +54,7 @@ dataloader:
       neg_one_to_one: True
       seed: 2024
       period: train
-      boost_factor: 4     # Active windows will be duplicated/jittered 4x
+      boost_factor: 6
       boost_threshold: 0.05
 
   batch_size: 128     # Increased for 4090 efficiency
