@@ -124,11 +124,18 @@ class CustomDataset(Dataset):
         # DENSITY & CONTINUITY BOOSTER (Apply to Training only)
         # Activation: Only runs if 'boost_factor' is explicitly defined in YAML and > 1
         if self.period == 'train' and len(train_indices) > 0 and self.boost_factor is not None and self.boost_factor > 1:
-            print(f"  [Continuity Booster] Analyzing training windows for transitions (Factor: {self.boost_factor}, Threshold: {self.boost_threshold})...")
+            print(f"  [Continuity Booster] Analyzing training windows for transitions (Factor: {self.boost_factor}, Threshold: {self.boost_threshold * 100}% of Max Power)...")
             active_ids = []
-            threshold = self.boost_threshold
+            
+            # Use appropriate threshold based on whether data is in [-1, 1] or [0, 1]
+            if self.auto_norm:
+                # Convert user's [0, 1] percentage threshold to the [-1, 1] scale of the data
+                internal_threshold = (self.boost_threshold * 2) - 1.0
+            else:
+                internal_threshold = self.boost_threshold
+                
             for idx in train_indices:
-                if np.max(data[idx : idx + self.window, 0]) > threshold:
+                if np.max(data[idx : idx + self.window, 0]) > internal_threshold:
                     active_ids.append(idx)
             
             active_ids = np.array(active_ids)
@@ -145,7 +152,7 @@ class CustomDataset(Dataset):
                 train_indices = np.concatenate(boosted_versions)
                 print(f"  [Continuity Booster] Found {len(active_ids)} active windows. Training set boosted to {len(train_indices)} samples.")
             else:
-                print(f"  [Continuity Booster] No windows above threshold {threshold} found. Skipping expansion.")
+                print(f"  [Continuity Booster] No windows above threshold {self.boost_threshold * 100}% found. Skipping expansion.")
         else:
             if self.period == 'train':
                 print(f"  [Continuity Booster] Inactive (Boost Factor: {self.boost_factor})")
