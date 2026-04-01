@@ -53,8 +53,6 @@ class Diffusion(nn.Module):
             padding_size=None,
             use_ff=True,
             reg_weight=None,
-            cond_drop_prob=0.1,    # NEW: Dropout probability for conditions
-            guidance_scale=1.5,    # NEW: Default guidance scale for sampling
             **kwargs
     ):
         super(Diffusion, self).__init__()
@@ -62,9 +60,7 @@ class Diffusion(nn.Module):
         self.eta, self.use_ff = eta, use_ff
         self.seq_length = seq_length
         self.feature_size = feature_size
-        self.condition_dim = condition_dim
-        self.cond_drop_prob = cond_drop_prob
-        self.guidance_scale = guidance_scale
+        self.condition_dim = condition_dim  # NEW: Store condition dimension
         self.ff_weight = default(reg_weight, math.sqrt(self.seq_length) / 5)
 
         # NEW: Transformer now decouples feature_size (power) and condition_dim (time)
@@ -180,26 +176,7 @@ class Diffusion(nn.Module):
             padding_masks = torch.ones(x.shape[0], self.seq_length, dtype=bool, device=x.device)
 
         maybe_clip = partial(torch.clamp, min=-1., max=1.) if clip_x_start else identity
-        
-        # --- CFG Logic ---
-        x_start_cond = self.output(x, t, padding_masks)
-        
-        # Use guidance only if scale > 1.0 and NOT in training mode
-        if self.guidance_scale <= 1.0 or self.training:
-            x_start = x_start_cond
-        else:
-            # Create null condition version of the same input
-            x_null = x.clone()
-            x_null[:, :, self.feature_size:] = 0  # Zero out conditions
-            x_start_uncond = self.output(x_null, t, padding_masks)
-            
-            # Extrapolate (only affecting power column)
-            # Formula: x_uncond + guidance_scale * (x_cond - x_uncond)
-            x_start = x_start_uncond + self.guidance_scale * (x_start_cond - x_start_uncond)
-            
-            # Restore the original conditions to the output to maintain consistency
-            x_start[:, :, self.feature_size:] = x_start_cond[:, :, self.feature_size:]
-
+        x_start = self.output(x, t, padding_masks)
         x_start = maybe_clip(x_start)
         pred_noise = self.predict_noise_from_start(x, t, x_start)
         return pred_noise, x_start
@@ -355,13 +332,7 @@ class Diffusion(nn.Module):
         # Noise sample (only power)
         x_power_noisy = self.q_sample(x_start=x_power, t=t, noise=noise)
         
-        # CFG: Condition Dropout
-        if self.cond_drop_prob > 0:
-            # Generate a mask: True where we DROP the condition (replace with zeros)
-            drop_mask = torch.rand(x_start.shape[0], 1, 1, device=x_start.device) < self.cond_drop_prob
-            x_condition = torch.where(drop_mask, torch.zeros_like(x_condition), x_condition)
-            
-        # NEW: Concatenate noisy power with (potentially dropped) conditions
+        # NEW: Concatenate noisy power with clean conditions
         x = torch.cat([x_power_noisy, x_condition], dim=-1)  # (B, seq_length, 9)
         
         model_out = self.output(x, t, padding_masks)
