@@ -47,10 +47,10 @@ SUP_ITER   = 10000    # Phase 2: Supervisor    ↑ (was 3000) — need L_S < 0.0
 JOINT_ITER = 20000   # Phase 3: Joint         ↑ (was 5000) — match CGAN budget
 
 # Loss weights (C-TimeGAN paper, Table I)
-ETA    = 10.0        # supervised loss weight in G  ~ (was 5.0) — balanced logic
+ETA    = 1.0         # supervised loss weight in G  ↓ (was 10.0) — stability fix
 LAMBDA = 1.0         # supervised loss weight in ER (λ)
 GAMMA  = 1.0         # E_hat discriminator weight   (γ)
-FOCAL  = 50.0        # ON-period focal penalty      ↓ (was 100) — more balanced joint training
+FOCAL  = 100.0       # ON-period focal penalty      ↑ (was 50) — focus on peaks
 
 # Script is at  <root>/baseline_comparison/GAN/Train_CNN_TimeGAN_Conditional.py
 # So go up 3 levels: GAN → baseline_comparison → project root
@@ -382,9 +382,12 @@ def train_appliance(appliance):
             loss_g_U_e = l_bce(Y_fake_e, torch.ones_like(Y_fake_e))
             loss_g_s   = l_mse(H_hat[:, :, :-1], E_hat[:, :, 1:])
 
-            # Moments matching (V1=std, V2=mean)  paper Eq 15
-            loss_g_V1 = torch.mean(torch.abs(torch.std(X_hat, 0) - torch.std(X, 0)))
-            loss_g_V2 = torch.mean(torch.abs(torch.mean(X_hat, 0) - torch.mean(X, 0)))
+            # Moments matching (Global across batch and time)
+            # This is much more stable than per-pixel matching for sparse NILM data.
+            real_std,  real_mean  = torch.std(X),     torch.mean(X)
+            fake_std,  fake_mean  = torch.std(X_hat), torch.mean(X_hat)
+            loss_g_V1 = torch.abs(fake_std - real_std)
+            loss_g_V2 = torch.abs(fake_mean - real_mean)
 
             # Frequency-domain loss: penalise spectral mismatch between fake and real
             # Sharp appliance spikes have a distinct FFT profile that MSE alone misses
