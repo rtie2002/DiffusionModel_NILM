@@ -1,11 +1,12 @@
 """
-TimeGAN-TCN: Pixel-Perfect Alignment with CNN-CGAN
--------------------------------------------------
-🚀 ARCHITECTURE TRANSPLANT:
-  - Generator/Recovery:   Uses Upsample + Multi-level Condition Injection
-                          (Exact logic from the successful CNN-CGAN script)
-  - Discriminator/Encoder: Uses strided Conv1d + Spectral Norm + LeakyReLU
-  - Supervisor:           TCN with Dilated Convolutions (1-256)
+TimeGAN-TCN: Pure Sequential Architecture with Hyper-Conditioning
+-----------------------------------------------------------------
+🚀 Fixes applied:
+  - Preserves exact 512 -> 512 temporal resolution in Encoder/Recovery.
+  - Hyper-Conditioning: Condition 'C' is injected at EVERY block in 
+    the Generator to forcefully lock temporal position alignment.
+  - TCN Supervisor: Retained for autoregressive constraint.
+  - Discriminator: Strided CNN matching CNN-CGAN for sharp penalties.
 """
 
 import torch
@@ -13,149 +14,130 @@ import torch.nn as nn
 from torch.nn.utils import spectral_norm
 import torch.nn.functional as F
 
-
-def get_c(c, res):
-    """Interpolate condition to match resolution - Exactly as in CNN-CGAN."""
-    # c: [B, T, cond_dim] -> [B, cond_dim, T]
-    c_p = c.transpose(1, 2)
-    return F.interpolate(c_p, size=res, mode='nearest')
-
-
-class ConvBlock(nn.Module):
-    """Basic Residual Conv1d Block for TCN."""
-    def __init__(self, in_channels, out_channels, kernel=3, dilation=1):
-        super(ConvBlock, self).__init__()
-        padding = (kernel - 1) * dilation // 2
-        self.conv = nn.Sequential(
-            nn.Conv1d(in_channels, out_channels, kernel, padding=padding, dilation=dilation),
-            nn.BatchNorm1d(out_channels),
-            nn.LeakyReLU(0.2)
-        )
+class CondConvBlock(nn.Module):
+    """Residual Conv1d block that re-injects conditions at every step."""
+    def __init__(self, in_channels, cond_dim, out_channels, kernel=5):
+        super(CondConvBlock, self).__init__()
+        # First conv processes previous features + conditions
+        self.conv1 = nn.Conv1d(in_channels + cond_dim, out_channels, kernel, padding=kernel//2)
+        self.bn1 = nn.BatchNorm1d(out_channels)
+        self.relu = nn.LeakyReLU(0.2, inplace=True)
+        # Second conv
+        self.conv2 = nn.Conv1d(out_channels, out_channels, kernel, padding=kernel//2)
+        self.bn2 = nn.BatchNorm1d(out_channels)
+        
+        # Residual mapping
         self.res = nn.Conv1d(in_channels, out_channels, 1) if in_channels != out_channels else nn.Identity()
 
-    def forward(self, x):
-        return self.conv(x) + self.res(x)
+    def forward(self, x, cond):
+        # x: [B, C, T], cond: [B, cond_dim, T]
+        identity = self.res(x)
+        # Re-inject condition
+        out = torch.cat([x, cond], dim=1)
+        out = self.relu(self.bn1(self.conv1(out)))
+        out = self.bn2(self.conv2(out))
+        return self.relu(out + identity)
 
 
 class Encoder(nn.Module):
-    """Discriminator-style Downsampling for Encoding."""
+    """512 -> 512 Pure Sequence mapping to preserve Temporal Axis."""
     def __init__(self, opt):
         super(Encoder, self).__init__()
         cd = opt.cond_dim
         h = opt.hidden_dim
         
-        def cb(ic, oc): return nn.Sequential(
-            spectral_norm(nn.Conv1d(ic, oc, 4, 2, 1)),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Dropout(0.1))
-            
-        self.conv = nn.Sequential(
-            cb(opt.z_dim + cd, 32), # 256
-            cb(32, 64),              # 128
-            cb(64, 128),             # 64
-            cb(128, 256),            # 32
-        )
-        # Sequence-level flattening to match hidden_dim
-        self.fc = nn.Linear(256 * (opt.seq_len // 16), opt.seq_len * h)
-        self.h = h
-        self.t = opt.seq_len
+        self.in_conv = nn.Conv1d(opt.z_dim + cd, 32, 5, padding=2)
+        self.block1 = CondConvBlock(32, cd, 64)
+        self.block2 = CondConvBlock(64, cd, 128)
+        self.block3 = CondConvBlock(128, cd, h)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, input, cond, sigmoid=True):
-        # input: [B, T, 1], cond: [B, T, 8]
+        c_p = cond.transpose(1, 2)
         x = torch.cat([input, cond], dim=-1).transpose(1, 2)
-        x = self.conv(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x).view(-1, self.t, self.h)
-        return self.sigmoid(x) if sigmoid else x
+        
+        x = F.leaky_relu(self.in_conv(x), 0.2)
+        x = self.block1(x, c_p)
+        x = self.block2(x, c_p)
+        x = self.block3(x, c_p)
+        
+        H = x.transpose(1, 2)
+        return self.sigmoid(H) if sigmoid else H
 
 
 class Recovery(nn.Module):
-    """Generator-style Upsampling for Recovery."""
+    """512 -> 512 Pure Sequence mapping."""
     def __init__(self, opt):
         super(Recovery, self).__init__()
         h = opt.hidden_dim
         
-        def up(ic, oc): return nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='nearest'),
-            nn.Conv1d(ic, oc, 3, 1, 1),
+        def cb(ic, oc): return nn.Sequential(
+            nn.Conv1d(ic, oc, 5, padding=2),
             nn.BatchNorm1d(oc),
             nn.LeakyReLU(0.2, inplace=True))
             
-        # Recovery uses the same block style as GAN-Generator.
-        self.u1 = up(h, 64)   # 64
-        self.u2 = up(64, 32)  # 128
-        self.u3 = up(32, 16)  # 256
-        self.u4 = up(16, 8)   # 512
-        self.final = nn.Conv1d(8, opt.z_dim, 3, 1, 1)
+        self.net = nn.Sequential(
+            cb(h, 128),
+            cb(128, 64),
+            cb(64, 32),
+            nn.Conv1d(32, opt.z_dim, 3, padding=1)
+        )
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, input, sigmoid=True):
-        # input: [B, T, H] -> [B, H, T]
         x = input.transpose(1, 2)
-        # Fixed seeding at resolution 32
-        x = F.interpolate(x, size=32, mode='nearest') 
-        
-        x = self.u1(x) # 64
-        x = self.u2(x) # 128
-        x = self.u3(x) # 256
-        x = self.u4(x) # 512
-        x_tilde = self.final(x).transpose(1, 2)
-        return self.sigmoid(x_tilde) if sigmoid else x_tilde
+        X_tilde = self.net(x).transpose(1, 2)
+        return self.sigmoid(X_tilde) if sigmoid else X_tilde
 
 
 class Generator(nn.Module):
     """
-    ⚡ PIXEL-PERFECT GENERATOR:
-    Matches CNN-CGAN exactly with Multi-level Condition Injection.
+    ⚡ SUPER-CONDITIONED GENERATOR
+    Noise is random, but COND is injected rigorously at 4 different depth 
+    levels to lock the generated waveform to the designated time step.
     """
     def __init__(self, opt):
         super(Generator, self).__init__()
         cd = opt.cond_dim
         h = opt.hidden_dim
         
-        self.fc = nn.Linear(opt.latent_dim, 128 * 16)
-        
-        def up(ic, oc): return nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='nearest'),
-            nn.Conv1d(ic, oc, 3, 1, 1),
-            nn.BatchNorm1d(oc),
-            nn.LeakyReLU(0.2, inplace=True))
-            
-        self.u1 = up(128 + cd, 64)
-        self.u2 = up(64 + cd, 32)
-        self.u3 = up(32 + cd, 16)
-        self.u4 = up(16 + cd, 8)
-        self.final_conv = nn.Conv1d(8 + cd, h, 3, 1, 1)
+        self.in_conv = nn.Conv1d(opt.latent_dim + cd, 32, 5, padding=2)
+        self.block1 = CondConvBlock(32, cd, 64)
+        self.block2 = CondConvBlock(64, cd, 128)
+        self.block3 = CondConvBlock(128, cd, h)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, z, cond, sigmoid=True):
-        # z: [B, T, latent_dim] -> we use mean noise per specimen to match GAN seed logic
-        z_seed = z.mean(dim=1) 
-        x = self.fc(z_seed).view(-1, 128, 16) # [B, 128, 16]
+        c_p = cond.transpose(1, 2)
+        x = torch.cat([z, cond], dim=-1).transpose(1, 2)
         
-        # Inject condition at every layer - EXACTLY like CNN-CGAN
-        x = self.u1(torch.cat([x, get_c(cond, 16)], dim=1)) # 32
-        x = self.u2(torch.cat([x, get_c(cond, 32)], dim=1)) # 64
-        x = self.u3(torch.cat([x, get_c(cond, 64)], dim=1)) # 128
-        x = self.u4(torch.cat([x, get_c(cond, 128)], dim=1)) # 256
-        x = F.interpolate(x, size=512, mode='nearest')
+        x = F.leaky_relu(self.in_conv(x), 0.2)
+        # Explicit time-anchoring at every abstraction level
+        x = self.block1(x, c_p)
+        x = self.block2(x, c_p)
+        x = self.block3(x, c_p)
         
-        e = self.final_conv(torch.cat([x, get_c(cond, 512)], dim=1)).transpose(1, 2)
-        return self.sigmoid(e) if sigmoid else e
+        E = x.transpose(1, 2)
+        return self.sigmoid(E) if sigmoid else E
 
 
 class Supervisor(nn.Module):
     """
-    ⚡ TCN SUPERVISOR: Keeps temporal consistency over 512 steps.
+    ⚡ TCN SUPERVISOR
     """
     def __init__(self, opt):
         super(Supervisor, self).__init__()
         h = opt.hidden_dim
+        
         layers = []
-        # Dilations: 1, 2, ..., 256 -> cover 512 receptive field
+        # Dilations: 1, 2, 4, 8, 16, 32, 64, 128, 256 -> cover 512
         for d in [1, 2, 4, 8, 16, 32, 64, 128, 256]:
-            layers.append(ConvBlock(h, h, dilation=d))
+            layers.append(
+                nn.Sequential(
+                    nn.Conv1d(h, h, 3, padding=d, dilation=d),
+                    nn.LeakyReLU(0.2)
+                )
+            )
         self.tcn = nn.Sequential(*layers)
         self.fc = nn.Linear(h, h)
         self.sigmoid = nn.Sigmoid()
@@ -169,8 +151,8 @@ class Supervisor(nn.Module):
 
 class Discriminator(nn.Module):
     """
-    ⚡ PIXEL-PERFECT DISCRIMINATOR:
-    Matches CNN-CGAN exactly (Spectral Norm + LeakyReLU + Flatten).
+    ⚡ PIXEL-PERFECT DISCRIMINATOR
+    Uses CNN-CGAN's strided logic for zero-tolerance on blurry edges.
     """
     def __init__(self, opt):
         super(Discriminator, self).__init__()
@@ -183,13 +165,16 @@ class Discriminator(nn.Module):
             nn.Dropout(0.2))
             
         self.conv = nn.Sequential(
-            cb(h + cd, 32), cb(32, 64), cb(64, 128), cb(128, 256),
-            nn.Conv1d(256, 1, opt.seq_len // 16, 1, 0)
+            cb(h + cd, 32),   # 256
+            cb(32, 64),       # 128
+            cb(64, 128),      # 64
+            cb(128, 256),     # 32
+            nn.Conv1d(256, 1, opt.seq_len // 16, 1, 0) # Down to [B, 1, 1]
         )
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, h_seq, cond, sigmoid=True):
-        # Combine hidden state and condition
         disc_input = torch.cat([h_seq, cond], dim=-1).transpose(1, 2)
         y_hat = self.conv(disc_input).view(-1, 1)
         return self.sigmoid(y_hat) if sigmoid else y_hat
+
