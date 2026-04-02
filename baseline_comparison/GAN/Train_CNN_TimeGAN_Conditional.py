@@ -438,21 +438,40 @@ def train_appliance(appliance):
 
             E.eval(); G.eval(); S.eval(); R.eval()
             with torch.no_grad():
-                X_s, C_s = get_batch()
-                z_s      = torch.randn(1, 100, device=device)
-                E_hat_p  = G(z_s, C_s[:1])
-                H_hat_p  = S(E_hat_p)
-                X_hat_p  = R(H_hat_p).cpu().numpy()[0, 0]
-                real_s   = X_s[0, 0].cpu().numpy()
-                # find active window for cleaner plot
-                for ki in range(min(100, len(dataset))):
-                    sp = dataset[ki][0]
-                    if sp.max() > 0.05:
-                        real_s = sp.numpy()[0]; break
-            plt.clf()
-            plt.plot(real_s,  label='Real',      linewidth=1.5)
-            plt.plot(X_hat_p, label='Generated', linewidth=1.5, alpha=0.8)
-            plt.title(f'{appliance} | Joint Step {step}/{JOINT_ITER}')
+                # Get 3 consecutive windows to show continuity
+                # Using a fixed starting point for visual consistency
+                start_id = 0
+                for ki in range(min(500, len(dataset))):
+                    if dataset[ki][0].max() > 0.05:
+                        start_id = ki; break
+
+                rs_list, gs_list = [], []
+                for i in range(3):
+                    cur_idx = (start_id + i * (WINDOW_SIZE // 2)) % len(dataset)
+                    real_p_w, real_t_w = dataset[cur_idx]
+                    real_p_w = real_p_w.to(device).unsqueeze(0)
+                    real_t_w = real_t_w.to(device).unsqueeze(0)
+
+                    z_s = torch.randn(1, 100, device=device)
+                    E_hat_p = G(z_s, real_t_w)
+                    H_hat_p = S(E_hat_p)
+                    fake_p_w = R(H_hat_p).cpu().numpy()[0, 0]
+
+                    # For plotting continuity, take only the non-overlapping stride part
+                    # but here we'll just append for simplicity.
+                    rs_list.append(real_p_w[0,0].cpu().numpy())
+                    gs_list.append(fake_p_w)
+
+                real_long = np.concatenate(rs_list)
+                fake_long = np.concatenate(gs_list)
+
+            plt.figure(figsize=(15, 5))
+            plt.plot(real_long, label='Real (3-windows)', color='teal', linewidth=1.5)
+            plt.plot(fake_long, label='Generated (TimeGAN)', color='darkorange', linewidth=1.5, alpha=0.8)
+            plt.title(f'{appliance} | Long-term Progress | Step {step}/{JOINT_ITER}')
+            plt.xlabel('Timestep (3 × 512)')
+            plt.ylabel('Power (Normalised)')
+            plt.grid(True, alpha=0.3)
             plt.legend(); plt.tight_layout()
             plt.savefig(PROG); plt.close()
             E.train(); G.train(); S.train(); R.train()
