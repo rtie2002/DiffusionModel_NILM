@@ -372,10 +372,12 @@ class TimeGAN(BaseModel):
       # On highly sparse, multimodal NILM data, forcing batch-level moment matching 
       # causes catastrophic mode collapse (the generator outputs the smeared batch 
       # expectation curve rather than sharp individual pulses). 
-      # FIX: V1 and V2 weights dropped to 0 to unleash the true Discriminator capability.
+      # FIX: V1 and V2 dropped. Overwhelming 15.0x sqrt(Supervisor_Loss) flattened the sequence.
+      # Balanced Supervisor Loss to act as a gentle autoregressive guide (1.0 weight) 
+      # rather than a massive penalty that forces constant flatline outputs.
       self.err_g = self.err_g_U * 1.0 + \
                    self.err_g_U_e * self.opt.w_gamma + \
-                   15.0 * torch.sqrt(self.err_g_s)
+                   self.err_g_s * 1.0
 
       self.err_g.backward(retain_graph=True)
 
