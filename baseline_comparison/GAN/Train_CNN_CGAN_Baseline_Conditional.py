@@ -95,10 +95,12 @@ def train_appliance(appliance):
     time_features = df[time_cols].apply(pd.to_numeric, errors='coerce').fillna(0).values
 
     dataset = NILM_Dataset(raw_p_norm, time_features)
-    train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
+    # Adjust Batch Size dynamically if dataset is too small
+    current_batch_size = min(BATCH_SIZE, len(dataset))
+    train_loader = DataLoader(dataset, batch_size=current_batch_size, shuffle=True, drop_last=True)
 
-    if len(dataset) == 0:
-        print(f'Warning: No valid windows found for {appliance}')
+    if len(train_loader) == 0:
+        print(f'Warning: Not enough windows for {appliance} with Batch Size {current_batch_size}')
         return
 
     G, D = Generator(COND_DIM).to(device), Discriminator(COND_DIM).to(device)
@@ -108,6 +110,8 @@ def train_appliance(appliance):
 
     # Training
     print(f'🔥 Training for {EPOCHS_PER_APP} epochs...')
+    loss_d, loss_g = torch.tensor(0.0), torch.tensor(0.0) # Initialize to prevent UnboundLocalError
+
     for epoch in range(1, EPOCHS_PER_APP + 1):
         for i, (real_p, real_t) in enumerate(train_loader):
             real_p, real_t = real_p.to(device), real_t.to(device)
@@ -125,7 +129,8 @@ def train_appliance(appliance):
 
             # Train Generator
             opt_G.zero_grad()
-            # Reuse fake_p from D step but re-evaluate through D for G gradients
+            fake_p = G(torch.randn(bs, 100).to(device), real_t)
+            # Adversarial + Continuity Penalty
             loss_g = criterion(D(fake_p, real_t), torch.ones(bs,1).to(device)) + \
                      0.2 * torch.mean(torch.abs(fake_p[:, :, 1:] - fake_p[:, :, :-1]))
             loss_g.backward(); opt_G.step()
