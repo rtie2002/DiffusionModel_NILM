@@ -47,7 +47,7 @@ SUP_ITER   = 10000    # Phase 2: Supervisor    ↑ (was 3000) — need L_S < 0.0
 JOINT_ITER = 20000   # Phase 3: Joint         ↑ (was 5000) — match CGAN budget
 
 # Loss weights (C-TimeGAN paper, Table I)
-ETA    = 5.0         # supervised loss weight in G  ↓ (was 10.0) — stability fix
+ETA    = 1.0         # supervised loss weight in G  ↓ (was 5.0) — allow phase shift, avoid zero-collapse
 LAMBDA = 1.0         # supervised loss weight in ER (λ)
 GAMMA  = 1.0         # E_hat discriminator weight   (γ)
 FOCAL  = 10.0        # ON-period focal penalty      ↓ (was 100) — stop forcing 'lazy' zeros
