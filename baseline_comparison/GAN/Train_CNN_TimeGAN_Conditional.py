@@ -41,14 +41,15 @@ COND_DIM    = 8     # time-feature channels (sin/cos encoding)
 HIDDEN_DIM  = 64    # embedding space channels
 
 # Training iterations (3 phases)
-AE_ITER    = 2000   # Phase 1: AutoEncoder
-SUP_ITER   = 2000   # Phase 2: Supervisor
-JOINT_ITER = 5000   # Phase 3: Joint adversarial
+AE_ITER    = 5000    # Phase 1: AutoEncoder   ↑ (was 2000) — needs more time on sparse NILM peaks
+SUP_ITER   = 3000    # Phase 2: Supervisor    ↑ (was 2000)
+JOINT_ITER = 20000   # Phase 3: Joint         ↑ (was 5000) — match CGAN budget
 
 # Loss weights (C-TimeGAN paper, Table I)
-ETA    = 15.0       # supervised loss weight in G  (η)
-LAMBDA = 1.0        # supervised loss weight in ER (λ)
-GAMMA  = 1.0        # E_hat discriminator weight   (γ)
+ETA    = 15.0        # supervised loss weight in G  (η)
+LAMBDA = 1.0         # supervised loss weight in ER (λ)
+GAMMA  = 1.0         # E_hat discriminator weight   (γ)
+FOCAL  = 100.0       # ON-period focal penalty       ↑ (was 50) — stronger peak emphasis
 
 # Script is at  <root>/baseline_comparison/GAN/Train_CNN_TimeGAN_Conditional.py
 # So go up 3 levels: GAN → baseline_comparison → project root
@@ -306,7 +307,7 @@ def train_appliance(appliance):
         H       = E(X, C)
         X_tilde = R(H)
         w       = torch.where(X > 0.05,
-                              torch.full_like(X, 50.0),
+                              torch.full_like(X, FOCAL),
                               torch.ones_like(X))
         loss_er = torch.mean((X_tilde - X) ** 2 * w)
         loss_er.backward()
@@ -379,7 +380,7 @@ def train_appliance(appliance):
         X_tilde = R(H)
         H_sup   = S(H)
         w       = torch.where(X > 0.05,
-                              torch.full_like(X, 50.0),
+                              torch.full_like(X, FOCAL),
                               torch.ones_like(X))
         loss_er   = torch.mean((X_tilde - X) ** 2 * w)
         loss_s_j  = l_mse(H_sup[:, :, :-1], H[:, :, 1:])
