@@ -85,16 +85,22 @@ class Embedder(nn.Module):
     """
     def __init__(self, cond_dim=COND_DIM, hidden_dim=HIDDEN_DIM):
         super().__init__()
-        self.init_conv = nn.Conv1d(1 + cond_dim, hidden_dim, 3, 1, 1)
-        self.res1 = ResBlock(hidden_dim)
-        self.res2 = ResBlock(hidden_dim)
-        self.final = nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 1)  # Linear output
+        # 5-layer Dilated Stack: Field = 63
+        self.net = nn.Sequential(
+            nn.Conv1d(1 + cond_dim, hidden_dim, 3, 1, 1,   dilation=1),
+            nn.BatchNorm1d(hidden_dim), nn.LeakyReLU(0.2),
+            nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 2,   dilation=2),
+            nn.BatchNorm1d(hidden_dim), nn.LeakyReLU(0.2),
+            nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 4,   dilation=4),
+            nn.BatchNorm1d(hidden_dim), nn.LeakyReLU(0.2),
+            nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 8,   dilation=8),
+            nn.BatchNorm1d(hidden_dim), nn.LeakyReLU(0.2),
+            nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 16,  dilation=16),
+            nn.BatchNorm1d(hidden_dim), nn.LeakyReLU(0.2),
+            nn.Conv1d(hidden_dim, hidden_dim, 1))  # Linear
 
     def forward(self, x, c):
-        h = self.init_conv(torch.cat([x, c.permute(0, 2, 1)], dim=1))
-        h = self.res1(h)
-        h = self.res2(h)
-        return self.final(h)
+        return self.net(torch.cat([x, c.permute(0, 2, 1)], dim=1))
 
 
 class Recovery(nn.Module):
@@ -136,7 +142,7 @@ class Generator(nn.Module):
         self.u2 = up_res(hidden_dim + cond_dim, hidden_dim)
         self.u3 = up_res(hidden_dim + cond_dim, hidden_dim)
         self.u4 = up_res(hidden_dim + cond_dim, hidden_dim)
-        self.final_conv = nn.Conv1d(hidden_dim + cond_dim, hidden_dim, 3, 1, 1)
+        self.final_conv = nn.Conv1d(hidden_dim + cond_dim, hidden_dim, 31, 1, 15)
 
     def forward(self, z, c):
         x   = self.fc(z).view(-1, self.hidden_dim, 16)
@@ -158,12 +164,22 @@ class Supervisor(nn.Module):
     """
     def __init__(self, hidden_dim=HIDDEN_DIM):
         super().__init__()
+        # 7-layer Dilated-Stack: Field = 255
         self.net = nn.Sequential(
-            nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 1),
-            ResBlock(hidden_dim),
-            nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 2, dilation=2),
-            nn.BatchNorm1d(hidden_dim),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 1,   dilation=1),
+            nn.BatchNorm1d(hidden_dim), nn.LeakyReLU(0.2),
+            nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 2,   dilation=2),
+            nn.BatchNorm1d(hidden_dim), nn.LeakyReLU(0.2),
+            nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 4,   dilation=4),
+            nn.BatchNorm1d(hidden_dim), nn.LeakyReLU(0.2),
+            nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 8,   dilation=8),
+            nn.BatchNorm1d(hidden_dim), nn.LeakyReLU(0.2),
+            nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 16,  dilation=16),
+            nn.BatchNorm1d(hidden_dim), nn.LeakyReLU(0.2),
+            nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 32,  dilation=32),
+            nn.BatchNorm1d(hidden_dim), nn.LeakyReLU(0.2),
+            nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 64,  dilation=64),
+            nn.BatchNorm1d(hidden_dim), nn.LeakyReLU(0.2),
             nn.Conv1d(hidden_dim, hidden_dim, 1))  # Linear output
 
     def forward(self, h):
