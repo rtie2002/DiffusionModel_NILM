@@ -377,7 +377,7 @@ class TimeGAN(BaseModel):
                    self.err_g_V1 * 100.0 + \
                    self.err_g_V2 * 100.0 + \
                    15.0 * torch.sqrt(self.err_s) + \
-                   10.0 * err_sobolev
+                   1.0 * err_sobolev
 
       self.err_g.backward(retain_graph=True)
 
