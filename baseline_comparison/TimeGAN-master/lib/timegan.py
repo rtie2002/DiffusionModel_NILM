@@ -364,20 +364,12 @@ class TimeGAN(BaseModel):
       # 3. Supervised Loss L_σ (Eq. 12) — η = 15 per paper Table I
       self.err_s = self.l_mse(self.H_supervise[:,:-1,:], self.H[:,1:,:])
 
-      # 4. ⚡ Sobolev Gradient Loss (training only — no diff input needed)
-      #    Forces model to learn sharp ON/OFF transitions autonomously.
-      err_sobolev = self.l_mse(
-          self.X_hat[:, 1:, :] - self.X_hat[:, :-1, :],
-          self.X[:, 1:, :] - self.X[:, :-1, :]
-      )
-
-      # Total G Loss (Paper Eq. 13-14 + Sobolev)
+      # Total G Loss (Pure TimeGAN Formulation without improper Direct MSE on Data)
       self.err_g = self.err_g_U * 1.0 + \
                    self.err_g_U_e * self.opt.w_gamma + \
                    self.err_g_V1 * 100.0 + \
                    self.err_g_V2 * 100.0 + \
-                   15.0 * torch.sqrt(self.err_s) + \
-                   1.0 * err_sobolev
+                   15.0 * torch.sqrt(self.err_s)
 
       self.err_g.backward(retain_graph=True)
 
