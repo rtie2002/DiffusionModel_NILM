@@ -171,6 +171,8 @@ class Supervisor(nn.Module):
             nn.BatchNorm1d(hidden_dim), nn.LeakyReLU(0.2, inplace=True),
             nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 8,  dilation=8),
             nn.BatchNorm1d(hidden_dim), nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 16, dilation=16),  # RF=47 → covers 60-80 step cycles
+            nn.BatchNorm1d(hidden_dim), nn.LeakyReLU(0.2, inplace=True),
             nn.Conv1d(hidden_dim, hidden_dim, 1))  # Linear output
 
     def forward(self, h):
