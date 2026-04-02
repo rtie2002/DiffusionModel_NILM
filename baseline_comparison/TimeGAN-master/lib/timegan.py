@@ -362,14 +362,17 @@ class TimeGAN(BaseModel):
       self.err_g_V2 = torch.mean(torch.abs(fake_mean - real_mean))   
 
       # 3. Supervised Loss L_σ (Eq. 12) — η = 15 per paper Table I
-      self.err_s = self.l_mse(self.H_supervise[:,:-1,:], self.H[:,1:,:])
+      # ⚠️ CRITICAL FIX: The generator MUST minimize the supervised loss evaluated 
+      # on its OWN generated sequences (E_hat) and the Supervisor's prediction (H_hat).
+      # The previous upstream code evaluated this on H (Real), causing 0 gradient to Generator!
+      self.err_g_s = self.l_mse(self.H_hat[:,:-1,:], self.E_hat[:,1:,:])
 
       # Total G Loss (Pure TimeGAN Formulation without improper Direct MSE on Data)
       self.err_g = self.err_g_U * 1.0 + \
                    self.err_g_U_e * self.opt.w_gamma + \
                    self.err_g_V1 * 100.0 + \
                    self.err_g_V2 * 100.0 + \
-                   15.0 * torch.sqrt(self.err_s)
+                   15.0 * torch.sqrt(self.err_g_s)
 
       self.err_g.backward(retain_graph=True)
 
