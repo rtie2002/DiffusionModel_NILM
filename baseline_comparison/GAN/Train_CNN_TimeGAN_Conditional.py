@@ -39,7 +39,7 @@ WINDOW_SIZE = 512
 BATCH_SIZE  = 128
 COND_DIM    = 9     # time features (8) + first-order Δpower (1) — paper Eq.7
                     # KEY C-TimeGAN differentiator: CGAN never conditions on Δpower
-HIDDEN_DIM  = 64    # embedding space channels  ↓ (was 128) — easier for G to navigate
+HIDDEN_DIM  = 96    # embedding space channels  ↑ (was 64) — more capacity
 
 # Training iterations (3 phases)
 AE_ITER    = 10000    # Phase 1: AutoEncoder   ↑ (was 2000) — needs more time on sparse NILM peaks
@@ -47,7 +47,7 @@ SUP_ITER   = 10000    # Phase 2: Supervisor    ↑ (was 3000) — need L_S < 0.0
 JOINT_ITER = 20000   # Phase 3: Joint         ↑ (was 5000) — match CGAN budget
 
 # Loss weights (C-TimeGAN paper, Table I)
-ETA    = 1.0         # supervised loss weight in G  ↓ (was 10.0) — stability fix
+ETA    = 5.0         # supervised loss weight in G  ↓ (was 10.0) — stability fix
 LAMBDA = 1.0         # supervised loss weight in ER (λ)
 GAMMA  = 1.0         # E_hat discriminator weight   (γ)
 FOCAL  = 100.0       # ON-period focal penalty      ↑ (was 50) — focus on peaks
@@ -65,94 +65,89 @@ print(f"✅ Device       : {device}")
 # MODEL DEFINITIONS  (CNN-based C-TimeGAN)
 # ==========================================
 
+class ResBlock(nn.Module):
+    def __init__(self, channels):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Conv1d(channels, channels, 3, 1, 1),
+            nn.BatchNorm1d(channels),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv1d(channels, channels, 3, 1, 1),
+            nn.BatchNorm1d(channels))
+        self.relu = nn.LeakyReLU(0.2, inplace=True)
+
+    def forward(self, x):
+        return self.relu(x + self.net(x))
+
 class Embedder(nn.Module):
     """E(X, C) → H  |  Maps real sequences into embedding space.
-    Uses GELU (not Tanh) so magnitude ordering is preserved
-    — a 2400W spike stays larger than a 200W value in embedding space.
-    Input : X [B,1,T] + C [B,T,cond_dim]
-    Output: H [B,hidden_dim,T]
+    Upgraded with ResBlocks for gradient flow.
     """
     def __init__(self, cond_dim=COND_DIM, hidden_dim=HIDDEN_DIM):
         super().__init__()
-        def cb(ic, oc):
-            return nn.Sequential(
-                nn.Conv1d(ic, oc, 3, 1, 1),
-                nn.BatchNorm1d(oc),
-                nn.LeakyReLU(0.2, inplace=True))
-        self.net = nn.Sequential(
-            cb(1 + cond_dim, 64),
-            cb(64, hidden_dim),
-            nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 1),
-            nn.GELU())   # preserves magnitude — Tanh would squash peaks
+        self.init_conv = nn.Conv1d(1 + cond_dim, hidden_dim, 3, 1, 1)
+        self.res1 = ResBlock(hidden_dim)
+        self.res2 = ResBlock(hidden_dim)
+        self.final = nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 1)  # Linear output
 
     def forward(self, x, c):
-        # x:[B,1,T]  c:[B,T,cond_dim] → permute → [B,cond_dim,T]
-        return self.net(torch.cat([x, c.permute(0, 2, 1)], dim=1))
+        h = self.init_conv(torch.cat([x, c.permute(0, 2, 1)], dim=1))
+        h = self.res1(h)
+        h = self.res2(h)
+        return self.final(h)
 
 
 class Recovery(nn.Module):
-    """R(H) → X̂  |  Reconstructs power sequences from embedding.
-    
-    KEY FIX: Uses Softplus (not Sigmoid) as final activation.
-    Sigmoid gradient at peak (0.99) = 0.99×0.01 = 0.009 ≈ 0 → can't learn sharp spikes.
-    Softplus has full gradient everywhere, then we clamp to [0,1] post-hoc.
+    """R(H) → X̂  |  Upgraded with ResBlocks.
     """
     def __init__(self, hidden_dim=HIDDEN_DIM):
         super().__init__()
-        def cb(ic, oc):
-            return nn.Sequential(
-                nn.Conv1d(ic, oc, 3, 1, 1),
-                nn.BatchNorm1d(oc),
-                nn.LeakyReLU(0.2, inplace=True))
-        self.net = nn.Sequential(
-            cb(hidden_dim, 64),
-            cb(64, 32),
-            nn.Conv1d(32, 1, 3, 1, 1),
-            nn.Softplus(beta=10))  # smooth, non-saturating; clamp applied in forward
+        self.init_conv = nn.Conv1d(hidden_dim, 64, 3, 1, 1)
+        self.res1 = ResBlock(64)
+        self.res2 = ResBlock(64)
+        self.final = nn.Sequential(
+            nn.Conv1d(64, 1, 3, 1, 1),
+            nn.Softplus(beta=10))
 
     def forward(self, h):
-        out = self.net(h)                          # [B, 1, T], values ≥ 0
-        return torch.clamp(out, 0.0, 1.0)         # bound to valid [0,1] range
+        x = self.init_conv(h)
+        x = self.res1(x)
+        x = self.res2(x)
+        return torch.clamp(self.final(x), 0.0, 1.0)
 
 
 class Generator(nn.Module):
-    """G(Z, C) → Ê  |  Synthesises embeddings from noise + condition.
-    Keeps the fc + upsample CNN structure from the working CNN-CGAN baseline,
-    but outputs to embedding space (hidden_dim channels) instead of the signal.
-    Input : z [B,100], c [B,T,cond_dim]
-    Output: Ê [B,hidden_dim,T]
+    """G(Z, C) → Ê  |  Upgraded ResNet Generator.
     """
     def __init__(self, cond_dim=COND_DIM, hidden_dim=HIDDEN_DIM):
         super().__init__()
         self.hidden_dim = hidden_dim
         self.fc = nn.Linear(100, hidden_dim * 16)
-
-        def up(ic, oc):
+        
+        def up_res(ic, oc):
             return nn.Sequential(
                 nn.Upsample(scale_factor=2, mode='nearest'),
                 nn.Conv1d(ic, oc, 3, 1, 1),
                 nn.BatchNorm1d(oc),
-                nn.LeakyReLU(0.2, inplace=True))
+                nn.LeakyReLU(0.2, inplace=True),
+                ResBlock(oc))
 
-        self.u1 = up(hidden_dim + cond_dim, hidden_dim)
-        self.u2 = up(hidden_dim + cond_dim, hidden_dim)
-        self.u3 = up(hidden_dim + cond_dim, hidden_dim)
-        self.u4 = up(hidden_dim + cond_dim, hidden_dim)
+        self.u1 = up_res(hidden_dim + cond_dim, hidden_dim)
+        self.u2 = up_res(hidden_dim + cond_dim, hidden_dim)
+        self.u3 = up_res(hidden_dim + cond_dim, hidden_dim)
+        self.u4 = up_res(hidden_dim + cond_dim, hidden_dim)
         self.final_conv = nn.Conv1d(hidden_dim + cond_dim, hidden_dim, 3, 1, 1)
 
     def forward(self, z, c):
-        # z:[B,100]  c:[B,T,cond_dim]
         x   = self.fc(z).view(-1, self.hidden_dim, 16)
-        c_p = c.permute(0, 2, 1)   # [B,cond_dim,T]
-
+        c_p = c.permute(0, 2, 1)
         def gc(res): return nn.functional.interpolate(c_p, size=res, mode='nearest')
-
-        x = self.u1(torch.cat([x,          gc(16)],  dim=1))   # → 32
-        x = self.u2(torch.cat([x,          gc(32)],  dim=1))   # → 64
-        x = self.u3(torch.cat([x,          gc(64)],  dim=1))   # → 128
-        x = self.u4(torch.cat([x,          gc(128)], dim=1))   # → 256
+        x = self.u1(torch.cat([x, gc(16)],  dim=1))
+        x = self.u2(torch.cat([x, gc(32)],  dim=1))
+        x = self.u3(torch.cat([x, gc(64)],  dim=1))
+        x = self.u4(torch.cat([x, gc(128)], dim=1))
         x = nn.functional.interpolate(x, size=512, mode='nearest')
-        return torch.tanh(self.final_conv(torch.cat([x, gc(512)], dim=1)))
+        return self.final_conv(torch.cat([x, gc(512)], dim=1))  # Linear output
 
 
 class Supervisor(nn.Module):
@@ -163,16 +158,13 @@ class Supervisor(nn.Module):
     """
     def __init__(self, hidden_dim=HIDDEN_DIM):
         super().__init__()
-        def cb(ic, oc):
-            return nn.Sequential(
-                nn.Conv1d(ic, oc, 3, 1, 1),
-                nn.BatchNorm1d(oc),
-                nn.LeakyReLU(0.2, inplace=True))
         self.net = nn.Sequential(
-            cb(hidden_dim, hidden_dim),
-            cb(hidden_dim, hidden_dim),
-            nn.Conv1d(hidden_dim, hidden_dim, 1),
-            nn.GELU())   # consistent with Embedder — no squashing
+            nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 1),
+            ResBlock(hidden_dim),
+            nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 2, dilation=2),
+            nn.BatchNorm1d(hidden_dim),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv1d(hidden_dim, hidden_dim, 1))  # Linear output
 
     def forward(self, h):
         return self.net(h)
@@ -193,11 +185,11 @@ class Discriminator(nn.Module):
                 nn.LeakyReLU(0.2, inplace=True),
                 nn.Dropout(0.2))
         self.conv = nn.Sequential(
-            cb(hidden_dim + cond_dim, 32),
+            cb(hidden_dim + cond_dim, 16),
+            cb(16, 32),
             cb(32, 64),
             cb(64, 128),
-            cb(128, 256),
-            nn.Conv1d(256, 1, 32, 1, 0),
+            nn.Conv1d(128, 1, 32, 1, 0),
             nn.Sigmoid())
 
     def forward(self, h, c):
@@ -366,8 +358,8 @@ def train_appliance(appliance):
 
     for step in range(1, JOINT_ITER + 1):
 
-        # ── Generator + Supervisor  (2× update) ──────────────
-        for _ in range(2):
+        # ── Generator + Supervisor  (4× update) ──────────────
+        for _ in range(4):
             X, C = get_batch()
             z    = torch.randn(X.size(0), 100, device=device)
             opt_G.zero_grad()
@@ -433,7 +425,7 @@ def train_appliance(appliance):
         loss_d   = (l_bce(Y_real,   torch.full_like(Y_real, 0.9))
                   + l_bce(Y_fake,   torch.zeros_like(Y_fake))
                   + GAMMA * l_bce(Y_fake_e, torch.zeros_like(Y_fake_e)))
-        if loss_d > 0.15:    # gate: preserve G training signal
+        if loss_d > 0.5:    # gate: ↑ (was 0.15) — stop D if it becomes too strong
             loss_d.backward()
             opt_D.step()
 
