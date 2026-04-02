@@ -50,7 +50,7 @@ JOINT_ITER = 20000   # Phase 3: Joint         ↑ (was 5000) — match CGAN budg
 ETA    = 5.0         # supervised loss weight in G  ↓ (was 10.0) — stability fix
 LAMBDA = 1.0         # supervised loss weight in ER (λ)
 GAMMA  = 1.0         # E_hat discriminator weight   (γ)
-FOCAL  = 5.0         # ON-period focal penalty      ↓ (was 100.0) — restore 'bottom' fidelity
+FOCAL  = 100.0       # ON-period focal penalty      ↑ (was 50) — focus on peaks
 
 # Script is at  <root>/baseline_comparison/GAN/Train_CNN_TimeGAN_Conditional.py
 # So go up 3 levels: GAN → baseline_comparison → project root
@@ -315,13 +315,13 @@ def train_appliance(appliance):
         opt_ER.zero_grad()
         H       = E(X, C)
         X_tilde = R(H)
-        w       = torch.where(X > 0.01,
+        w       = torch.where(X > 0.05,
                               torch.full_like(X, FOCAL),
                               torch.ones_like(X))
-        # L1-dominant loss: L1 preserves sharp box-like plateaus that MSE blurs
+        # MSE focal + L1 focal: L1 preserves sharp edges that MSE blurs
         loss_er_mse = torch.mean((X_tilde - X) ** 2 * w)
         loss_er_l1  = torch.mean(torch.abs(X_tilde - X) * w)
-        loss_er     = loss_er_l1 + 0.1 * loss_er_mse
+        loss_er     = loss_er_mse + 0.5 * loss_er_l1
         loss_er.backward()
         opt_ER.step()
         if step % 200 == 0:
@@ -401,12 +401,12 @@ def train_appliance(appliance):
         H       = E(X, C)
         X_tilde = R(H)
         H_sup   = S(H)
-        w       = torch.where(X > 0.01,
+        w       = torch.where(X > 0.05,
                               torch.full_like(X, FOCAL),
                               torch.ones_like(X))
         loss_er_mse   = torch.mean((X_tilde - X) ** 2 * w)
         loss_er_l1    = torch.mean(torch.abs(X_tilde - X) * w)
-        loss_er       = loss_er_l1 + 0.1 * loss_er_mse
+        loss_er       = loss_er_mse + 0.5 * loss_er_l1
         loss_s_j  = l_mse(H_sup[:, :, :-1], H[:, :, 1:])
         (loss_er + LAMBDA * loss_s_j).backward()
         opt_ER.step()
