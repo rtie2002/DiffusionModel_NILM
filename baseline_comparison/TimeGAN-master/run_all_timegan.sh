@@ -1,4 +1,6 @@
-# 定义电器列表
+# 切换到脚本所在目录，确保 train.py 路径正确
+cd "$(dirname "$0")"
+
 appliances=(
     "washingmachine_multivariate"
     "kettle_multivariate"
