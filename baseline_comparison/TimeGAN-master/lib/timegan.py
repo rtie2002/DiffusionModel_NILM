@@ -345,8 +345,11 @@ class TimeGAN(BaseModel):
       self.err_er_raw = torch.mean(raw_mse * weight)
       
       self.err_s = self.l_mse(self.H_supervise[:,:-1,:], self.H[:,1:,:])
-      # TimeGAN eq combines ER and S
-      self.err_er = 10.0 * torch.sqrt(self.err_er_raw) + 0.1 * self.err_s
+      
+      # Eq 13: min(theta_e, theta_r) (lambda * L_sigma + LR)
+      # Lines 581 & 638: "lambda set to 1"
+      # self.err_er_raw is LR, self.err_s is L_sigma
+      self.err_er = self.err_er_raw + 1.0 * self.err_s
       self.err_er.backward(retain_graph=True)
 
     def backward_g(self):
@@ -375,18 +378,12 @@ class TimeGAN(BaseModel):
       # The previous upstream code evaluated this on H (Real), causing 0 gradient to Generator!
       self.err_g_s = self.l_mse(self.H_hat[:,:-1,:], self.E_hat[:,1:,:])
 
-      # Total G Loss (Pure Adv + Autoregressive)
-      # ⚠️ ACADEMIC FINDING: Original TimeGAN weighed V1 & V2 at 100.0. 
-      # On highly sparse, multimodal NILM data, forcing batch-level moment matching 
-      # causes catastrophic mode collapse (the generator outputs the smeared batch 
-      # expectation curve rather than sharp individual pulses). 
-      # FIX: V1 and V2 dropped. Overwhelming 15.0x sqrt(Supervisor_Loss) flattened the sequence.
-      # Balanced Supervisor Loss to act as a gentle autoregressive guide (1.0 weight) 
-      # rather than a massive penalty that forces constant flatline outputs.
-      self.err_g = self.err_g_U * 1.0 + \
+      # Eq 14: min(theta_g) (eta * L_sigma + LU)
+      # Lines 581 & 638: "eta set to 15"
+      self.err_g = self.err_g_U + \
                    self.err_g_U_e * self.opt.w_gamma + \
-                   self.err_g_s * 1.0
-
+                   15.0 * torch.sqrt(self.err_g_s)
+                   
       self.err_g.backward(retain_graph=True)
 
     def backward_s(self):
