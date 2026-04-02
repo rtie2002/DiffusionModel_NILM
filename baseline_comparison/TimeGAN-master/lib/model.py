@@ -14,6 +14,13 @@ import torch.nn as nn
 from torch.nn.utils import spectral_norm
 import torch.nn.functional as F
 
+def get_c(c, res):
+    """Interpolate condition to match resolution - Exactly as in CNN-CGAN."""
+    # c: [B, T, cond_dim] -> [B, cond_dim, T]
+    c_p = c.transpose(1, 2)
+    return F.interpolate(c_p, size=res, mode='nearest')
+
+
 class CondConvBlock(nn.Module):
     """Residual Conv1d block that re-injects conditions at every step."""
     def __init__(self, in_channels, cond_dim, out_channels, kernel=5):
@@ -92,32 +99,50 @@ class Recovery(nn.Module):
 
 class Generator(nn.Module):
     """
-    ⚡ SUPER-CONDITIONED GENERATOR
-    Noise is random, but COND is injected rigorously at 4 different depth 
-    levels to lock the generated waveform to the designated time step.
+    ⚡ GLOBAL UPSAMPLING GENERATOR
+    Replaced local convolutions with CNN-CGAN global upsampling logic.
+    Provides a massive receptive field (16 to 512) to generate 100-step
+    wide boxy appliance waveforms, avoiding the 15-step sine-wave blobs.
     """
     def __init__(self, opt):
         super(Generator, self).__init__()
         cd = opt.cond_dim
         h = opt.hidden_dim
         
-        self.in_conv = nn.Conv1d(opt.latent_dim + cd, 32, 5, padding=2)
-        self.block1 = CondConvBlock(32, cd, 64)
-        self.block2 = CondConvBlock(64, cd, 128)
-        self.block3 = CondConvBlock(128, cd, h)
+        self.fc = nn.Linear(opt.latent_dim, 128 * 16)
+        
+        def up(ic, oc): return nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='nearest'),
+            nn.Conv1d(ic, oc, 3, 1, 1),
+            nn.BatchNorm1d(oc),
+            nn.LeakyReLU(0.2, inplace=True))
+            
+        self.u1 = up(128 + cd, 64)   # 16 -> 32
+        self.u2 = up(64 + cd, 32)    # 32 -> 64
+        self.u3 = up(32 + cd, 16)    # 64 -> 128
+        self.u4 = up(16 + cd, 8)     # 128 -> 256
+        self.final_conv = nn.Conv1d(8 + cd, h, 3, 1, 1) # 256 -> 512 happens in forward
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, z, cond, sigmoid=True):
-        c_p = cond.transpose(1, 2)
-        x = torch.cat([z, cond], dim=-1).transpose(1, 2)
+        # TimeGAN feeds Z as Sequence. We compress it to a single seed 
+        # to unlock Global Receptive Field like standard GAN.
+        z_seed = z.mean(dim=1) 
+        x = self.fc(z_seed).view(-1, 128, 16) # [B, 128, 16]
         
-        x = F.leaky_relu(self.in_conv(x), 0.2)
-        # Explicit time-anchoring at every abstraction level
-        x = self.block1(x, c_p)
-        x = self.block2(x, c_p)
-        x = self.block3(x, c_p)
+        # Level 1: 32
+        x = self.u1(torch.cat([x, get_c(cond, 16)], dim=1)) 
+        # Level 2: 64
+        x = self.u2(torch.cat([x, get_c(cond, 32)], dim=1)) 
+        # Level 3: 128
+        x = self.u3(torch.cat([x, get_c(cond, 64)], dim=1)) 
+        # Level 4: 256
+        x = self.u4(torch.cat([x, get_c(cond, 128)], dim=1)) 
         
-        E = x.transpose(1, 2)
+        # interpolate back to 512 to assure exact length map
+        x = F.interpolate(x, size=512, mode='nearest')
+        
+        E = self.final_conv(torch.cat([x, get_c(cond, 512)], dim=1)).transpose(1, 2)
         return self.sigmoid(E) if sigmoid else E
 
 
