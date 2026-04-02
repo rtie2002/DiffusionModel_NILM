@@ -39,7 +39,7 @@ WINDOW_SIZE = 512
 BATCH_SIZE  = 128
 COND_DIM    = 9     # time features (8) + first-order Δpower (1) — paper Eq.7
                     # KEY C-TimeGAN differentiator: CGAN never conditions on Δpower
-HIDDEN_DIM  = 128   # embedding space channels ↑ (was 64) — more capacity for sharp peaks
+HIDDEN_DIM  = 64    # embedding space channels  ↓ (was 128) — easier for G to navigate
 
 # Training iterations (3 phases)
 AE_ITER    = 10000    # Phase 1: AutoEncoder   ↑ (was 2000) — needs more time on sparse NILM peaks
@@ -47,10 +47,10 @@ SUP_ITER   = 10000    # Phase 2: Supervisor    ↑ (was 3000) — need L_S < 0.0
 JOINT_ITER = 20000   # Phase 3: Joint         ↑ (was 5000) — match CGAN budget
 
 # Loss weights (C-TimeGAN paper, Table I)
-ETA    = 15.0        # supervised loss weight in G  (η)
+ETA    = 10.0        # supervised loss weight in G  ~ (was 5.0) — balanced logic
 LAMBDA = 1.0         # supervised loss weight in ER (λ)
 GAMMA  = 1.0         # E_hat discriminator weight   (γ)
-FOCAL  = 100.0       # ON-period focal penalty       ↑ (was 50) — stronger peak emphasis
+FOCAL  = 50.0        # ON-period focal penalty      ↓ (was 100) — more balanced joint training
 
 # Script is at  <root>/baseline_comparison/GAN/Train_CNN_TimeGAN_Conditional.py
 # So go up 3 levels: GAN → baseline_comparison → project root
@@ -299,11 +299,11 @@ def train_appliance(appliance):
 
     lr = 0.0001
     opt_ER = optim.Adam(list(E.parameters()) + list(R.parameters()),
-                        lr=lr, betas=(0.9, 0.999))
-    opt_S  = optim.Adam(S.parameters(), lr=lr,     betas=(0.9, 0.999))
+                        lr=0.0001, betas=(0.9, 0.999))
+    opt_S  = optim.Adam(S.parameters(), lr=0.0001,     betas=(0.9, 0.999))
     opt_G  = optim.Adam(list(G.parameters()) + list(S.parameters()),
-                        lr=0.0002, betas=(0.5, 0.999))
-    opt_D  = optim.Adam(D.parameters(), lr=lr,     betas=(0.5, 0.999))
+                        lr=0.0004, betas=(0.5, 0.999))  # ↑ G strength
+    opt_D  = optim.Adam(D.parameters(), lr=0.00005,    betas=(0.5, 0.999))  # ↓ D strength
 
     l_mse = nn.MSELoss()
     l_bce = nn.BCELoss()
