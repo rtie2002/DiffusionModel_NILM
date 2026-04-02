@@ -37,12 +37,13 @@ from torch.nn.utils import spectral_norm
 APPLIANCES  = ["dishwasher", "washingmachine", "fridge", "kettle", "microwave"]
 WINDOW_SIZE = 512
 BATCH_SIZE  = 128
-COND_DIM    = 8     # time-feature channels (sin/cos encoding)
+COND_DIM    = 9     # time features (8) + first-order Δpower (1) — paper Eq.7
+                    # KEY C-TimeGAN differentiator: CGAN never conditions on Δpower
 HIDDEN_DIM  = 128   # embedding space channels ↑ (was 64) — more capacity for sharp peaks
 
 # Training iterations (3 phases)
-AE_ITER    = 5000    # Phase 1: AutoEncoder   ↑ (was 2000) — needs more time on sparse NILM peaks
-SUP_ITER   = 5000    # Phase 2: Supervisor    ↑ (was 3000) — need L_S < 0.005 before joint
+AE_ITER    = 10000    # Phase 1: AutoEncoder   ↑ (was 2000) — needs more time on sparse NILM peaks
+SUP_ITER   = 10000    # Phase 2: Supervisor    ↑ (was 3000) — need L_S < 0.005 before joint
 JOINT_ITER = 20000   # Phase 3: Joint         ↑ (was 5000) — match CGAN budget
 
 # Loss weights (C-TimeGAN paper, Table I)
@@ -251,6 +252,17 @@ def train_appliance(appliance):
     # Normalise power to [0,1]  (Recovery uses Sigmoid → forces [0,1] output)
     raw_p_01  = (df[power_col].values - p_min) / (p_max - p_min + 1e-8)
     time_feat = df[time_cols].apply(pd.to_numeric, errors='coerce').fillna(0).values
+
+    # ── First-order difference condition (C-TimeGAN paper Eq. 7) ─────────────
+    # "the difference between adjacent time points of the current appliance
+    #  (first-order difference) is also used as a condition"
+    # This is the KEY feature that makes C-TimeGAN different from plain CGAN:
+    # the Generator sees Δpower at each timestep → learns sharp ON/OFF transitions.
+    delta_p = np.diff(raw_p_01, prepend=raw_p_01[0:1])  # Δ[t] = p[t]-p[t-1], [N,]
+    delta_p_norm = (delta_p - delta_p.min()) / (delta_p.ptp() + 1e-8)  # normalise [0,1]
+    # Append Δpower as the 9th condition channel
+    time_feat = np.column_stack([time_feat, delta_p_norm])  # [N, 9]
+    print(f'   → Condition dim: {time_feat.shape[1]}  (8 time + 1 Δpower)')
 
     dataset = NILM_Dataset(raw_p_01, time_feat)
     cur_bs  = min(BATCH_SIZE, len(dataset))
@@ -463,24 +475,32 @@ def train_appliance(appliance):
         for _ in range(num_windows // cur_bs + 1):
             idx     = np.random.choice(num_windows, cur_bs)
             batch_c = torch.stack([dataset[i][1] for i in idx]).to(device)
-            # batch_c: [B, T, cond_dim]
+            # batch_c: [B, T, 9]  columns: [8 time features | Δpower]
+
+            # ── Anti-leakage: zero out Δpower channel during generation ──────
+            # Δpower was computed from REAL power → using it during sampling
+            # would give G a hint about real transitions (data leakage).
+            # Setting it to 0 means "no assumed transition" — G generates freely.
+            batch_c_gen = batch_c.clone()
+            batch_c_gen[:, :, 8] = 0.0   # zero the Δpower channel (index 8)
 
             z       = torch.randn(cur_bs, 100, device=device)
-            E_hat_s = G(z, batch_c)
+            E_hat_s = G(z, batch_c_gen)
             H_hat_s = S(E_hat_s)
             p_01    = R(H_hat_s).cpu().numpy()        # [B, 1, T] in [0,1]
 
             # Inverse-normalise → original Watts
             p_denorm = p_01 * (p_max - p_min + 1e-8) + p_min
             all_p.append(p_denorm)
-            all_t.append(batch_c.cpu().numpy())
+            # Save only the 8 real time features (drop the Δpower condition column)
+            all_t.append(batch_c[:, :, :8].cpu().numpy())
 
     final_p = np.concatenate(all_p, axis=0)[:num_windows]   # [N, 1, T]
-    final_t = np.concatenate(all_t, axis=0)[:num_windows]   # [N, T, cond_dim]
+    final_t = np.concatenate(all_t, axis=0)[:num_windows]   # [N, T, 8]  ← no Δpower
 
-    # Reshape to [N, T, 1+cond_dim]  (same format as CNN-CGAN output)
+    # Reshape to [N, T, 1+8]  (same format as CNN-CGAN output)
     final_p_t    = np.transpose(final_p, (0, 2, 1))          # [N, T, 1]
-    final_merged = np.concatenate([final_p_t, final_t], axis=2)
+    final_merged = np.concatenate([final_p_t, final_t], axis=2)  # [N, T, 9]
 
     np_path = os.path.join(OUT_DIR, f'synthetic_{appliance}.npy')
     np.save(np_path, final_merged)
