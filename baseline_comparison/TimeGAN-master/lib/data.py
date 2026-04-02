@@ -159,12 +159,15 @@ def real_data_loading (data_name, seq_len):
   #    (first-order difference) is also used as a condition"
   #
   #   This is THE key feature that separates C-TimeGAN from vanilla TimeGAN.
-  #   Without it, the generator has no guidance on transient/sharp changes.
   # ─────────────────────────────────────────────────────────────────────────
-  # ⚡ AUTONOMOUS MODE: Diff is NOT added to condition.
-  # The model learns sharp transitions via Sobolev loss in backward_g.
-  # During sampling, only time features (8-dim) are needed as condition.
-  print(f"   -> Condition dim (Time only, no diff): {conditions.shape[1]}")
+  targets_diff = np.diff(targets, axis=0)
+  targets_diff = np.vstack([[0], targets_diff]) # pad first row to match length
+  targets_diff = safe_minmax(targets_diff)      # normalize to [0,1]
+  
+  # Append first-order difference into the condition matrix
+  conditions = np.concatenate([conditions, targets_diff], axis=1)
+  
+  print(f"   -> Condition dim (Time + First-Order Diff): {conditions.shape[1]}")
 
   temp_targets = []
   temp_conds = []
