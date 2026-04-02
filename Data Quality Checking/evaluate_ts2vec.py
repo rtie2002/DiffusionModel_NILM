@@ -214,15 +214,22 @@ def evaluate_embeddings(model, real_data, synth_data, appliance, mode='multivari
     print("Calculating Context-FID...")
     fid_score = calculate_fid(real_repr, synth_repr)
     
-    # --- Metric 3: SWD ---
-    print("Calculating SWD...")
-    swd_score = calculate_swd(real_repr, synth_repr)
+    # --- Metric 3: SWD (Latent vs Raw) ---
+    print("Calculating SWD (Latent Space)...")
+    swd_latent = calculate_swd(real_repr, synth_repr)
+    
+    print("Calculating SWD (Raw Space)...")
+    # Reshape (N, L, C) -> (N, L*C) to treat entire window as a flattened feature vector
+    real_raw_flat = real_data.reshape(len(real_data), -1)
+    synth_raw_flat = synth_data.reshape(len(synth_data), -1)
+    swd_raw = calculate_swd(real_raw_flat, synth_raw_flat)
     
     print(f"\nMetric Report for {appliance.upper()}:")
     print(f"----------------------------------------")
     print(f"1. Discriminative Score: {acc:.4f} (Target: ~0.50)")
     print(f"2. Context-FID Score   : {fid_score:.4f} (Lower is better)")
-    print(f"3. SWD Score           : {swd_score:.4f} (Lower is better)")
+    print(f"3. Latent SWD Score    : {swd_latent:.4f} (Pattern similarity)")
+    print(f"4. Raw Space SWD Score : {swd_raw:.4f} (Physical value similarity)")
     print(f"----------------------------------------")
     print(f"  Note: 0.5 = Perfect Dist., FID < 1.0 is considered excellent for NILM")
     
