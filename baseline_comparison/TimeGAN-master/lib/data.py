@@ -186,12 +186,9 @@ def real_data_loading (data_name, seq_len):
     window_t = targets[i:i + seq_len]
     window_c = conditions[i:i + seq_len]
     
-    # Check if appliance is ACTIVE in this window (Column 0 of targets is appliance power)
-    # Threshold 0.1 means we want windows where the appliance actually does something.
-    if np.max(window_t[:, 0]) > 0.1:
-        temp_targets.append(window_t)
-        temp_conds.append(window_c)
-        active_count += 1
+    temp_targets.append(window_t)
+    temp_conds.append(window_c)
+    active_count += 1
   
   if active_count == 0:
       print("⚠️ WARNING: No active windows found with threshold 0.1. Falling back to random sampling.")
