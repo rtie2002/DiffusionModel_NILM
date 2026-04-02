@@ -156,7 +156,7 @@ def train_appliance(appliance):
                 plt.clf(); plt.plot((sample_p_ref[0]+1)/2, label='Real'); plt.plot((p_gen+1)/2, label='Fake')
                 plt.title(f'Epoch {epoch}'); plt.legend(); plt.savefig(prog_path); plt.close()
 
-    # Sampling 1:1 ratio
+    # Sampling 1:1 ratio using stored p_max/p_min for exact amplitude matching
     print(f'Generating Conditional Synthetic data (1:1 Ratio)...')
     G.eval(); all_p, all_t = [], []
     with torch.no_grad():
@@ -164,8 +164,10 @@ def train_appliance(appliance):
         for _ in range(num_windows // BATCH_SIZE + 1):
             idx = np.random.choice(num_windows, BATCH_SIZE)
             batch_t = torch.stack([dataset[i][1] for i in idx]).to(device)
-            p = (G(torch.randn(BATCH_SIZE, 100).to(device), batch_t).cpu().numpy() + 1) / 2
-            all_p.append(p); all_t.append(batch_t.cpu().numpy())
+            # ⚡ INVERSE NORMALIZATION: (G + 1) / 2 * range + min
+            p_raw = (G(torch.randn(BATCH_SIZE, 100).to(device), batch_t).cpu().numpy() + 1) / 2
+            p_denorm = p_raw * (p_max - p_min + 1e-8) + p_min
+            all_p.append(p_denorm); all_t.append(batch_t.cpu().numpy())
     final_p = np.concatenate(all_p, axis=0)[:num_windows]
     final_t = np.concatenate(all_t, axis=0)[:num_windows]
     final_merged = np.concatenate([np.expand_dims(final_p.squeeze(1), axis=2), final_t], axis=2)

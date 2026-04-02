@@ -232,8 +232,18 @@ def sample():
     # strictly for TimeGAN training and does not exist in the Diffusion Model.
     final_data = generated_data[:, :, :-1].copy()
 
-    # Channel 0: Stays normalized [0, 1]
-    final_data[:, :, 0] = final_data[:, :, 0]
+    # Channel 0: Scale back to original domain using saved p_min/p_max
+    # This prevents the "smaller waveform" problem.
+    clean_name = opt.data_name.replace("_training_", "").replace("_multivariate", "")
+    scale_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'data', f'{clean_name}_scale.npy'))
+    
+    if os.path.exists(scale_path):
+        p_min, p_max = np.load(scale_path)
+        print(f"🔄 Restoring scale: {p_min:.2f} to {p_max:.2f}")
+        final_data[:, :, 0] = final_data[:, :, 0] * (p_max - p_min + 1e-7) + p_min
+    else:
+        print("⚠️ No scale file found. Outputting in [0, 1] normalized range.")
+        final_data[:, :, 0] = final_data[:, :, 0]
 
     # Channel 1 to end (Time/Aggregate features): restored to [-1, 1]
     final_data[:, :, 1:] = final_data[:, :, 1:] * 2.0 - 1.0

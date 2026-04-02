@@ -105,6 +105,13 @@ def real_data_loading (data_name, seq_len):
   
   ori_data = np.loadtxt(file_path, delimiter=",", skiprows=1)
   
+  # 🔒 SAVE SCALE: So sample_only.py can restore absolute power values
+  p_col_idx = 0 if ori_data.shape[1] == 9 else 1
+  p_min, p_max = np.min(ori_data[:, p_col_idx]), np.max(ori_data[:, p_col_idx])
+  scale_path = os.path.abspath(os.path.join(dirname(abspath(__file__)), '..', '..', 'data', f'{clean_name}_scale.npy'))
+  np.save(scale_path, np.array([p_min, p_max]))
+  print(f"   -> Scale saved to: {scale_path} (Range: {p_min:.2f} - {p_max:.2f})")
+  
   # ⚡ C-TimeGAN LEAN ARCHITECTURE (Requested Fix):
   if ori_data.shape[1] == 9:
       print(f"✅ 9-Column Mode Detected:")
