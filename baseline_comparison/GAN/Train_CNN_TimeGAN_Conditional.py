@@ -300,11 +300,11 @@ def train_appliance(appliance):
 
     lr = 0.0001
     opt_ER = optim.Adam(list(E.parameters()) + list(R.parameters()),
-                        lr=0.0001, betas=(0.9, 0.999))
-    opt_S  = optim.Adam(S.parameters(), lr=0.0001,     betas=(0.9, 0.999))
+                        lr=0.0002, betas=(0.9, 0.999))
+    opt_S  = optim.Adam(S.parameters(), lr=0.0002,     betas=(0.9, 0.999))
     opt_G  = optim.Adam(list(G.parameters()) + list(S.parameters()),
-                        lr=0.0004, betas=(0.5, 0.999))  # ↑ G strength
-    opt_D  = optim.Adam(D.parameters(), lr=0.00005,    betas=(0.5, 0.999))  # ↓ D strength
+                        lr=0.0002, betas=(0.5, 0.999))
+    opt_D  = optim.Adam(D.parameters(), lr=0.0001,     betas=(0.5, 0.999))
 
     l_mse = nn.MSELoss()
     l_bce = nn.BCELoss()
@@ -396,11 +396,17 @@ def train_appliance(appliance):
             X_fft     = torch.abs(torch.fft.rfft(X.squeeze(1),     dim=-1))
             loss_g_freq = torch.mean(torch.abs(X_hat_fft.mean(0) - X_fft.mean(0)))
 
+            # Brute-force Shape Guard: force G to match the real pixels weighted by Focal logic
+            # This makes the TimeGAN as 'easy' to learn as the Baseline CGAN.
+            # Use X_hat = R(H_hat) which is the direct output of G->S->R chain
+            loss_g_brute = torch.mean((X_hat - X)**2 * w + torch.abs(X_hat - X) * w)
+
             loss_g = (loss_g_U
                       + GAMMA  * loss_g_U_e
                       + ETA    * torch.sqrt(loss_g_s + 1e-8)
-                      + 10.0   * loss_g_V1 + 10.0 * loss_g_V2  # ↑ Coverage: force G to match total power
-                      + 0.1    * loss_g_freq)   # spectral consistency
+                      + 10.0   * loss_g_V1 + 10.0 * loss_g_V2
+                      + 0.1    * loss_g_freq
+                      + 20.0   * loss_g_brute)  # ↑ Brute-force: stop G from missing the bars
             loss_g.backward()
             opt_G.step()
 
