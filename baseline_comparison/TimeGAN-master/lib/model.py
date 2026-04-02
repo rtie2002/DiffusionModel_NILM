@@ -57,9 +57,8 @@ class Encoder(nn.Module):
         self.block1 = CondConvBlock(32, cd, 64)
         self.block2 = CondConvBlock(64, cd, 128)
         self.block3 = CondConvBlock(128, cd, h)
-        self.sigmoid = nn.Sigmoid()
 
-    def forward(self, input, cond, sigmoid=True):
+    def forward(self, input, cond):
         c_p = cond.transpose(1, 2)
         x = torch.cat([input, cond], dim=-1).transpose(1, 2)
         
@@ -69,7 +68,7 @@ class Encoder(nn.Module):
         x = self.block3(x, c_p)
         
         H = x.transpose(1, 2)
-        return self.sigmoid(H) if sigmoid else H
+        return H  # <--- FIX: Unbounded Latent Space
 
 
 class Recovery(nn.Module):
@@ -91,18 +90,15 @@ class Recovery(nn.Module):
         )
         self.sigmoid = nn.Sigmoid()
 
-    def forward(self, input, sigmoid=True):
+    def forward(self, input):
         x = input.transpose(1, 2)
         X_tilde = self.net(x).transpose(1, 2)
-        return self.sigmoid(X_tilde) if sigmoid else X_tilde
+        return self.sigmoid(X_tilde)  # Only Recovery limits to [0,1] domain
 
 
 class Generator(nn.Module):
     """
     ⚡ GLOBAL UPSAMPLING GENERATOR
-    Replaced local convolutions with CNN-CGAN global upsampling logic.
-    Provides a massive receptive field (16 to 512) to generate 100-step
-    wide boxy appliance waveforms, avoiding the 15-step sine-wave blobs.
     """
     def __init__(self, opt):
         super(Generator, self).__init__()
@@ -121,29 +117,20 @@ class Generator(nn.Module):
         self.u2 = up(64 + cd, 32)    # 32 -> 64
         self.u3 = up(32 + cd, 16)    # 64 -> 128
         self.u4 = up(16 + cd, 8)     # 128 -> 256
-        self.final_conv = nn.Conv1d(8 + cd, h, 3, 1, 1) # 256 -> 512 happens in forward
-        self.sigmoid = nn.Sigmoid()
+        self.final_conv = nn.Conv1d(8 + cd, h, 3, 1, 1)
 
-    def forward(self, z, cond, sigmoid=True):
-        # TimeGAN feeds Z as Sequence. We compress it to a single seed 
-        # to unlock Global Receptive Field like standard GAN.
+    def forward(self, z, cond):
         z_seed = z.mean(dim=1) 
-        x = self.fc(z_seed).view(-1, 128, 16) # [B, 128, 16]
+        x = self.fc(z_seed).view(-1, 128, 16)
         
-        # Level 1: 32
         x = self.u1(torch.cat([x, get_c(cond, 16)], dim=1)) 
-        # Level 2: 64
         x = self.u2(torch.cat([x, get_c(cond, 32)], dim=1)) 
-        # Level 3: 128
         x = self.u3(torch.cat([x, get_c(cond, 64)], dim=1)) 
-        # Level 4: 256
         x = self.u4(torch.cat([x, get_c(cond, 128)], dim=1)) 
-        
-        # interpolate back to 512 to assure exact length map
         x = F.interpolate(x, size=512, mode='nearest')
         
         E = self.final_conv(torch.cat([x, get_c(cond, 512)], dim=1)).transpose(1, 2)
-        return self.sigmoid(E) if sigmoid else E
+        return E  # <--- FIX: Unbounded Latent Space
 
 
 class Supervisor(nn.Module):
@@ -155,7 +142,6 @@ class Supervisor(nn.Module):
         h = opt.hidden_dim
         
         layers = []
-        # Dilations: 1, 2, 4, 8, 16, 32, 64, 128, 256 -> cover 512
         for d in [1, 2, 4, 8, 16, 32, 64, 128, 256]:
             layers.append(
                 nn.Sequential(
@@ -165,13 +151,12 @@ class Supervisor(nn.Module):
             )
         self.tcn = nn.Sequential(*layers)
         self.fc = nn.Linear(h, h)
-        self.sigmoid = nn.Sigmoid()
 
-    def forward(self, h_seq, sigmoid=True):
+    def forward(self, h_seq):
         x = h_seq.transpose(1, 2)
         s = self.tcn(x).transpose(1, 2)
         out = self.fc(s)
-        return self.sigmoid(out) if sigmoid else out
+        return out  # <--- FIX: Unbounded Latent Space
 
 
 class Discriminator(nn.Module):
