@@ -259,7 +259,7 @@ def train_appliance(appliance):
     # This is the KEY feature that makes C-TimeGAN different from plain CGAN:
     # the Generator sees Δpower at each timestep → learns sharp ON/OFF transitions.
     delta_p = np.diff(raw_p_01, prepend=raw_p_01[0:1])  # Δ[t] = p[t]-p[t-1], [N,]
-    delta_p_norm = (delta_p - delta_p.min()) / (delta_p.ptp() + 1e-8)  # normalise [0,1]
+    delta_p_norm = (delta_p - delta_p.min()) / (np.ptp(delta_p) + 1e-8)  # normalise [0,1]
     # Append Δpower as the 9th condition channel
     time_feat = np.column_stack([time_feat, delta_p_norm])  # [N, 9]
     print(f'   → Condition dim: {time_feat.shape[1]}  (8 time + 1 Δpower)')
