@@ -62,6 +62,10 @@ class Diffusion(nn.Module):
         self.feature_size = feature_size
         self.condition_dim = condition_dim  # NEW: Store condition dimension
         self.ff_weight = default(reg_weight, math.sqrt(self.seq_length) / 5)
+        
+        # 🛡️ SOBOLEV LOSS (Gradient Constraint)
+        self.use_grad = kwargs.get('use_grad', True)
+        self.grad_weight = kwargs.get('grad_weight', 0.5)
 
         # NEW: Transformer now decouples feature_size (power) and condition_dim (time)
         self.model = Transformer(n_feat=feature_size, 
@@ -341,6 +345,17 @@ class Diffusion(nn.Module):
         model_out_power = model_out[:, :, :self.feature_size]
 
         train_loss = self.loss_fn(model_out_power, target, reduction='none')
+
+        # 🚀 SOBOLEV LOSS (Gradient/Shape Constraint)
+        # Compare the difference between adjacent points to capture sharp edges.
+        if self.use_grad:
+            model_out_grad = model_out_power[:, 1:, :] - model_out_power[:, :-1, :]
+            target_grad = target[:, 1:, :] - target[:, :-1, :]
+            grad_loss = self.loss_fn(model_out_grad, target_grad, reduction='none')
+            
+            # Align lengths by padding with 0 at the end
+            grad_loss = F.pad(grad_loss, (0, 0, 1, 0), value=0) 
+            train_loss += self.grad_weight * grad_loss
 
         fourier_loss = torch.tensor([0.])
         if self.use_ff:
