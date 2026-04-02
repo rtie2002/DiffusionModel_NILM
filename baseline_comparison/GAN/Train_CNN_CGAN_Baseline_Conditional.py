@@ -40,8 +40,9 @@ class Generator(nn.Module):
                                 nn.Conv1d(8, 1, 3, 1, 1), nn.Tanh())
         
     def forward(self, z, c):
-        # c: (bs, 512, 8). Use first step's condition as global window context
-        c_global = c[:, 0, :] 
+        # c: (bs, 512, 8). Use the MEAN of the entire window condition as global context
+        # This gives a better representation of the 8-minute window than just the first point
+        c_global = torch.mean(c, dim=1) 
         gen_input = torch.cat([z, c_global], dim=1)
         return self.model(self.fc(gen_input).view(-1, 128, 16))
 
@@ -104,36 +105,47 @@ def train_appliance(appliance):
         return
 
     G, D = Generator(COND_DIM).to(device), Discriminator(COND_DIM).to(device)
+    
+    # --- WEIGHT INITIALIZATION (Prevents lines/collapse) ---
+    def weights_init(m):
+        if isinstance(m, (nn.Conv1d, nn.Linear)):
+            nn.init.kaiming_normal_(m.weight)
+    G.apply(weights_init)
+    D.apply(weights_init)
+
     opt_G = torch.optim.Adam(G.parameters(), lr=0.0002, betas=(0.5, 0.999))
     opt_D = torch.optim.Adam(D.parameters(), lr=0.0001, betas=(0.5, 0.999))
     criterion = nn.BCELoss()
 
     # Training
     print(f'🔥 Training for {EPOCHS_PER_APP} epochs...')
-    loss_d, loss_g = torch.tensor(0.0), torch.tensor(0.0) # Initialize to prevent UnboundLocalError
+    loss_d, loss_g = torch.tensor(0.0), torch.tensor(0.0)
 
     for epoch in range(1, EPOCHS_PER_APP + 1):
+        G.train()
         for i, (real_p, real_t) in enumerate(train_loader):
             real_p, real_t = real_p.to(device), real_t.to(device)
             bs = real_p.size(0)
 
-            # Train Discriminator
+            # --- 1. Train Discriminator (1 time) ---
             opt_D.zero_grad()
             z = torch.randn(bs, 100).to(device)
             fake_p = G(z, real_t)
             
-            # Discriminator loss: real/real_t vs fake/real_t
-            loss_d = (criterion(D(real_p, real_t), torch.full((bs,1), 0.9).to(device)) + 
-                      criterion(D(fake_p.detach(), real_t), torch.zeros(bs,1).to(device))) / 2
+            real_out = D(real_p, real_t)
+            fake_out = D(fake_p.detach(), real_t)
+            loss_d = (criterion(real_out, torch.full((bs,1), 0.9).to(device)) + 
+                      criterion(fake_out, torch.zeros(bs,1).to(device))) / 2
             loss_d.backward(); opt_D.step()
 
-            # Train Generator
-            opt_G.zero_grad()
-            fake_p = G(torch.randn(bs, 100).to(device), real_t)
-            # Adversarial + Continuity Penalty
-            loss_g = criterion(D(fake_p, real_t), torch.ones(bs,1).to(device)) + \
-                     0.2 * torch.mean(torch.abs(fake_p[:, :, 1:] - fake_p[:, :, :-1]))
-            loss_g.backward(); opt_G.step()
+            # --- 2. Train Generator (2nd gear - 2 steps!) ---
+            for _ in range(2):
+                opt_G.zero_grad()
+                z = torch.randn(bs, 100).to(device)
+                fake_p = G(z, real_t)
+                loss_g = criterion(D(fake_p, real_t), torch.ones(bs,1).to(device)) + \
+                         0.1 * torch.mean(torch.abs(fake_p[:, :, 1:] - fake_p[:, :, :-1]))
+                loss_g.backward(); opt_G.step()
 
         # LIVE PLOTTING: Save and overwrite progress file
         if epoch % 100 == 0:
