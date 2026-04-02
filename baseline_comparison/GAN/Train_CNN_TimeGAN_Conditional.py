@@ -390,8 +390,8 @@ def train_appliance(appliance):
             loss_g = (loss_g_U
                       + GAMMA  * loss_g_U_e
                       + ETA    * torch.sqrt(loss_g_s + 1e-8)
-                      + loss_g_V1 + loss_g_V2
-                      + 0.1   * loss_g_freq)   # spectral consistency
+                      + 10.0   * loss_g_V1 + 10.0 * loss_g_V2  # ↑ Coverage: force G to match total power
+                      + 0.1    * loss_g_freq)   # spectral consistency
             loss_g.backward()
             opt_G.step()
 
