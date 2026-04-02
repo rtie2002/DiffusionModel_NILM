@@ -50,7 +50,7 @@ JOINT_ITER = 20000   # Phase 3: Joint         ↑ (was 5000) — match CGAN budg
 ETA    = 5.0         # supervised loss weight in G  ↓ (was 10.0) — stability fix
 LAMBDA = 1.0         # supervised loss weight in ER (λ)
 GAMMA  = 1.0         # E_hat discriminator weight   (γ)
-FOCAL  = 100.0       # ON-period focal penalty      ↑ (was 50) — focus on peaks
+FOCAL  = 10.0        # ON-period focal penalty      ↓ (was 100) — stop forcing 'lazy' zeros
 
 # Script is at  <root>/baseline_comparison/GAN/Train_CNN_TimeGAN_Conditional.py
 # So go up 3 levels: GAN → baseline_comparison → project root
