@@ -14,7 +14,7 @@ from torch.nn.utils import spectral_norm
 APPLIANCES = ["dishwasher", "washingmachine", "fridge", "kettle", "microwave"]
 WINDOW_SIZE = 512
 BATCH_SIZE = 128
-EPOCHS_PER_APP = 2000
+EPOCHS_PER_APP = 20000
 COND_DIM = 8
 
 BASE_DIR = os.getcwd() 
@@ -28,23 +28,33 @@ print(f"✅ Device: {device}")
 class Generator(nn.Module):
     def __init__(self, cond_dim=8):
         super().__init__()
-        # Input: noise(100) + condition_at_first_step(8) = 108
         self.fc = nn.Linear(100 + cond_dim, 128 * 16)
+        
+        # Using nearest upsampling to preserve sharp step-like transients of appliances
         def up(ic, oc): return nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='linear', align_corners=False),
+            nn.Upsample(scale_factor=2, mode='nearest'),
             nn.Conv1d(ic, oc, 3, 1, 1),
             nn.BatchNorm1d(oc),
-            nn.ReLU(True))
-        self.model = nn.Sequential(up(128,64), up(64,32), up(32,16), up(16,8),
-                                nn.Upsample(scale_factor=2, mode='linear', align_corners=False),
-                                nn.Conv1d(8, 1, 3, 1, 1), nn.Tanh())
+            nn.LeakyReLU(0.2, inplace=True))
+            
+        self.u1 = up(128, 64)
+        self.u2 = up(64, 32)
+        self.u3 = up(32, 16)
+        self.u4 = up(16, 8)
+        self.u5 = nn.Upsample(scale_factor=2, mode='nearest')
+        self.final_conv = nn.Conv1d(8, 1, 3, 1, 1)
         
     def forward(self, z, c):
-        # c: (bs, 512, 8). Use the MEAN of the entire window condition as global context
-        # This gives a better representation of the 8-minute window than just the first point
+        # c: (bs, 512, 8). Focus on context
         c_global = torch.mean(c, dim=1) 
-        gen_input = torch.cat([z, c_global], dim=1)
-        return self.model(self.fc(gen_input).view(-1, 128, 16))
+        x = self.fc(torch.cat([z, c_global], dim=1)).view(-1, 128, 16)
+        
+        x = self.u1(x) # 32
+        x = self.u2(x) # 64
+        x = self.u3(x) # 128
+        x = self.u4(x) # 256
+        x = self.u5(x) # 512
+        return torch.tanh(self.final_conv(x))
 
 class Discriminator(nn.Module):
     def __init__(self, cond_dim=8):
@@ -143,8 +153,8 @@ def train_appliance(appliance):
                 opt_G.zero_grad()
                 z = torch.randn(bs, 100).to(device)
                 fake_p = G(z, real_t)
-                loss_g = criterion(D(fake_p, real_t), torch.ones(bs,1).to(device)) + \
-                         0.1 * torch.mean(torch.abs(fake_p[:, :, 1:] - fake_p[:, :, :-1]))
+                # NO CONTINUITY PENALTY: Let it learn sharp step edges
+                loss_g = criterion(D(fake_p, real_t), torch.ones(bs,1).to(device))
                 loss_g.backward(); opt_G.step()
 
         # LIVE PLOTTING: Save and overwrite progress file
@@ -169,13 +179,14 @@ def train_appliance(appliance):
             plt.close()
             G.train()
 
-    # Sampling 
-    print(f'Generating Conditional Synthetic data...')
+    # Sampling 1:1 ratio
+    print(f'Generating Conditional Synthetic data (1:1 Ratio)...')
     G.eval()
     all_p, all_t = [], []
     with torch.no_grad():
-        # Generate double the amount of source data
-        for _ in range((len(dataset)*2) // BATCH_SIZE + 1):
+        # Generate exactly the amount of source data windows
+        num_windows = len(dataset)
+        for _ in range(num_windows // BATCH_SIZE + 1):
             idx = np.random.choice(len(dataset), BATCH_SIZE)
             batch_t = torch.stack([dataset[i][1] for i in idx]).to(device)
             z = torch.randn(BATCH_SIZE, 100).to(device)
@@ -183,8 +194,8 @@ def train_appliance(appliance):
             all_p.append(p)
             all_t.append(batch_t.cpu().numpy())
 
-    final_p = np.concatenate(all_p, axis=0)[:len(dataset)*2]
-    final_t = np.concatenate(all_t, axis=0)[:len(dataset)*2]
+    final_p = np.concatenate(all_p, axis=0)[:num_windows]
+    final_t = np.concatenate(all_t, axis=0)[:num_windows]
     # Shape: [N, 512, 1] + [N, 512, 8] -> [N, 512, 9]
     final_merged = np.concatenate([np.expand_dims(final_p.squeeze(1), axis=2), final_t], axis=2)
 
