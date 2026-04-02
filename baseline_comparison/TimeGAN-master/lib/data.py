@@ -82,12 +82,12 @@ def sine_data_generation (no, seq_len, dim):
 def real_data_loading (data_name, seq_len):
   """Load and preprocess real-world datasets, extracting Aggregate as a Condition."""
   import os
-  # Try different relative paths to reliably find the data
+  clean_name = data_name.replace("_training_", "").replace("_multivariate", "")
+  
+  # 🔒 EXCLUSIVE PATHS: Only search in baseline_comparison/data
   possible_paths = [
-      os.path.join(dirname(dirname(abspath(__file__))), 'data', f'{data_name}.csv'),
-      os.path.join(dirname(dirname(dirname(abspath(__file__)))), 'Data', 'datasets', f'{data_name}.csv'),
-      f'/home/raymond/projects/DiffusionModel_NILM/Data/datasets/{data_name}.csv',
-      f'C:/Users/Raymond Tie/Desktop/DiffusionModel_NILM/Data/datasets/{data_name}.csv',
+      os.path.abspath(os.path.join(dirname(abspath(__file__)), '..', '..', 'data', f'{data_name}.csv')),
+      os.path.abspath(os.path.join(dirname(abspath(__file__)), '..', '..', 'data', f'{clean_name}_multivariate.csv')),
   ]
   
   file_path = None
