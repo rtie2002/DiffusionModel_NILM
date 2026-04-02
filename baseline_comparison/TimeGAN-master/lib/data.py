@@ -161,21 +161,10 @@ def real_data_loading (data_name, seq_len):
   #   This is THE key feature that separates C-TimeGAN from vanilla TimeGAN.
   #   Without it, the generator has no guidance on transient/sharp changes.
   # ─────────────────────────────────────────────────────────────────────────
-  print(f"   -> Computing First-Order Difference (C-TimeGAN Eq. 7)...")
-  # diff[t] = target[t] - target[t-1], with diff[0] = 0
-  diff = np.diff(targets[:, 0], prepend=targets[0, 0])  # (N,)
-  # Normalize diff to [0, 1] for stable training
-  diff_min = np.min(diff)
-  diff_max = np.max(diff)
-  if diff_max - diff_min > 1e-7:
-      diff_norm = (diff - diff_min) / (diff_max - diff_min)
-  else:
-      diff_norm = np.zeros_like(diff)
-  diff_norm = diff_norm.reshape(-1, 1)  # (N, 1)
-  
-  # Append first-order difference as an extra condition column
-  conditions = np.column_stack([conditions, diff_norm])
-  print(f"   -> Condition dim after adding 1st-order diff: {conditions.shape[1]}")
+  # ⚡ AUTONOMOUS MODE: Diff is NOT added to condition.
+  # The model learns sharp transitions via Sobolev loss in backward_g.
+  # During sampling, only time features (8-dim) are needed as condition.
+  print(f"   -> Condition dim (Time only, no diff): {conditions.shape[1]}")
 
   temp_targets = []
   temp_conds = []
