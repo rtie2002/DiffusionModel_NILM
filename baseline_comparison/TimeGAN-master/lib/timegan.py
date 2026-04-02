@@ -332,12 +332,20 @@ class TimeGAN(BaseModel):
       self.Y_fake_e = self.netd(self.E_hat, self.C)
 
     def backward_er(self):
-      self.err_er = self.l_mse(self.X_tilde, self.X)
+      # ⚠️ ON-Period Focal Penalty: sparse NILM data makes standard MSE collapse to 0.
+      # Multiply errors during ON-periods by 50x to force AutoEncoder strictly learn peaks.
+      weight = torch.where(self.X > 0.05, torch.tensor(50.0).to(self.device), torch.tensor(1.0).to(self.device))
+      raw_mse = (self.X_tilde - self.X) ** 2
+      self.err_er = torch.mean(raw_mse * weight)
       self.err_er.backward(retain_graph=True)
 
     def backward_er_(self):
-      self.err_er_raw = self.l_mse(self.X_tilde, self.X)
+      weight = torch.where(self.X > 0.05, torch.tensor(50.0).to(self.device), torch.tensor(1.0).to(self.device))
+      raw_mse = (self.X_tilde - self.X) ** 2
+      self.err_er_raw = torch.mean(raw_mse * weight)
+      
       self.err_s = self.l_mse(self.H_supervise[:,:-1,:], self.H[:,1:,:])
+      # TimeGAN eq combines ER and S
       self.err_er = 10.0 * torch.sqrt(self.err_er_raw) + 0.1 * self.err_s
       self.err_er.backward(retain_graph=True)
 
