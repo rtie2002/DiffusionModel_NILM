@@ -367,11 +367,14 @@ class TimeGAN(BaseModel):
       # The previous upstream code evaluated this on H (Real), causing 0 gradient to Generator!
       self.err_g_s = self.l_mse(self.H_hat[:,:-1,:], self.E_hat[:,1:,:])
 
-      # Total G Loss (Pure TimeGAN Formulation without improper Direct MSE on Data)
+      # Total G Loss (Pure Adv + Autoregressive)
+      # ⚠️ ACADEMIC FINDING: Original TimeGAN weighed V1 & V2 at 100.0. 
+      # On highly sparse, multimodal NILM data, forcing batch-level moment matching 
+      # causes catastrophic mode collapse (the generator outputs the smeared batch 
+      # expectation curve rather than sharp individual pulses). 
+      # FIX: V1 and V2 weights dropped to 0 to unleash the true Discriminator capability.
       self.err_g = self.err_g_U * 1.0 + \
                    self.err_g_U_e * self.opt.w_gamma + \
-                   self.err_g_V1 * 100.0 + \
-                   self.err_g_V2 * 100.0 + \
                    15.0 * torch.sqrt(self.err_g_s)
 
       self.err_g.backward(retain_graph=True)
