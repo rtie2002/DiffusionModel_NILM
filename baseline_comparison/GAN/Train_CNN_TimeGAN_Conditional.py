@@ -38,11 +38,11 @@ APPLIANCES  = ["dishwasher", "washingmachine", "fridge", "kettle", "microwave"]
 WINDOW_SIZE = 512
 BATCH_SIZE  = 128
 COND_DIM    = 8     # time-feature channels (sin/cos encoding)
-HIDDEN_DIM  = 64    # embedding space channels
+HIDDEN_DIM  = 128   # embedding space channels ↑ (was 64) — more capacity for sharp peaks
 
 # Training iterations (3 phases)
 AE_ITER    = 5000    # Phase 1: AutoEncoder   ↑ (was 2000) — needs more time on sparse NILM peaks
-SUP_ITER   = 3000    # Phase 2: Supervisor    ↑ (was 2000)
+SUP_ITER   = 5000    # Phase 2: Supervisor    ↑ (was 3000) — need L_S < 0.005 before joint
 JOINT_ITER = 20000   # Phase 3: Joint         ↑ (was 5000) — match CGAN budget
 
 # Loss weights (C-TimeGAN paper, Table I)
@@ -66,6 +66,8 @@ print(f"✅ Device       : {device}")
 
 class Embedder(nn.Module):
     """E(X, C) → H  |  Maps real sequences into embedding space.
+    Uses GELU (not Tanh) so magnitude ordering is preserved
+    — a 2400W spike stays larger than a 200W value in embedding space.
     Input : X [B,1,T] + C [B,T,cond_dim]
     Output: H [B,hidden_dim,T]
     """
@@ -77,10 +79,10 @@ class Embedder(nn.Module):
                 nn.BatchNorm1d(oc),
                 nn.LeakyReLU(0.2, inplace=True))
         self.net = nn.Sequential(
-            cb(1 + cond_dim, 32),
-            cb(32, 64),
-            nn.Conv1d(64, hidden_dim, 3, 1, 1),
-            nn.Tanh())
+            cb(1 + cond_dim, 64),
+            cb(64, hidden_dim),
+            nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 1),
+            nn.GELU())   # preserves magnitude — Tanh would squash peaks
 
     def forward(self, x, c):
         # x:[B,1,T]  c:[B,T,cond_dim] → permute → [B,cond_dim,T]
@@ -89,8 +91,10 @@ class Embedder(nn.Module):
 
 class Recovery(nn.Module):
     """R(H) → X̂  |  Reconstructs power sequences from embedding.
-    Input : H [B,hidden_dim,T]
-    Output: X̂ [B,1,T]  (Sigmoid → values in [0,1])
+    
+    KEY FIX: Uses Softplus (not Sigmoid) as final activation.
+    Sigmoid gradient at peak (0.99) = 0.99×0.01 = 0.009 ≈ 0 → can't learn sharp spikes.
+    Softplus has full gradient everywhere, then we clamp to [0,1] post-hoc.
     """
     def __init__(self, hidden_dim=HIDDEN_DIM):
         super().__init__()
@@ -103,10 +107,11 @@ class Recovery(nn.Module):
             cb(hidden_dim, 64),
             cb(64, 32),
             nn.Conv1d(32, 1, 3, 1, 1),
-            nn.Sigmoid())
+            nn.Softplus(beta=10))  # smooth, non-saturating; clamp applied in forward
 
     def forward(self, h):
-        return self.net(h)
+        out = self.net(h)                          # [B, 1, T], values ≥ 0
+        return torch.clamp(out, 0.0, 1.0)         # bound to valid [0,1] range
 
 
 class Generator(nn.Module):
@@ -166,7 +171,7 @@ class Supervisor(nn.Module):
             cb(hidden_dim, hidden_dim),
             cb(hidden_dim, hidden_dim),
             nn.Conv1d(hidden_dim, hidden_dim, 1),
-            nn.Tanh())
+            nn.GELU())   # consistent with Embedder — no squashing
 
     def forward(self, h):
         return self.net(h)
@@ -309,7 +314,10 @@ def train_appliance(appliance):
         w       = torch.where(X > 0.05,
                               torch.full_like(X, FOCAL),
                               torch.ones_like(X))
-        loss_er = torch.mean((X_tilde - X) ** 2 * w)
+        # MSE focal + L1 focal: L1 preserves sharp edges that MSE blurs
+        loss_er_mse = torch.mean((X_tilde - X) ** 2 * w)
+        loss_er_l1  = torch.mean(torch.abs(X_tilde - X) * w)
+        loss_er     = loss_er_mse + 0.5 * loss_er_l1
         loss_er.backward()
         opt_ER.step()
         if step % 200 == 0:
@@ -366,10 +374,17 @@ def train_appliance(appliance):
             loss_g_V1 = torch.mean(torch.abs(torch.std(X_hat, 0) - torch.std(X, 0)))
             loss_g_V2 = torch.mean(torch.abs(torch.mean(X_hat, 0) - torch.mean(X, 0)))
 
+            # Frequency-domain loss: penalise spectral mismatch between fake and real
+            # Sharp appliance spikes have a distinct FFT profile that MSE alone misses
+            X_hat_fft = torch.abs(torch.fft.rfft(X_hat.squeeze(1), dim=-1))
+            X_fft     = torch.abs(torch.fft.rfft(X.squeeze(1),     dim=-1))
+            loss_g_freq = torch.mean(torch.abs(X_hat_fft.mean(0) - X_fft.mean(0)))
+
             loss_g = (loss_g_U
                       + GAMMA  * loss_g_U_e
                       + ETA    * torch.sqrt(loss_g_s + 1e-8)
-                      + loss_g_V1 + loss_g_V2)
+                      + loss_g_V1 + loss_g_V2
+                      + 0.1   * loss_g_freq)   # spectral consistency
             loss_g.backward()
             opt_G.step()
 
@@ -382,7 +397,9 @@ def train_appliance(appliance):
         w       = torch.where(X > 0.05,
                               torch.full_like(X, FOCAL),
                               torch.ones_like(X))
-        loss_er   = torch.mean((X_tilde - X) ** 2 * w)
+        loss_er_mse   = torch.mean((X_tilde - X) ** 2 * w)
+        loss_er_l1    = torch.mean(torch.abs(X_tilde - X) * w)
+        loss_er       = loss_er_mse + 0.5 * loss_er_l1
         loss_s_j  = l_mse(H_sup[:, :, :-1], H[:, :, 1:])
         (loss_er + LAMBDA * loss_s_j).backward()
         opt_ER.step()
