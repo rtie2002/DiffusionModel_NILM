@@ -75,9 +75,8 @@ class NILM_Dataset(Dataset):
 # MAIN EXECUTION
 # ==========================================
 def train_appliance(appliance):
-    print(f'\n{"="*60}\nPROCESSING: {appliance.upper()}\n{"="*60}')
-    
-    CSV_PATH = os.path.join(BASE_DIR, 'Data', 'datasets', f'{appliance}_multivariate.csv')
+    # Path Setup - Points to the specific baseline data folder
+    CSV_PATH = os.path.join(BASE_DIR, 'baseline_comparison', 'data', f'{appliance}_multivariate.csv')
     OUT_DIR = os.path.join(BASE_DIR, 'Synthetic_data', f'cgan_{appliance}') 
     os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -126,14 +125,32 @@ def train_appliance(appliance):
 
             # Train Generator
             opt_G.zero_grad()
-            fake_p = G(torch.randn(bs, 100).to(device), real_t)
-            # Adversarial + Continuity Penalty (0.2 * TV loss)
+            # Reuse fake_p from D step but re-evaluate through D for G gradients
             loss_g = criterion(D(fake_p, real_t), torch.ones(bs,1).to(device)) + \
                      0.2 * torch.mean(torch.abs(fake_p[:, :, 1:] - fake_p[:, :, :-1]))
             loss_g.backward(); opt_G.step()
 
+        # LIVE PLOTTING: Save and overwrite progress file
         if epoch % 100 == 0:
             print(f'Epoch [{epoch}/{EPOCHS_PER_APP}] | Loss_D: {loss_d.item():.4f} | Loss_G: {loss_g.item():.4f}')
+            
+            # Generate sample for plotting
+            G.eval()
+            with torch.no_grad():
+                sample_z = torch.randn(1, 100).to(device)
+                sample_p = (G(sample_z, real_t[:1]).cpu().numpy()[0, 0] + 1) / 2
+                ref_p = (real_p.cpu().numpy()[0, 0] + 1) / 2
+            
+            plt.figure(figsize=(10, 4))
+            plt.plot(ref_p, label='Real (Ref)', alpha=0.5)
+            plt.plot(sample_p, label='Fake (Gen)', color='orange', alpha=0.8)
+            plt.title(f'Training Progress: {appliance.upper()} | Epoch {epoch}')
+            plt.legend()
+            # SAVING TO THE GAN BASELINE FOLDER FOR QUICK ACCESS
+            prog_path = os.path.join(BASE_DIR, 'baseline_comparison', 'GAN', 'training_progress.png')
+            plt.savefig(prog_path)
+            plt.close()
+            G.train()
 
     # Sampling 
     print(f'Generating Conditional Synthetic data...')
