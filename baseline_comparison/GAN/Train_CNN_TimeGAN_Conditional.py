@@ -116,8 +116,8 @@ class Generator(nn.Module):
         self.u2 = up_res(hidden_dim + cond_dim, hidden_dim)
         self.u3 = up_res(hidden_dim + cond_dim, hidden_dim)
         self.u4 = up_res(hidden_dim + cond_dim, hidden_dim)
-        # G outputs Latent Embedding (128 channels), NOT final waveform
         self.extra = nn.Sequential(nn.Conv1d(hidden_dim + cond_dim, hidden_dim, 15, 1, 7), nn.BatchNorm1d(hidden_dim), nn.LeakyReLU(0.2))
+        self.final = nn.Conv1d(hidden_dim, 1, 31, 1, 15)
         self.dropout = nn.Dropout(0.3)
 
     def forward(self, z, c):
@@ -129,7 +129,7 @@ class Generator(nn.Module):
         x = self.u3(torch.cat([x, gc(64)], dim=1))
         x = self.u4(torch.cat([x, gc(128)], dim=1))
         x = nn.functional.interpolate(x, size=512, mode='nearest')
-        return self.extra(torch.cat([x, gc(512)], dim=1))
+        return torch.tanh(self.final(self.extra(torch.cat([x, gc(512)], dim=1))))
 
 class Supervisor(nn.Module):
     def __init__(self, hidden_dim=HIDDEN_DIM):
@@ -193,36 +193,27 @@ def train_appliance(appliance):
         loss.backward(); opt_ER.step()
 
     print(f"Phase 3: Joint Training (Weighted Active Balance)...")
-    for i in range(1, JOINT_ITER + 1):
+    for i in range(1, JOINT_ITER+1):
         for _ in range(4):
             X, C = get_batch(0.0); _, Cj = get_batch(0.05)
-            z = torch.randn(BATCH_SIZE, 100, device=device)
-            z2 = torch.randn(BATCH_SIZE, 100, device=device)
+            z = torch.randn(BATCH_SIZE, 100, device=device); z2 = torch.randn(BATCH_SIZE, 100, device=device)
             opt_GS.zero_grad()
-
-            Eh = G(z, Cj)
-            Hh = S(Eh)
-            Xh = R(Hh)
+            Eh = G(z, Cj); Hh = S(Eh); Xh = R(Hh)
             Yf = D(Hh, Cj)
-            Yf_e = D(Eh, Cj)
             
-            # X, Xh: [-1, 1]
             Xz = X.view(BATCH_SIZE,1,8,64).mean(-1); Xhz = Xh.view(BATCH_SIZE,1,8,64).mean(-1)
             loss_reg = l_mse(Xhz, Xz)
             with torch.no_grad(): Xh2 = R(S(G(z2, Cj)))
             loss_div = torch.clamp(0.1 - (Xh - Xh2).abs().mean(), min=0)
             
             w = torch.where(X > -0.9, torch.full_like(X, FOCAL), torch.ones_like(X))
-            loss_anchor = torch.mean((Xh - X)**2 * w) 
+            loss_anchor = torch.mean((Xh - X)**2 * w) # Soft guide
             
-            loss_g = l_bce(Yf, torch.ones_like(Yf)) + l_bce(Yf_e, torch.ones_like(Yf_e)) + ETA*loss_reg + 2.0*loss_div + 5.0*loss_anchor
+            loss_g = l_bce(Yf, torch.ones_like(Yf)) + ETA*loss_reg + 2.0*loss_div + 5.0*loss_anchor
             loss_g.backward(); opt_GS.step()
 
-        X, C = get_batch(0.05)
-        opt_D.zero_grad()
-        with torch.no_grad():
-            H = E(X, C)
-            Hh = S(G(torch.randn(BATCH_SIZE, 100, device=device), C))
+        X, C = get_batch(0.05); opt_D.zero_grad()
+        with torch.no_grad(): H, Hh = E(X, C), S(G(torch.randn(BATCH_SIZE,100,device=device), C))
         Yr, Yf = D(H, C), D(Hh, C)
         loss_d = l_bce(Yr, torch.full_like(Yr, 0.9)) + l_bce(Yf, torch.zeros_like(Yf))
         if loss_d > 0.3: loss_d.backward(); opt_D.step()
