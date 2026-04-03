@@ -37,8 +37,9 @@ from torch.nn.utils import spectral_norm
 APPLIANCES  = ["dishwasher", "washingmachine", "fridge", "kettle", "microwave"]
 WINDOW_SIZE = 512
 BATCH_SIZE  = 128
-COND_DIM    = 9     # time features (8) + first-order Δpower (1) — paper Eq.7
-                    # KEY C-TimeGAN differentiator: CGAN never conditions on Δpower
+COND_DIM    = 8     # time features only (minute/hour/dow/month sin+cos)
+                    # NOTE: Δpower REMOVED from input to prevent data leakage.
+                    # Instead, derivative & phase-shift alignment enforced via LOSS.
 HIDDEN_DIM  = 96    # embedding space channels  ↑ (was 64) — more capacity
 
 # Training iterations (3 phases)
@@ -254,16 +255,16 @@ def train_appliance(appliance):
     raw_p_01  = (df[power_col].values - p_min) / (p_max - p_min + 1e-8)
     time_feat = df[time_cols].apply(pd.to_numeric, errors='coerce').fillna(0).values
 
-    # ── First-order difference condition (C-TimeGAN paper Eq. 7) ─────────────
-    # "the difference between adjacent time points of the current appliance
-    #  (first-order difference) is also used as a condition"
-    # This is the KEY feature that makes C-TimeGAN different from plain CGAN:
-    # the Generator sees Δpower at each timestep → learns sharp ON/OFF transitions.
-    delta_p = np.diff(raw_p_01, prepend=raw_p_01[0:1])  # Δ[t] = p[t]-p[t-1], [N,]
-    delta_p_norm = (delta_p - delta_p.min()) / (np.ptp(delta_p) + 1e-8)  # normalise [0,1]
-    # Append Δpower as the 9th condition channel
-    time_feat = np.column_stack([time_feat, delta_p_norm])  # [N, 9]
-    print(f'   → Condition dim: {time_feat.shape[1]}  (8 time + 1 Δpower)')
+    # ── LEAKAGE FIX: Δpower REMOVED from condition input ──────────────────────
+    # Previously, the first-order difference of REAL power was fed as the 9th
+    # condition channel.  This gave the Generator "god vision" during training
+    # (it knew exactly where ON/OFF transitions were), but at sampling time
+    # it had to be zeroed out → the model collapsed.
+    #
+    # Instead, derivative alignment and phase-shift losses are added to the
+    # Generator loss function in Phase 3.  The model must now LEARN to produce
+    # sharp edges autonomously.
+    print(f'   → Condition dim: {time_feat.shape[1]}  (8 time features, NO Δpower leakage)')
 
     dataset = NILM_Dataset(raw_p_01, time_feat)
     cur_bs  = min(BATCH_SIZE, len(dataset))
@@ -384,21 +385,51 @@ def train_appliance(appliance):
             loss_g_s   = l_mse(H_hat[:, :, :-1], E_hat[:, :, 1:])
 
             # Moments matching (Global across batch and time)
-            # This is much more stable than per-pixel matching for sparse NILM data.
             real_std,  real_mean  = torch.std(X),     torch.mean(X)
             fake_std,  fake_mean  = torch.std(X_hat), torch.mean(X_hat)
             loss_g_V1 = torch.abs(fake_std - real_std)
             loss_g_V2 = torch.abs(fake_mean - real_mean)
 
             # Frequency-domain loss: penalise spectral mismatch between fake and real
-            # Sharp appliance spikes have a distinct FFT profile that MSE alone misses
             X_hat_fft = torch.abs(torch.fft.rfft(X_hat.squeeze(1), dim=-1))
             X_fft     = torch.abs(torch.fft.rfft(X.squeeze(1),     dim=-1))
             loss_g_freq = torch.mean(torch.abs(X_hat_fft.mean(0) - X_fft.mean(0)))
 
-            # Brute-force Shape Guard: force G to match the real pixels weighted by Focal logic
-            # This makes the TimeGAN as 'easy' to learn as the Baseline CGAN.
-            # Use X_hat = R(H_hat) which is the direct output of G->S->R chain
+            # ── NEW: First-Order Derivative Loss (replaces Δpower input leakage) ──
+            # Force the SLOPE of generated waveform to match real waveform.
+            # This teaches the model to produce sharp ON/OFF edges autonomously.
+            real_deriv = X[:, :, 1:] - X[:, :, :-1]          # [B, 1, T-1]
+            fake_deriv = X_hat[:, :, 1:] - X_hat[:, :, :-1]  # [B, 1, T-1]
+            # Focal weighting on derivatives: penalise more where real has big changes
+            deriv_weight = torch.where(real_deriv.abs() > 0.02,
+                                       torch.full_like(real_deriv, FOCAL),
+                                       torch.ones_like(real_deriv))
+            loss_g_deriv = torch.mean((fake_deriv - real_deriv)**2 * deriv_weight)
+
+            # ── NEW: Phase-Shift Alignment Loss ──────────────────────────────────
+            # Penalise temporal misalignment between generated and real waveforms.
+            # Uses cross-correlation: if the peak of xcorr is NOT at lag=0,
+            # the generator is producing the right shape but shifted in time.
+            real_s = X.squeeze(1)       # [B, T]
+            fake_s = X_hat.squeeze(1)   # [B, T]
+            # Normalise each sample to zero-mean for clean correlation
+            real_zm = real_s - real_s.mean(dim=-1, keepdim=True)
+            fake_zm = fake_s - fake_s.mean(dim=-1, keepdim=True)
+            # Cross-correlation via FFT (efficient for length-512)
+            xcorr = torch.fft.irfft(
+                torch.fft.rfft(real_zm, dim=-1) * torch.fft.rfft(fake_zm, dim=-1).conj(),
+                n=real_s.size(-1), dim=-1
+            )  # [B, T]
+            # Ideal: peak at lag=0 → xcorr[:,0] should be the maximum
+            max_xcorr = xcorr.max(dim=-1).values   # [B]
+            zero_xcorr = xcorr[:, 0]                # [B]
+            # Loss: how much of the correlation is NOT at lag=0
+            loss_g_phase = torch.mean(torch.clamp(max_xcorr - zero_xcorr, min=0.0))
+
+            # Focal Shape Guard: force G to match real pixels (weighted on ON-periods)
+            w = torch.where(X > 0.05,
+                            torch.full_like(X, FOCAL),
+                            torch.ones_like(X))
             loss_g_brute = torch.mean((X_hat - X)**2 * w + torch.abs(X_hat - X) * w)
 
             loss_g = (loss_g_U
@@ -406,7 +437,9 @@ def train_appliance(appliance):
                       + ETA    * torch.sqrt(loss_g_s + 1e-8)
                       + 10.0   * loss_g_V1 + 10.0 * loss_g_V2
                       + 0.1    * loss_g_freq
-                      + 20.0   * loss_g_brute)  # ↑ Brute-force: stop G from missing the bars
+                      + 5.0    * loss_g_deriv   # Edge sharpness (replaces Δpower input)
+                      + 2.0    * loss_g_phase   # Phase alignment
+                      + 20.0   * loss_g_brute)  # Pixel-level shape guard
             loss_g.backward()
             opt_G.step()
 
@@ -449,7 +482,9 @@ def train_appliance(appliance):
             print(f'  Joint [{step:4d}/{JOINT_ITER}] '
                   f'G={loss_g.item():.4f} | '
                   f'D={loss_d.item():.4f} | '
-                  f'ER={loss_er.item():.5f}')
+                  f'ER={loss_er.item():.5f} | '
+                  f'Deriv={loss_g_deriv.item():.4f} | '
+                  f'Phase={loss_g_phase.item():.4f}')
 
             E.eval(); G.eval(); S.eval(); R.eval()
             with torch.no_grad():
@@ -504,28 +539,20 @@ def train_appliance(appliance):
         for _ in range(num_windows // cur_bs + 1):
             idx     = np.random.choice(num_windows, cur_bs)
             batch_c = torch.stack([dataset[i][1] for i in idx]).to(device)
-            # batch_c: [B, T, 9]  columns: [8 time features | Δpower]
-
-            # ── Anti-leakage: zero out Δpower channel during generation ──────
-            # Δpower was computed from REAL power → using it during sampling
-            # would give G a hint about real transitions (data leakage).
-            # Setting it to 0 means "no assumed transition" — G generates freely.
-            batch_c_gen = batch_c.clone()
-            batch_c_gen[:, :, 8] = 0.0   # zero the Δpower channel (index 8)
+            # batch_c: [B, T, 8]  — pure time features, no leakage
 
             z       = torch.randn(cur_bs, 100, device=device)
-            E_hat_s = G(z, batch_c_gen)
+            E_hat_s = G(z, batch_c)
             H_hat_s = S(E_hat_s)
             p_01    = R(H_hat_s).cpu().numpy()        # [B, 1, T] in [0,1]
 
             # Inverse-normalise → original Watts
             p_denorm = p_01 * (p_max - p_min + 1e-8) + p_min
             all_p.append(p_denorm)
-            # Save only the 8 real time features (drop the Δpower condition column)
-            all_t.append(batch_c[:, :, :8].cpu().numpy())
+            all_t.append(batch_c.cpu().numpy())  # [B, T, 8]
 
     final_p = np.concatenate(all_p, axis=0)[:num_windows]   # [N, 1, T]
-    final_t = np.concatenate(all_t, axis=0)[:num_windows]   # [N, T, 8]  ← no Δpower
+    final_t = np.concatenate(all_t, axis=0)[:num_windows]   # [N, T, 8]
 
     # Reshape to [N, T, 1+8]  (same format as CNN-CGAN output)
     final_p_t    = np.transpose(final_p, (0, 2, 1))          # [N, T, 1]
