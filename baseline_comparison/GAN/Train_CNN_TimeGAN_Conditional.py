@@ -269,13 +269,14 @@ def train_appliance(appliance):
     dataset = NILM_Dataset(raw_p_01, time_feat)
 
     # ── MINORITY CLASS BALANCING: Weighted Sampling ──────────────────────────
-    # The appliance is OFF most of the time. If we sample uniformly, the model 
-    # learns to predict zeros. We boost windows containing ON periods (>0.05).
     num_on = sum(1 for p_w, _ in dataset if p_w.max() > 0.05)
     num_off = len(dataset) - num_on
     print(f"   → Stats: {num_on} ON windows, {num_off} OFF windows")
     
-    if num_on > 0:
+    if appliance.lower() == "fridge":
+        sampler = None
+        print("   ⚠️  Booster disabled for Fridge.")
+    elif num_on > 0:
         # Target: roughly 50% ON windows in each batch
         w_on = (num_off / num_on) 
         weights = [w_on if p_w.max() > 0.05 else 1.0 for p_w, _ in dataset]
