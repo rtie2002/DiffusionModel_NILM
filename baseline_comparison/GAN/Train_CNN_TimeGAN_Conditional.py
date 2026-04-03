@@ -467,6 +467,11 @@ def train_appliance(appliance):
                          + torch.abs(fake_deriv_abs.std()  - real_deriv_abs.std())
 
             # 6. Diversity loss: same C, two different z → output must differ
+            with torch.no_grad():
+                E_hat2 = G(z2, C)
+                H_hat2 = S(E_hat2)
+                X_hat2 = R(H_hat2)
+
             z_diff    = (z - z2).norm(dim=-1).mean()
             x_diff    = (X_hat - X_hat2).abs().mean()
             loss_g_div = torch.clamp(0.1 - x_diff / (z_diff + 1e-8), min=0.0)
