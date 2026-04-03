@@ -51,7 +51,7 @@ JOINT_ITER = 20000   # Phase 3: Joint         ↑ (was 5000) — match CGAN budg
 ETA    = 1.0         # supervised loss weight in G  ↓ (was 5.0) — allow phase shift, avoid zero-collapse
 LAMBDA = 1.0         # supervised loss weight in ER (λ)
 GAMMA  = 1.0         # E_hat discriminator weight   (γ)
-FOCAL  = 10.0        # ON-period focal penalty      ↓ (was 100) — stop forcing 'lazy' zeros
+FOCAL  = 30.0        # ON-period focal penalty      ↑ (was 10) — higher weight for minority peaks
 
 # Script is at  <root>/baseline_comparison/GAN/Train_CNN_TimeGAN_Conditional.py
 # So go up 3 levels: GAN → baseline_comparison → project root
@@ -267,8 +267,29 @@ def train_appliance(appliance):
     print(f'   → Condition dim: {time_feat.shape[1]}  (8 time features, NO Δpower leakage)')
 
     dataset = NILM_Dataset(raw_p_01, time_feat)
+
+    # ── MINORITY CLASS BALANCING: Weighted Sampling ──────────────────────────
+    # The appliance is OFF most of the time. If we sample uniformly, the model 
+    # learns to predict zeros. We boost windows containing ON periods (>0.05).
+    num_on = sum(1 for p_w, _ in dataset if p_w.max() > 0.05)
+    num_off = len(dataset) - num_on
+    print(f"   → Stats: {num_on} ON windows, {num_off} OFF windows")
+    
+    if num_on > 0:
+        # Target: roughly 50% ON windows in each batch
+        w_on = (num_off / num_on) 
+        weights = [w_on if p_w.max() > 0.05 else 1.0 for p_w, _ in dataset]
+        sampler = torch.utils.data.WeightedRandomSampler(weights, len(weights), replacement=True)
+        print(f"   → Applied WeightedRandomSampler (ON boost factor: {w_on:.2f})")
+    else:
+        sampler = None
+        print("   ⚠️  No ON periods found in dataset. Using uniform sampling.")
+
     cur_bs  = min(BATCH_SIZE, len(dataset))
-    loader  = DataLoader(dataset, batch_size=cur_bs, shuffle=True, drop_last=True)
+    loader  = DataLoader(dataset, batch_size=cur_bs, 
+                         sampler=sampler, 
+                         shuffle=(sampler is None), 
+                         drop_last=True)
     if len(loader) == 0:
         print('⚠️  Empty loader, skipping.')
         return
