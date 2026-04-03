@@ -250,20 +250,15 @@ def train_appliance(appliance):
     power_col = appliance if appliance in df.columns else df.columns[0]
     time_cols = [c for c in df.columns if any(k in c for k in ['sin', 'cos'])]
 
-    p_max, p_min = df[power_col].max(), df[power_col].min()
-
-    # ── APPLIANCE-SPECIFIC TUNING ──────────────────────────────────────────
-    # Microwave is extremely sparse/short → boost Focal weight to prevent zero-collapse.
-    # Washing machine needs smoothness.
+    # Appliance Tuning (Input is already normalized, just pick weights)
     current_focal = FOCAL
     if "microwave" in appliance.lower():
-        current_focal = 100.0  # Intense focus on the short microwave bursts
+        current_focal = 100.0
         print(f'   → ⚡ Microwave detected: Boosting FOCAL to {current_focal}')
     elif "washing" in appliance.lower():
-        current_focal = 50.0   # Help with long complex cycles
+        current_focal = 50.0
 
-    # Normalise power to [0,1]  (Recovery uses Sigmoid → forces [0,1] output)
-    raw_p_01  = (df[power_col].values - p_min) / (p_max - p_min + 1e-8)
+    raw_p_01  = df[power_col].apply(pd.to_numeric, errors='coerce').fillna(0).values
     time_feat = df[time_cols].apply(pd.to_numeric, errors='coerce').fillna(0).values
 
     # ── LEAKAGE FIX: Δpower REMOVED from condition input ──────────────────────
@@ -602,9 +597,7 @@ def train_appliance(appliance):
             H_hat_s = S(E_hat_s)
             p_01    = R(H_hat_s).cpu().numpy()        # [B, 1, T] in [0,1]
 
-            # Inverse-normalise → original Watts
-            p_denorm = p_01 * (p_max - p_min + 1e-8) + p_min
-            all_p.append(p_denorm)
+            all_p.append(p_01)
             all_t.append(batch_c.cpu().numpy())  # [B, T, 8]
 
     final_p = np.concatenate(all_p, axis=0)[:num_windows]   # [N, 1, T]
