@@ -316,26 +316,40 @@ def train_appliance(appliance):
 
     # ──────────────────────────────────────────────────────────
     # PHASE 1 : AutoEncoder Pre-training  (E + R)
-    # Eq L_R = E[ w · ||X - R(E(X,C))||² ]
-    # w = 50 on ON-periods (>0.05), 1 elsewhere  (focal penalty)
+    #
+    # REDESIGN: Two sub-phases for clean shape learning:
+    #   1a. Shape-only   : E encodes X WITHOUT C → pure morphology
+    #   1b. Conditional  : E fine-tuned WITH C  → learns when/where
+    # This prevents the Embedder from learning a C→X shortcut,
+    # which is the root cause of memorization.
     # ──────────────────────────────────────────────────────────
-    print(f'\n🔧 Phase 1: AutoEncoder pre-training  ({AE_ITER} iters)...')
-    for step in range(1, AE_ITER + 1):
+    print(f'\n🔧 Phase 1a: Shape-only AutoEncoder  ({AE_ITER//2} iters, no condition)...')
+    # Use zero condition so E sees only power shape
+    for step in range(1, AE_ITER // 2 + 1):
         X, C = get_batch()
         opt_ER.zero_grad()
-        H       = E(X, C)
+        C_zero  = torch.zeros_like(C)   # ← blind to time features
+        H       = E(X, C_zero)
         X_tilde = R(H)
-        w       = torch.where(X > 0.05,
-                              torch.full_like(X, FOCAL),
-                              torch.ones_like(X))
-        # MSE focal + L1 focal: L1 preserves sharp edges that MSE blurs
-        loss_er_mse = torch.mean((X_tilde - X) ** 2 * w)
-        loss_er_l1  = torch.mean(torch.abs(X_tilde - X) * w)
-        loss_er     = loss_er_mse + 0.5 * loss_er_l1
+        w = torch.where(X > 0.05, torch.full_like(X, FOCAL), torch.ones_like(X))
+        loss_er = torch.mean((X_tilde - X)**2 * w) + 0.5 * torch.mean(torch.abs(X_tilde - X) * w)
         loss_er.backward()
         opt_ER.step()
         if step % 200 == 0:
-            print(f'  AE  [{step:4d}/{AE_ITER}]  L_R = {loss_er.item():.5f}')
+            print(f'  AE-shape [{step:4d}/{AE_ITER//2}]  L_R = {loss_er.item():.5f}')
+
+    print(f'\n🔧 Phase 1b: Conditional AutoEncoder fine-tune ({AE_ITER//2} iters)...')
+    for step in range(1, AE_ITER // 2 + 1):
+        X, C = get_batch()
+        opt_ER.zero_grad()
+        H       = E(X, C)              # ← now with real C for fine-tuning
+        X_tilde = R(H)
+        w = torch.where(X > 0.05, torch.full_like(X, FOCAL), torch.ones_like(X))
+        loss_er = torch.mean((X_tilde - X)**2 * w) + 0.5 * torch.mean(torch.abs(X_tilde - X) * w)
+        loss_er.backward()
+        opt_ER.step()
+        if step % 200 == 0:
+            print(f'  AE-cond  [{step:4d}/{AE_ITER//2}]  L_R = {loss_er.item():.5f}')
 
     # ──────────────────────────────────────────────────────────
     # PHASE 2 : Supervisor Pre-training  (S,  E frozen)
@@ -358,11 +372,17 @@ def train_appliance(appliance):
     # ──────────────────────────────────────────────────────────
     # PHASE 3 : Joint Adversarial Training  (all 5 networks)
     #
-    # G  (Eq 14): L_G  = η·√L_S + L_U + γ·L_U_e + V1 + V2
-    # ER (Eq 13): L_ER = L_R + λ·L_S
-    # D         : L_D  = BCE(real,0.9) + BCE(fake_H,0) + γ·BCE(fake_E,0)
-    #              Gate: only backprop if L_D > 0.15  (prevents D dominating)
-    # G trains 2× per step  (proven effective in CNN-CGAN baseline)
+    # REDESIGNED for Natural, Diverse Generation:
+    #
+    # G Loss = Adversarial + Supervisor + Distribution matching
+    #          + Derivative (batch-level) + Diversity penalty
+    #          (NO loss_g_brute → removes memorization!)
+    #
+    # KEY PRINCIPLE:
+    #   - D is the SOLE quality judge (real vs fake)
+    #   - Derivative loss matches STATISTICAL distribution of edges,
+    #     not per-sample alignment (which caused copying)
+    #   - Diversity loss: same C + two different z → must differ
     # ──────────────────────────────────────────────────────────
     print(f'\n🔥 Phase 3: Joint adversarial training  ({JOINT_ITER} iters)...')
 
@@ -372,74 +392,67 @@ def train_appliance(appliance):
         for _ in range(4):
             X, C = get_batch()
             z    = torch.randn(X.size(0), 100, device=device)
+            z2   = torch.randn(X.size(0), 100, device=device)  # 2nd noise for diversity
             opt_G.zero_grad()
 
             E_hat  = G(z, C)
             H_hat  = S(E_hat)
-            X_hat  = R(H_hat)            # for moments matching
+            X_hat  = R(H_hat)
             Y_fake   = D(H_hat, C)
             Y_fake_e = D(E_hat,  C)
 
+            # 1. Adversarial: fool the discriminator
             loss_g_U   = l_bce(Y_fake,   torch.ones_like(Y_fake))
             loss_g_U_e = l_bce(Y_fake_e, torch.ones_like(Y_fake_e))
-            loss_g_s   = l_mse(H_hat[:, :, :-1], E_hat[:, :, 1:])
 
-            # Moments matching (Global across batch and time)
+            # 2. Supervisor: temporal coherence in embedding space
+            loss_g_s = l_mse(H_hat[:, :, :-1], E_hat[:, :, 1:])
+
+            # 3. Distribution matching: generated BATCH should have same
+            #    mean/std/percentiles as real BATCH (NOT per-sample copying)
             real_std,  real_mean  = torch.std(X),     torch.mean(X)
             fake_std,  fake_mean  = torch.std(X_hat), torch.mean(X_hat)
-            loss_g_V1 = torch.abs(fake_std - real_std)
+            loss_g_V1 = torch.abs(fake_std  - real_std)
             loss_g_V2 = torch.abs(fake_mean - real_mean)
+            # ON-period density: fraction of time steps > threshold should match
+            real_on_ratio = (X > 0.05).float().mean()
+            fake_on_ratio = (X_hat > 0.05).float().mean()
+            loss_g_V3 = torch.abs(fake_on_ratio - real_on_ratio)
 
-            # Frequency-domain loss: penalise spectral mismatch between fake and real
-            X_hat_fft = torch.abs(torch.fft.rfft(X_hat.squeeze(1), dim=-1))
-            X_fft     = torch.abs(torch.fft.rfft(X.squeeze(1),     dim=-1))
+            # 4. Spectral distribution match
+            X_hat_fft   = torch.abs(torch.fft.rfft(X_hat.squeeze(1), dim=-1))
+            X_fft       = torch.abs(torch.fft.rfft(X.squeeze(1),     dim=-1))
             loss_g_freq = torch.mean(torch.abs(X_hat_fft.mean(0) - X_fft.mean(0)))
 
-            # ── NEW: First-Order Derivative Loss (replaces Δpower input leakage) ──
-            # Force the SLOPE of generated waveform to match real waveform.
-            # This teaches the model to produce sharp ON/OFF edges autonomously.
-            real_deriv = X[:, :, 1:] - X[:, :, :-1]          # [B, 1, T-1]
-            fake_deriv = X_hat[:, :, 1:] - X_hat[:, :, :-1]  # [B, 1, T-1]
-            # Focal weighting on derivatives: penalise more where real has big changes
-            deriv_weight = torch.where(real_deriv.abs() > 0.02,
-                                       torch.full_like(real_deriv, FOCAL),
-                                       torch.ones_like(real_deriv))
-            loss_g_deriv = torch.mean((fake_deriv - real_deriv)**2 * deriv_weight)
+            # 5. Derivative DISTRIBUTION loss (NOT per-sample alignment!)
+            #    Match the HISTOGRAM of edge magnitudes across the batch.
+            #    This teaches the model that sharp edges EXIST without forcing
+            #    it to copy WHERE they occur from a specific training sample.
+            real_deriv_abs = (X[:, :, 1:] - X[:, :, :-1]).abs()   # [B, 1, T-1]
+            fake_deriv_abs = (X_hat[:, :, 1:] - X_hat[:, :, :-1]).abs()
+            loss_g_deriv = torch.abs(fake_deriv_abs.mean() - real_deriv_abs.mean()) \
+                         + torch.abs(fake_deriv_abs.std()  - real_deriv_abs.std())
 
-            # ── NEW: Phase-Shift Alignment Loss ──────────────────────────────────
-            # Penalise temporal misalignment between generated and real waveforms.
-            # Uses cross-correlation: if the peak of xcorr is NOT at lag=0,
-            # the generator is producing the right shape but shifted in time.
-            real_s = X.squeeze(1)       # [B, T]
-            fake_s = X_hat.squeeze(1)   # [B, T]
-            # Normalise each sample to zero-mean for clean correlation
-            real_zm = real_s - real_s.mean(dim=-1, keepdim=True)
-            fake_zm = fake_s - fake_s.mean(dim=-1, keepdim=True)
-            # Cross-correlation via FFT (efficient for length-512)
-            xcorr = torch.fft.irfft(
-                torch.fft.rfft(real_zm, dim=-1) * torch.fft.rfft(fake_zm, dim=-1).conj(),
-                n=real_s.size(-1), dim=-1
-            )  # [B, T]
-            # Ideal: peak at lag=0 → xcorr[:,0] should be the maximum
-            max_xcorr = xcorr.max(dim=-1).values   # [B]
-            zero_xcorr = xcorr[:, 0]                # [B]
-            # Loss: how much of the correlation is NOT at lag=0
-            loss_g_phase = torch.mean(torch.clamp(max_xcorr - zero_xcorr, min=0.0))
-
-            # Focal Shape Guard: force G to match real pixels (weighted on ON-periods)
-            w = torch.where(X > 0.05,
-                            torch.full_like(X, FOCAL),
-                            torch.ones_like(X))
-            loss_g_brute = torch.mean((X_hat - X)**2 * w + torch.abs(X_hat - X) * w)
+            # 6. Diversity loss: same C, two different z → output must differ
+            #    Prevents mode collapse where G ignores z entirely.
+            with torch.no_grad():
+                E_hat2 = G(z2, C)
+                H_hat2 = S(E_hat2)
+                X_hat2 = R(H_hat2)
+            # Diversity = how different are the two outputs for same condition?
+            z_diff    = (z - z2).norm(dim=-1).mean()             # noise distance
+            x_diff    = (X_hat - X_hat2).abs().mean()            # output distance
+            # Penalty if output is too similar relative to z difference
+            loss_g_div = torch.clamp(0.1 - x_diff / (z_diff + 1e-8), min=0.0)
 
             loss_g = (loss_g_U
-                      + GAMMA  * loss_g_U_e
-                      + ETA    * torch.sqrt(loss_g_s + 1e-8)
-                      + 10.0   * loss_g_V1 + 10.0 * loss_g_V2
-                      + 0.1    * loss_g_freq
-                      + 5.0    * loss_g_deriv   # Edge sharpness (replaces Δpower input)
-                      + 2.0    * loss_g_phase   # Phase alignment
-                      + 20.0   * loss_g_brute)  # Pixel-level shape guard
+                      + GAMMA * loss_g_U_e
+                      + ETA   * torch.sqrt(loss_g_s + 1e-8)
+                      + 10.0  * loss_g_V1 + 10.0 * loss_g_V2
+                      + 5.0   * loss_g_V3      # ON-period density match
+                      + 0.1   * loss_g_freq    # Spectral distribution
+                      + 3.0   * loss_g_deriv   # Edge sharpness distribution
+                      + 2.0   * loss_g_div)    # Ensure z → diverse outputs
             loss_g.backward()
             opt_G.step()
 
@@ -483,8 +496,9 @@ def train_appliance(appliance):
                   f'G={loss_g.item():.4f} | '
                   f'D={loss_d.item():.4f} | '
                   f'ER={loss_er.item():.5f} | '
-                  f'Deriv={loss_g_deriv.item():.4f} | '
-                  f'Phase={loss_g_phase.item():.4f}')
+                  f'Deriv={loss_g_deriv.item():.5f} | '
+                  f'Div={loss_g_div.item():.4f} | '
+                  f'V3(ON)={loss_g_V3.item():.4f}')
 
             E.eval(); G.eval(); S.eval(); R.eval()
             with torch.no_grad():
