@@ -119,27 +119,28 @@ class Recovery(nn.Module):
 
 
 class Generator(nn.Module):
-    """G(Z, C) → Ê  |  Upgraded ResNet Generator.
+    """G(Z, C) → Ê  |  Upgraded with Dilated Convolutions for 'Natural' waveforms.
+    Wide receptive fields help capture long washing machine cycles and sharp microwave peaks.
     """
     def __init__(self, cond_dim=COND_DIM, hidden_dim=HIDDEN_DIM):
         super().__init__()
         self.hidden_dim = hidden_dim
         self.fc = nn.Linear(100, hidden_dim * 16)
         
-        def up_res(ic, oc):
+        def up_dilated(ic, oc, dilation):
             return nn.Sequential(
-                nn.Upsample(scale_factor=2, mode='nearest'),
-                nn.Conv1d(ic, oc, 3, 1, 1),
+                nn.Upsample(scale_factor=2, mode='linear', align_corners=False),
+                nn.Conv1d(ic, oc, 3, 1, dilation, dilation=dilation),
                 nn.BatchNorm1d(oc),
                 nn.LeakyReLU(0.2, inplace=True),
                 ResBlock(oc))
 
-        self.u1 = up_res(hidden_dim + cond_dim, hidden_dim)
-        self.u2 = up_res(hidden_dim + cond_dim, hidden_dim)
-        self.u3 = up_res(hidden_dim + cond_dim, hidden_dim)
-        self.u4 = up_res(hidden_dim + cond_dim, hidden_dim)
-        # Wider final field (k=31) to stitch long plateaus
-        self.final_conv = nn.Conv1d(hidden_dim + cond_dim, hidden_dim, 31, 1, 15)
+        # Increasing dilations: 1 -> 2 -> 4 -> 8  to capture global context
+        self.u1 = up_dilated(hidden_dim + cond_dim, hidden_dim, 1)
+        self.u2 = up_dilated(hidden_dim + cond_dim, hidden_dim, 2)
+        self.u3 = up_dilated(hidden_dim + cond_dim, hidden_dim, 4)
+        self.u4 = up_dilated(hidden_dim + cond_dim, hidden_dim, 8)
+        self.final_conv = nn.Conv1d(hidden_dim + cond_dim, hidden_dim, 3, 1, 1)
 
     def forward(self, z, c):
         x   = self.fc(z).view(-1, self.hidden_dim, 16)
@@ -250,6 +251,16 @@ def train_appliance(appliance):
     time_cols = [c for c in df.columns if any(k in c for k in ['sin', 'cos'])]
 
     p_max, p_min = df[power_col].max(), df[power_col].min()
+
+    # ── APPLIANCE-SPECIFIC TUNING ──────────────────────────────────────────
+    # Microwave is extremely sparse/short → boost Focal weight to prevent zero-collapse.
+    # Washing machine needs smoothness.
+    current_focal = FOCAL
+    if "microwave" in appliance.lower():
+        current_focal = 100.0  # Intense focus on the short microwave bursts
+        print(f'   → ⚡ Microwave detected: Boosting FOCAL to {current_focal}')
+    elif "washing" in appliance.lower():
+        current_focal = 50.0   # Help with long complex cycles
 
     # Normalise power to [0,1]  (Recovery uses Sigmoid → forces [0,1] output)
     raw_p_01  = (df[power_col].values - p_min) / (p_max - p_min + 1e-8)
@@ -366,7 +377,7 @@ def train_appliance(appliance):
         opt_ER.zero_grad()
         H       = E(X, C)              # ← now with real C for fine-tuning
         X_tilde = R(H)
-        w = torch.where(X > 0.05, torch.full_like(X, FOCAL), torch.ones_like(X))
+        w = torch.where(X > 0.05, torch.full_like(X, current_focal), torch.ones_like(X))
         loss_er = torch.mean((X_tilde - X)**2 * w) + 0.5 * torch.mean(torch.abs(X_tilde - X) * w)
         loss_er.backward()
         opt_ER.step()
@@ -456,16 +467,18 @@ def train_appliance(appliance):
                          + torch.abs(fake_deriv_abs.std()  - real_deriv_abs.std())
 
             # 6. Diversity loss: same C, two different z → output must differ
-            #    Prevents mode collapse where G ignores z entirely.
-            with torch.no_grad():
-                E_hat2 = G(z2, C)
-                H_hat2 = S(E_hat2)
-                X_hat2 = R(H_hat2)
-            # Diversity = how different are the two outputs for same condition?
-            z_diff    = (z - z2).norm(dim=-1).mean()             # noise distance
-            x_diff    = (X_hat - X_hat2).abs().mean()            # output distance
-            # Penalty if output is too similar relative to z difference
+            z_diff    = (z - z2).norm(dim=-1).mean()
+            x_diff    = (X_hat - X_hat2).abs().mean()
             loss_g_div = torch.clamp(0.1 - x_diff / (z_diff + 1e-8), min=0.0)
+
+            # 7. Total Variation (TV) Smoothness: Reduce unnatural jitter
+            #    We only penalize TV lightly to keep edges sharp but surfaces smooth.
+            loss_g_tv = torch.mean(torch.abs(X_hat[:, :, 1:] - X_hat[:, :, :-1]))
+
+            # 8. Peak Power Match: Ensure microwave/kettle reach full power
+            real_peak = torch.max(X, dim=-1)[0].mean()
+            fake_peak = torch.max(X_hat, dim=-1)[0].mean()
+            loss_g_peak = torch.abs(fake_peak - real_peak)
 
             loss_g = (loss_g_U
                       + GAMMA * loss_g_U_e
@@ -474,7 +487,9 @@ def train_appliance(appliance):
                       + 5.0   * loss_g_V3      # ON-period density match
                       + 0.1   * loss_g_freq    # Spectral distribution
                       + 3.0   * loss_g_deriv   # Edge sharpness distribution
-                      + 2.0   * loss_g_div)    # Ensure z → diverse outputs
+                      + 2.0   * loss_g_div     # Diversity
+                      + 0.5   * loss_g_tv      # NATURALNESS: Reduce jitter
+                      + 2.0   * loss_g_peak)   # PEAK INTENSITY: For microwave
             loss_g.backward()
             opt_G.step()
 
@@ -485,7 +500,7 @@ def train_appliance(appliance):
         X_tilde = R(H)
         H_sup   = S(H)
         w       = torch.where(X > 0.05,
-                              torch.full_like(X, FOCAL),
+                              torch.full_like(X, current_focal),
                               torch.ones_like(X))
         loss_er_mse   = torch.mean((X_tilde - X) ** 2 * w)
         loss_er_l1    = torch.mean(torch.abs(X_tilde - X) * w)
