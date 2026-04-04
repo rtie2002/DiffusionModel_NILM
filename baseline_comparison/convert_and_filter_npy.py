@@ -95,33 +95,39 @@ def main():
     real_df = pd.read_csv(real_csv_path)
     power_col = appliance if appliance in real_df.columns else real_df.columns[0]
     real_max = real_df[power_col].max()
+    real_min = real_df[power_col].min()
+    real_range = real_max - real_min
 
     # 3. Load Synthetic Data
     syn_data = np.load(input_path)
     n_features = syn_data.shape[2] if len(syn_data.shape) == 3 else 1
     data_2d = syn_data.reshape(-1, n_features)
 
-    # 4. PART A: Rescale to Real Scale (Linear Transform)
+    # 4. PART A: Rescale to Watts (Linear Transform)
     config = load_config()
     
-    # Get True Min and Max from the reference CSV
-    real_max = real_df[power_col].max()
-    real_min = real_df[power_col].min()
-    real_range = real_max - real_min
+    # Use config 'max_power' for better scale (ignores outliers)
+    if config and appliance in config['appliances']:
+        real_max = config['appliances'][appliance]['max_power']
+        real_min = 0.0 # Standard for these models
+        print(f"📊 Using Config Scale: [0, {real_max}W]")
+    else:
+        real_max = real_df[power_col].max()
+        real_min = real_df[power_col].min()
+        print(f"📊 Using CSV Scale: [{real_min:.2f}, {real_max:.2f}]")
     
-    print(f"📊 Real Reference Range: [{real_min:.2f}, {real_max:.2f}]")
+    real_range = real_max - real_min
 
     # [0, 1] -> [Real Min, Real Max]
     data_2d[:, 0] = data_2d[:, 0] * (real_range + 1e-8) + real_min
-    print(f"⚖️ Scaling complete: Synthetic data mapped to real data scale.")
+    print(f"⚖️ Scaling complete: Synthetic data mapped to Wattage.")
 
-    # 5. PART B: Application of Algorithm 1 & 2
+    # 5. PART B: Application of Algorithm 1 (Filtering)
     if config:
         params = config['appliances'][appliance]
         x_threshold = params['on_power_threshold']
         l_window = config['algorithm1']['window_length']
     else:
-        # Detect threshold from appliance name as fallback
         x_threshold = 50.0  # Safe default
         l_window = 100
 
@@ -134,6 +140,7 @@ def main():
     data_2d[:, 0] = remove_isolated_spikes(data_2d[:, 0])
     
     # 5.3: Active Selection (Algorithm 1)
+    # Using the cleaned data to find the 'ON' events
     t_start = np.where(data_2d[:, 0] >= x_threshold)[0]
     t_selected = []
     for idx in t_start:
@@ -142,13 +149,13 @@ def main():
     
     if not t_selected:
         print("⚠️ Warning: No 'ON' periods detected! Data might be too quiet.")
-        data_filtered = data_2d
+        data_filtered = data_2d # Fallback to all data if none selected
     else:
         data_filtered = data_2d[t_selected]
         print(f"✨ Selected {len(data_filtered):,} active samples ({len(data_filtered)/len(data_2d)*100:.1f}% retention).")
 
-    # 6. Final Save (REMOVED re-normalization to [0,1] to preserve real scale)
-    # The output data_filtered is already in the real data scale.
+    # 6. Final Result: Maintain Watts scale as per real-world data
+    print(f"⚖️ Final Output Scale: [{data_filtered[:, 0].min():.2f}W, {data_filtered[:, 0].max():.2f}W]")
 
     # 7. Save to CSV (9 Standard Columns)
     cols = [appliance, 'minute_sin', 'minute_cos', 'hour_sin', 'hour_cos', 
