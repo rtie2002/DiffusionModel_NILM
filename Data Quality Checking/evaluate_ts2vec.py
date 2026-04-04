@@ -408,9 +408,95 @@ def run_evaluation(appliance, mode, seq_len, force_retrain, train_on_synth):
     evaluate_embeddings(encoder, real_data, synth_data, appliance, mode=mode, out_dir=scenario_dir)
 
 
+def generate_master_grid(plot_type="PCA"):
+    """
+    Generates a massive high-quality 5x3 grid for the thesis paper.
+    plot_type: "PCA" or "t-SNE"
+    """
+    print(f"\n=======================================================")
+    print(f"  GENERATING TOP-TIER MASTER {plot_type} GRID          ")
+    print(f"=======================================================\n")
+    
+    modes_ordered = ['multivariate', 'power', 'time']
+    mode_titles = ["Time + Power (Multivariate)", "Power Only", "Time Only"]
+    
+    fig, axes = plt.subplots(nrows=len(APPLIANCES), ncols=len(modes_ordered), figsize=(18, 22))
+    fig.suptitle(f"Manifold Visualization ({plot_type}) Across All Appliances and Feature Modes", 
+                 fontsize=24, fontweight='bold', y=0.98, fontfamily='sans-serif')
+    
+    red_patch, blue_patch = None, None
+    seq_len = 480  # Default evaluation seq_len
+    
+    for i, app in enumerate(APPLIANCES):
+        for j, mode in enumerate(modes_ordered):
+            ax = axes[i, j]
+            
+            # Setup row and column headers
+            if i == 0:
+                ax.set_title(mode_titles[j].upper(), fontsize=16, fontweight='bold', pad=15)
+            if j == 0:
+                ax.set_ylabel(app.upper(), fontsize=16, fontweight='bold', labelpad=15)
+                
+            model_path = os.path.join(JUDGES_DIR, f"{app}_{mode}_encoder.pth")
+            try:
+                real_data, synth_data, _ = load_data(app, sequence_length=seq_len, mode=mode)
+                real_data = np.nan_to_num(real_data)
+                synth_data = np.nan_to_num(synth_data)
+                
+                if not os.path.exists(model_path):
+                    raise FileNotFoundError
+                    
+                model = TS2Vec(input_dims=real_data.shape[-1], output_dims=320, hidden_dims=64,
+                               depth=10, device='cuda' if torch.cuda.is_available() else 'cpu')
+                model.load(model_path)
+                real_repr = model.encode(real_data, encoding_window='full_series')
+                synth_repr = model.encode(synth_data, encoding_window='full_series')
+                
+            except Exception as e:
+                ax.text(0.5, 0.5, "Data Missing", ha='center', va='center', fontsize=12, color='gray')
+                ax.set_xticks([]); ax.set_yticks([])
+                continue
+                
+            n_vis = min(500, len(real_repr), len(synth_repr))
+            r_idx = np.random.choice(len(real_repr), n_vis, replace=False)
+            s_idx = np.random.choice(len(synth_repr), n_vis, replace=False)
+            
+            X_vis = np.concatenate([real_repr[r_idx], synth_repr[s_idx]], axis=0)
+            
+            if plot_type == "PCA":
+                X_proj = PCA(n_components=2, random_state=42).fit_transform(X_vis)
+            else:
+                current_perplexity = min(30, max(2, len(X_vis) - 1))
+                X_proj = TSNE(n_components=2, perplexity=current_perplexity, random_state=42).fit_transform(X_vis)
+            
+            sc1 = ax.scatter(X_proj[:n_vis, 0], X_proj[:n_vis, 1], c='#d62728', 
+                             alpha=0.6, s=40, edgecolors='white', linewidths=0.5, label='Real Data')
+            sc2 = ax.scatter(X_proj[n_vis:, 0], X_proj[n_vis:, 1], c='#1f77b4', 
+                             alpha=0.6, s=40, edgecolors='white', linewidths=0.5, label='Synthetic GAN Data')
+            
+            if red_patch is None and blue_patch is None:
+                red_patch, blue_patch = sc1, sc2
+                
+            ax.set_xticks([]); ax.set_yticks([])
+            ax.grid(True, alpha=0.2)
+            for spine in ax.spines.values():
+                spine.set_color('#dddddd'); spine.set_linewidth(1.5)
+
+    if red_patch and blue_patch:
+        fig.legend(handles=[red_patch, blue_patch], loc='lower center', 
+                   ncol=2, fontsize=16, frameon=False, bbox_to_anchor=(0.5, 0.01))
+    
+    plt.tight_layout(rect=[0, 0.04, 1, 0.95])
+    output_path = os.path.join(RESULTS_DIR, f"Master_Grid_{plot_type.replace('-', '')}.png")
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    print(f"✅ SUCCESS! Master {plot_type} image saved to: {output_path}")
+    plt.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description="TS2Vec Evaluation for NILM Data")
-    parser.add_argument("appliance", type=str, choices=APPLIANCES)
+    # Extended APPLIANCES list to accept "all"
+    parser.add_argument("appliance", type=str, choices=APPLIANCES + ["all"])
     parser.add_argument("--seq_len", type=int, default=480)
     parser.add_argument("--mode", type=str,
                         choices=['multivariate', 'power', 'time', 'all'],
@@ -422,6 +508,12 @@ def main():
                         help="Train encoder on Synthetic instead of Real data")
 
     args = parser.parse_args()
+
+    # Trigger Master Grid Generation
+    if args.appliance == "all":
+        generate_master_grid("PCA")
+        generate_master_grid("t-SNE")
+        return
 
     modes_to_run = ['multivariate', 'power', 'time'] if args.mode == 'all' else [args.mode]
     for m in modes_to_run:

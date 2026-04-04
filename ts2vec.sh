@@ -59,3 +59,10 @@ fi
 
 echo "=========================================================================="
 echo " Detailed plots saved in 'Data Quality Checking/ts2vec_results/'"
+
+echo ""
+echo "=========================================================================="
+echo "                   GENERATING COMBINED MASTER GRIDS                       "
+echo "=========================================================================="
+python "Data Quality Checking/evaluate_ts2vec.py" "all"
+echo "=========================================================================="
