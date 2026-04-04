@@ -262,15 +262,14 @@ def evaluate_embeddings(model, real_data, synth_data, appliance, mode='multivari
             f.write("\n".join(report_lines))
         print(f"   💾 Metrics saved: {os.path.join(out_dir, 'metrics.txt')}")
 
-    # --- Dual Visualization: LATENT + RAW ---
-    print(f"\n🎨 Generating PCA & t-SNE visualizations...")
+    # --- Visualization: LATENT (Feature Domain) ONLY ---
+    print(f"\n🎨 Generating PCA & t-SNE visualizations (Latent Domain)...")
     n_vis = min(500, len(real_repr), len(synth_repr))
     r_idx = np.random.choice(len(real_repr), n_vis, replace=False)
     s_idx = np.random.choice(len(synth_repr), n_vis, replace=False)
 
     for d_name, d_real, d_synth, suffix in [
-        ("LATENT", real_repr,     synth_repr,     "latent"),
-        ("RAW",    real_raw_flat, synth_raw_flat, "raw"),
+        ("LATENT", real_repr, synth_repr, "latent"),
     ]:
         X_vis = np.concatenate([d_real[r_idx], d_synth[s_idx]], axis=0)
         plot_dir = out_dir if out_dir else RESULTS_DIR
@@ -280,11 +279,16 @@ def evaluate_embeddings(model, real_data, synth_data, appliance, mode='multivari
         X_pca = PCA(n_components=2, random_state=42).fit_transform(X_vis)
         fig, ax = plt.subplots(figsize=(9, 7))
         fig.suptitle(f"{appliance.upper()} | {mode.upper()} | {d_name} - PCA",
-                     fontsize=14, fontweight='bold')
-        ax.scatter(X_pca[:n_vis, 0], X_pca[:n_vis, 1], c='red',  label='Real',      alpha=0.4, s=15)
-        ax.scatter(X_pca[n_vis:, 0], X_pca[n_vis:, 1], c='blue', label='Synthetic', alpha=0.4, s=15)
-        ax.set_title("PCA Analysis")
-        ax.legend()
+                     fontsize=15, fontweight='bold', fontfamily='sans-serif')
+        
+        # Academic Paper Style Dots
+        ax.scatter(X_pca[:n_vis, 0], X_pca[:n_vis, 1], c='#d62728', label='Real', 
+                   alpha=0.65, s=45, edgecolors='white', linewidths=0.5)
+        ax.scatter(X_pca[n_vis:, 0], X_pca[n_vis:, 1], c='#1f77b4', label='Synthetic', 
+                   alpha=0.65, s=45, edgecolors='white', linewidths=0.5)
+        
+        ax.set_title("PCA Dimensionality Reduction", fontsize=12)
+        ax.legend(frameon=True, fontsize=11, loc='best')
         ax.grid(True, alpha=0.3)
         plt.tight_layout()
         pca_path = os.path.join(plot_dir, f"{suffix}_pca_visual.png")
@@ -298,11 +302,16 @@ def evaluate_embeddings(model, real_data, synth_data, appliance, mode='multivari
         X_tsne = TSNE(n_components=2, perplexity=current_perplexity, random_state=42).fit_transform(X_vis)
         fig, ax = plt.subplots(figsize=(9, 7))
         fig.suptitle(f"{appliance.upper()} | {mode.upper()} | {d_name} - t-SNE",
-                     fontsize=14, fontweight='bold')
-        ax.scatter(X_tsne[:n_vis, 0], X_tsne[:n_vis, 1], c='red',  label='Real',      alpha=0.4, s=15)
-        ax.scatter(X_tsne[n_vis:, 0], X_tsne[n_vis:, 1], c='blue', label='Synthetic', alpha=0.4, s=15)
-        ax.set_title("t-SNE Manifold")
-        ax.legend()
+                     fontsize=15, fontweight='bold', fontfamily='sans-serif')
+        
+        # Academic Paper Style Dots
+        ax.scatter(X_tsne[:n_vis, 0], X_tsne[:n_vis, 1], c='#d62728', label='Real', 
+                   alpha=0.65, s=45, edgecolors='white', linewidths=0.5)
+        ax.scatter(X_tsne[n_vis:, 0], X_tsne[n_vis:, 1], c='#1f77b4', label='Synthetic', 
+                   alpha=0.65, s=45, edgecolors='white', linewidths=0.5)
+        
+        ax.set_title(f"t-SNE Manifold | Discriminative Score: {acc:.3f}", fontsize=12)
+        ax.legend(frameon=True, fontsize=11, loc='best')
         ax.grid(True, alpha=0.3)
         plt.tight_layout()
         tsne_path = os.path.join(plot_dir, f"{suffix}_tsne_visual.png")
