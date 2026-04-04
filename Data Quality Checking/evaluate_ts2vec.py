@@ -81,9 +81,22 @@ def load_data(appliance, sequence_length=480, max_samples=100000, mode='multivar
     
     def df_to_windows(df, seq_len, limit=None):
         data = df.values
-        # Simple non-overlapping windows for efficiency in evaluation
-        num_windows = len(data) // seq_len
-        windows = data[:num_windows*seq_len].reshape(num_windows, seq_len, -1)
+        
+        # SLIDING WINDOW STRATEGY:
+        # Instead of cutting data into strict, non-overlapping blocks (which produces very few dots), 
+        # we slide the window by a small stride. This captures the continuous "trajectory" 
+        # of the appliance and produces a rich, dense manifold graph even from just 3000 rows.
+        stride = 10
+        
+        if len(data) < seq_len:
+            print(f"   ⚠️ WARNING: Data length ({len(data)}) is less than sequence length ({seq_len}). Padding...")
+            pad_size = seq_len - len(data)
+            data = np.pad(data, ((0, pad_size), (0, 0)))
+
+        num_windows = (len(data) - seq_len) // stride + 1
+        
+        # Create overlapping windows
+        windows = np.array([data[i * stride : i * stride + seq_len] for i in range(num_windows)])
         
         if limit and len(windows) > limit:
             indices = np.random.choice(len(windows), limit, replace=False)
