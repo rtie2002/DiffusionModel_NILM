@@ -40,6 +40,25 @@ def remove_isolated_spikes(power_sequence, window_size=5, spike_threshold=3.0, b
             power_sequence[i] = 0
     return power_sequence
 
+def algorithm2_smoothing(x, x_threshold, alpha=0.5):
+    """Algorithm 2: EWMA Smoothing to suppress GAN noise jitter."""
+    s = np.zeros_like(x, dtype=float)
+    f_active = False
+    x_last = 0.0
+    for t in range(len(x)):
+        if x[t] > x_threshold:
+            if not f_active:
+                s[t] = x[t]
+                x_last = x[t]
+                f_active = True
+            else:
+                s[t] = alpha * x[t] + (1 - alpha) * x_last
+                x_last = s[t]
+        else:
+            s[t] = x[t]
+            f_active = False
+    return s
+
 def main():
     parser = argparse.ArgumentParser(description='Convert and Filter Synthetic NPY')
     parser.add_argument('--input', type=str, default=None, help='Path to synthetic .npy file')
@@ -99,16 +118,20 @@ def main():
         x_threshold = 50.0  # Safe default
         l_window = 100
 
-    print(f"🧹 Applying Algorithm 1 Filtering (Threshold={x_threshold}W, Window={l_window})...")
+    print(f"🧹 Applying Smoothing & Filtering (Threshold={x_threshold}W, Window={l_window})...")
     
-    # Spike Removal
-    power_seq = remove_isolated_spikes(data_2d[:, 0])
+    # 5.1: Algorithm 2 (EWMA Smoothing)
+    data_2d[:, 0] = algorithm2_smoothing(data_2d[:, 0], x_threshold, alpha=0.5)
     
-    # Active Selection
-    t_start = np.where(power_seq >= x_threshold)[0]
+    # 5.2: Spike Removal (Algorithm 1)
+    data_2d[:, 0] = remove_isolated_spikes(data_2d[:, 0])
+    
+    # 5.3: Active Selection (Algorithm 1)
+    # Using the cleaned data to find the 'ON' events
+    t_start = np.where(data_2d[:, 0] >= x_threshold)[0]
     t_selected = []
     for idx in t_start:
-        t_selected.extend(range(max(0, idx - l_window), min(len(power_seq), idx + l_window + 1)))
+        t_selected.extend(range(max(0, idx - l_window), min(len(data_2d), idx + l_window + 1)))
     t_selected = sorted(set(t_selected))
     
     if not t_selected:
