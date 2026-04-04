@@ -30,5 +30,21 @@ done
 echo ""
 echo "============================================="
 echo " 🎉 ALL EVALUATIONS COMPLETED SUCCESSFULLY! "
-echo " Check 'Data Quality Checking/ts2vec_results/' for outputs."
 echo "============================================="
+
+echo ""
+echo "=========================================================================="
+echo "                       GLOBAL METRICS SUMMARY TABLE                       "
+echo "=========================================================================="
+
+SUMMARY_FILE="Data Quality Checking/ts2vec_results/global_metrics_summary.csv"
+
+if [ -f "$SUMMARY_FILE" ]; then
+    # Use column to format the CSV into a nice terminal table
+    column -s, -t < "$SUMMARY_FILE"
+else
+    echo "No summary table found at: $SUMMARY_FILE"
+fi
+
+echo "=========================================================================="
+echo " Detailed plots saved in 'Data Quality Checking/ts2vec_results/'"

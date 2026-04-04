@@ -207,19 +207,26 @@ def evaluate_embeddings(model, real_data, synth_data, appliance, mode='multivari
     print(f"Embeddings shape: {real_repr.shape}")
     
     # --- Metric 1: Discriminative Score ---
-    # Label: 0 for Real, 1 for Synthetic
-    X = np.concatenate([real_repr, synth_repr], axis=0)
-    y = np.concatenate([np.zeros(len(real_repr)), np.ones(len(synth_repr))], axis=0)
+    # === Discriminative Score (Strict Time-Series Split) ===
+    # To prevent Data Leakage from sliding windows, we CANNOT randomly shuffle early. 
+    # We must split chronologically first so Train and Test share almost zero overlap.
+    r_split = int(len(real_repr) * 0.7)
+    s_split = int(len(synth_repr) * 0.7)
     
-    # Shuffle and split
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42, shuffle=True)
+    X_train = np.concatenate([real_repr[:r_split], synth_repr[:s_split]], axis=0)
+    y_train = np.concatenate([np.zeros(r_split), np.ones(s_split)], axis=0)
     
-    # Train classifier (Logistic Regression)
-    clf = LogisticRegression(max_iter=1000)
-    clf.fit(X_train, y_train)
-    y_pred = clf.predict(X_test)
+    X_test = np.concatenate([real_repr[r_split:], synth_repr[s_split:]], axis=0)
+    y_test = np.concatenate([np.zeros(len(real_repr) - r_split), np.ones(len(synth_repr) - s_split)], axis=0)
     
-    acc = accuracy_score(y_test, y_pred)
+    # Shuffle only AFTER train/test have been strictly isolated from each other
+    train_idx = np.random.permutation(len(X_train))
+    X_train, y_train = X_train[train_idx], y_train[train_idx]
+    test_idx = np.random.permutation(len(X_test))
+    X_test, y_test = X_test[test_idx], y_test[test_idx]
+    
+    clf = LogisticRegression(max_iter=1000).fit(X_train, y_train)
+    acc = accuracy_score(y_test, clf.predict(X_test))
     
     # Ideal accuracy is 0.5 (random guess), meaning arrays are indistinguishable
     # High accuracy (~1.0) means they are easily distinguishable (bad for synthesis)
