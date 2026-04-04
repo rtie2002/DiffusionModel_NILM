@@ -54,7 +54,7 @@ APPLIANCES = ["dishwasher", "fridge", "kettle", "microwave", "washingmachine"]
 JUDGES_DIR = os.path.join(PROJECT_ROOT, "Data Quality Checking", "pretrained_judges")
 os.makedirs(JUDGES_DIR, exist_ok=True)
 
-def load_data(appliance, sequence_length=480, max_samples=20000, mode='multivariate'):
+def load_data(appliance, sequence_length=480, max_samples=100000, mode='multivariate'):
     """Load and preprocess real and synthetic data."""
     print(f"Loading data for {appliance} (Mode: {mode})...")
     
@@ -183,7 +183,7 @@ def calculate_swd(real_embeddings, synth_embeddings, n_projections=200):
         
     return np.mean(results)
 
-def evaluate_embeddings(model, real_data, synth_data, appliance, mode='multivariate'):
+def evaluate_embeddings(model, real_data, synth_data, appliance, mode='multivariate', out_dir=None):
     """Encode data and evaluate using Discriminative Score and Visualization."""
     print("\nEncoding data...")
     
@@ -223,109 +223,162 @@ def evaluate_embeddings(model, real_data, synth_data, appliance, mode='multivari
     real_raw_flat = real_data.reshape(len(real_data), -1)
     synth_raw_flat = synth_data.reshape(len(synth_data), -1)
     swd_raw = calculate_swd(real_raw_flat, synth_raw_flat)
-    
-    print(f"\nMetric Report for {appliance.upper()}:")
-    print(f"----------------------------------------")
-    print(f"1. Discriminative Score: {acc:.4f} (Target: ~0.50)")
-    print(f"2. Context-FID Score   : {fid_score:.4f} (Lower is better)")
-    print(f"3. Latent SWD Score    : {swd_latent:.4f} (Pattern similarity)")
-    print(f"4. Raw Space SWD Score : {swd_raw:.4f} (Physical value similarity)")
-    print(f"----------------------------------------")
-    print(f"  Note: 0.5 = Perfect Dist., FID < 1.0 is considered excellent for NILM")
-    
-    # --- Metric 2: Visualization (PCA & t-SNE) ---
-    print(f"Generating visualizations (Mode: {mode})...")
-    
-    # Subsample for visualization clarity
-    n_vis_samples = min(500, len(real_repr))
-    real_idx = np.random.choice(len(real_repr), n_vis_samples, replace=False)
-    synth_idx = np.random.choice(len(synth_repr), n_vis_samples, replace=False)
-    
-    vis_real = real_repr[real_idx]
-    vis_synth = synth_repr[synth_idx]
-    
-    vis_X = np.concatenate([vis_real, vis_synth], axis=0)
-    
-    # 1. PCA
-    pca = PCA(n_components=2, random_state=42)
-    X_pca = pca.fit_transform(vis_X)
-    
-    # 2. t-SNE
-    tsne = TSNE(n_components=2, random_state=42, perplexity=30, max_iter=1000)
-    X_tsne = tsne.fit_transform(vis_X)
-    
-    # Plotting both side-by-side
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 8))
-    
-    # PCA Plot
-    ax1.scatter(X_pca[:len(vis_real), 0], X_pca[:len(vis_real), 1], 
-                c='red', label='Real', alpha=0.5, s=20)
-    ax1.scatter(X_pca[len(vis_real):, 0], X_pca[len(vis_real):, 1], 
-                c='blue', label='Synthetic', alpha=0.5, s=20)
-    ax1.set_title(f"PCA of TS2Vec Embeddings ({mode.capitalize()})\n{appliance.capitalize()}")
-    ax1.legend()
-    ax1.grid(True, alpha=0.3)
-    
-    # t-SNE Plot
-    ax2.scatter(X_tsne[:len(vis_real), 0], X_tsne[:len(vis_real), 1], 
-                c='red', label='Real', alpha=0.5, s=20)
-    ax2.scatter(X_tsne[len(vis_real):, 0], X_tsne[len(vis_real):, 1], 
-                c='blue', label='Synthetic', alpha=0.5, s=20)
-    ax2.set_title(f"t-SNE of TS2Vec Embeddings ({mode.capitalize()})\nDisc. Score: {acc:.4f}")
-    ax2.legend()
-    ax2.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    save_path = os.path.join(RESULTS_DIR, f"{appliance}_{mode}_ts2vec_visual.png")
-    plt.savefig(save_path, dpi=150)
-    print(f"Visualization saved to: {save_path}")
+
+    # --- Metric Report ---
+    report_lines = [
+        f"{'='*60}",
+        f"EVALUATION REPORT: {appliance.upper()} | MODE: {mode.upper()}",
+        f"{'='*60}",
+        f"",
+        f"[1. PHYSICAL DOMAIN (RAW SPACE)]",
+        f"   Raw SWD Score : {swd_raw:.4f}  (lower = closer physical values)",
+        f"",
+        f"[2. FEATURE DOMAIN (LATENT SPACE)]",
+        f"   Discriminative: {acc:.4f}  (target ~0.50 = indistinguishable)",
+        f"   Context-FID   : {fid_score:.4f}  (lower is better)",
+        f"   Latent SWD    : {swd_latent:.4f}  (lower = patterns more similar)",
+        f"{'='*60}",
+    ]
+    for line in report_lines:
+        print(line)
+
+    # Save metrics.txt
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+        with open(os.path.join(out_dir, "metrics.txt"), "w") as f:
+            f.write("\n".join(report_lines))
+        print(f"   💾 Metrics saved: {os.path.join(out_dir, 'metrics.txt')}")
+
+    # --- Dual Visualization: LATENT + RAW ---
+    print(f"\n🎨 Generating PCA & t-SNE visualizations...")
+    n_vis = min(500, len(real_repr), len(synth_repr))
+    r_idx = np.random.choice(len(real_repr), n_vis, replace=False)
+    s_idx = np.random.choice(len(synth_repr), n_vis, replace=False)
+
+    for d_name, d_real, d_synth, suffix in [
+        ("LATENT", real_repr,     synth_repr,     "latent"),
+        ("RAW",    real_raw_flat, synth_raw_flat, "raw"),
+    ]:
+        X_vis = np.concatenate([d_real[r_idx], d_synth[s_idx]], axis=0)
+        plot_dir = out_dir if out_dir else RESULTS_DIR
+        os.makedirs(plot_dir, exist_ok=True)
+
+        # --- PCA (separate file) ---
+        X_pca = PCA(n_components=2, random_state=42).fit_transform(X_vis)
+        fig, ax = plt.subplots(figsize=(9, 7))
+        fig.suptitle(f"{appliance.upper()} | {mode.upper()} | {d_name} - PCA",
+                     fontsize=14, fontweight='bold')
+        ax.scatter(X_pca[:n_vis, 0], X_pca[:n_vis, 1], c='red',  label='Real',      alpha=0.4, s=15)
+        ax.scatter(X_pca[n_vis:, 0], X_pca[n_vis:, 1], c='blue', label='Synthetic', alpha=0.4, s=15)
+        ax.set_title("PCA Analysis")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        pca_path = os.path.join(plot_dir, f"{suffix}_pca_visual.png")
+        plt.savefig(pca_path, dpi=120)
+        plt.close()
+        print(f"   📸 Saved PCA  ({d_name}): {pca_path}")
+
+        # --- t-SNE (separate file) ---
+        X_tsne = TSNE(n_components=2, perplexity=30, random_state=42).fit_transform(X_vis)
+        fig, ax = plt.subplots(figsize=(9, 7))
+        fig.suptitle(f"{appliance.upper()} | {mode.upper()} | {d_name} - t-SNE",
+                     fontsize=14, fontweight='bold')
+        ax.scatter(X_tsne[:n_vis, 0], X_tsne[:n_vis, 1], c='red',  label='Real',      alpha=0.4, s=15)
+        ax.scatter(X_tsne[n_vis:, 0], X_tsne[n_vis:, 1], c='blue', label='Synthetic', alpha=0.4, s=15)
+        ax.set_title("t-SNE Manifold")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        tsne_path = os.path.join(plot_dir, f"{suffix}_tsne_visual.png")
+        plt.savefig(tsne_path, dpi=120)
+        plt.close()
+        print(f"   📸 Saved t-SNE({d_name}): {tsne_path}")
+
 
     return acc
 
-def main():
-    parser = argparse.ArgumentParser(description="TS2Vec Evaluation for NILM Data")
-    parser.add_argument("appliance", type=str, choices=APPLIANCES, help="Appliance to evaluate")
-    parser.add_argument("--seq_len", type=int, default=120, help="Sequence length for windows (default: 120)")
-    parser.add_argument("--train_on_synth", action="store_true", help="If set, train encoder on Synthetic data instead of Real")
-    parser.add_argument("--mode", type=str, choices=['multivariate', 'power', 'time'], default='multivariate', 
-                        help="Evaluation mode: multivariate (all), power (only power), time (only sin/cos)")
-    parser.add_argument("--force_retrain", action="store_true", help="Force retraining the encoder even if a saved one exists")
-    
-    args = parser.parse_args()
-    
-    # 1. Load Data
-    real_data, synth_data, cols = load_data(args.appliance, sequence_length=args.seq_len, mode=args.mode)
-    
-    # Handle NaNs if any (simple fill)
+
+def get_or_train_encoder(appliance, mode, seq_len, force_retrain, train_on_synth):
+    """
+    Load or train a DEDICATED encoder per (appliance, mode) pair.
+    e.g. washingmachine_power_encoder.pth  <- trained only on power features
+         washingmachine_time_encoder.pth   <- trained only on time features
+         washingmachine_multivariate_encoder.pth <- trained on all 9 features
+    This ensures each scenario is evaluated fairly by its own specialist encoder.
+    """
+    model_name = f"{appliance}_{mode}_encoder.pth"
+    model_path = os.path.join(JUDGES_DIR, model_name)
+
+    # Load the correct data for THIS mode
+    real_data, synth_data, _ = load_data(appliance, sequence_length=seq_len, mode=mode)
     real_data = np.nan_to_num(real_data)
     synth_data = np.nan_to_num(synth_data)
-    
-    # 2. Handle TS2Vec Encoder (Load or Train)
-    model_name = f"{args.appliance}_{args.mode}_encoder.pth"
-    model_path = os.path.join(JUDGES_DIR, model_name)
-    
+
+    n_features = real_data.shape[-1]  # Varies per mode (9, 1, or 8)
+
     model = TS2Vec(
-        input_dims=real_data.shape[-1],
+        input_dims=n_features,
         output_dims=320,
         hidden_dims=64,
         depth=10,
         device='cuda' if torch.cuda.is_available() else 'cpu'
     )
 
-    if os.path.exists(model_path) and not args.force_retrain:
-        print(f"\n📂 Loading Pre-trained Judge: {model_name}")
+    if os.path.exists(model_path) and not force_retrain:
+        print(f"\n📂 Encoder exists for ({appliance}, {mode}). Loading: {model_name}")
+        print(f"   ✅ Skipping training. Use --force_retrain to override.")
         model.load(model_path)
     else:
-        print(f"\n🧬 Training New Judge for {args.appliance} ({args.mode})...")
-        # Typically we train on Real data to verify if Synthetic data maps to the same manifold
-        train_source = synth_data if args.train_on_synth else real_data
+        print(f"\n🧬 Training encoder for ({appliance}, {mode}) on {n_features} features...")
+        train_source = synth_data if train_on_synth else real_data
         model.fit(train_source, n_epochs=100, verbose=True)
-        
-        print(f"💾 Saving Judge to: {model_path}")
         model.save(model_path)
-    
-    # 3. Evaluate
-    evaluate_embeddings(model, real_data, synth_data, args.appliance, mode=args.mode)
+        print(f"💾 Encoder saved: {model_path}")
+
+    return model
+
+
+def run_evaluation(appliance, mode, seq_len, force_retrain, train_on_synth):
+    """Train a dedicated encoder for this (appliance, mode) and evaluate."""
+    print(f"\n{'='*60}")
+    print(f"🔍 EVALUATING: {appliance.upper()} | MODE: {mode.upper()}")
+    print(f"{'='*60}")
+
+    # Each scenario gets its own specialist encoder
+    encoder = get_or_train_encoder(appliance, mode, seq_len, force_retrain, train_on_synth)
+
+    real_data, synth_data, _ = load_data(appliance, sequence_length=seq_len, mode=mode)
+    real_data = np.nan_to_num(real_data)
+    synth_data = np.nan_to_num(synth_data)
+
+    # Per-scenario output folder
+    scenario_dir = os.path.join(RESULTS_DIR, f"{appliance}_{mode}")
+    os.makedirs(scenario_dir, exist_ok=True)
+    print(f"   📁 Results: {scenario_dir}")
+
+    evaluate_embeddings(encoder, real_data, synth_data, appliance, mode=mode, out_dir=scenario_dir)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="TS2Vec Evaluation for NILM Data")
+    parser.add_argument("appliance", type=str, choices=APPLIANCES)
+    parser.add_argument("--seq_len", type=int, default=480)
+    parser.add_argument("--mode", type=str,
+                        choices=['multivariate', 'power', 'time', 'all'],
+                        default='all',
+                        help="Default 'all': trains a separate encoder per scenario")
+    parser.add_argument("--force_retrain", action="store_true",
+                        help="Retrain encoder even if saved model exists")
+    parser.add_argument("--train_on_synth", action="store_true",
+                        help="Train encoder on Synthetic instead of Real data")
+
+    args = parser.parse_args()
+
+    modes_to_run = ['multivariate', 'power', 'time'] if args.mode == 'all' else [args.mode]
+    for m in modes_to_run:
+        run_evaluation(args.appliance, m, args.seq_len, args.force_retrain, args.train_on_synth)
+
 
 if __name__ == "__main__":
     main()
