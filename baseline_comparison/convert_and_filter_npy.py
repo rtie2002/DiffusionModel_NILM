@@ -160,17 +160,17 @@ def main():
         data_filtered = data_2d[t_selected]
         print(f"✨ Selected {len(data_filtered):,} active samples ({len(data_filtered)/len(data_2d)*100:.1f}% retention).")
 
-    # 6. Final Result: Force Amplitude Match (Stretch to match real scale)
-    # This compensates for GAN amplitude loss and Algorithm 2 smoothing loss
-    syn_min_final = data_filtered[:, 0].min()
-    syn_max_final = data_filtered[:, 0].max()
-    syn_range_final = syn_max_final - syn_min_final
+    # 6. Final Result: Final Scale Correction (Match CSV Amplitude)
+    # We calibrate the final result to ensure its peak matches your real data exactly.
+    current_peak = data_filtered[:, 0].max()
+    target_peak = real_df[power_col].max() # This is the absolute target scale
     
-    if syn_range_final > 1e-8:
-        print(f"⚖️ Final Stretch: [{syn_min_final:.2f}W, {syn_max_final:.2f}W] -> [0.00W, {real_max:.2f}W]")
-        data_filtered[:, 0] = (data_filtered[:, 0] - syn_min_final) / syn_range_final * real_max
+    if current_peak > 1e-8:
+        print(f"⚖️ Final Calibration: Current Peak {current_peak:.1f}W -> Target Peak {target_peak:.1f}W")
+        # Normalize to [0, 1] then scale to target peak
+        data_filtered[:, 0] = (data_filtered[:, 0] / current_peak) * target_peak
     
-    print(f"✅ Final Output Scale fixed to Watts: 0.00W to {real_max:.2f}W")
+    print(f"✅ Corrected Scale: Output peaks fixed to {target_peak:.2f} Watts.")
 
     # 7. Save to CSV (9 Standard Columns)
     cols = [appliance, 'minute_sin', 'minute_cos', 'hour_sin', 'hour_cos', 
