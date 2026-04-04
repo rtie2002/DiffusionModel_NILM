@@ -28,22 +28,33 @@ for appliance in "${APPLIANCES[@]}"; do
 done
 
 echo ""
-echo "============================================="
-echo " 🎉 ALL EVALUATIONS COMPLETED SUCCESSFULLY! "
-echo "============================================="
+echo "=========================================================================="
+echo "                            1. MULTIVARIATE MODE                          "
+echo "=========================================================================="
+if [ -f "Data Quality Checking/ts2vec_results/global_metrics_multivariate.csv" ]; then
+    column -s, -t < "Data Quality Checking/ts2vec_results/global_metrics_multivariate.csv"
+else
+    echo "No multivariate summary found."
+fi
 
 echo ""
 echo "=========================================================================="
-echo "                       GLOBAL METRICS SUMMARY TABLE                       "
+echo "                            2. POWER MODE ONLY                            "
 echo "=========================================================================="
-
-SUMMARY_FILE="Data Quality Checking/ts2vec_results/global_metrics_summary.csv"
-
-if [ -f "$SUMMARY_FILE" ]; then
-    # Use column to format the CSV into a nice terminal table
-    column -s, -t < "$SUMMARY_FILE"
+if [ -f "Data Quality Checking/ts2vec_results/global_metrics_power.csv" ]; then
+    column -s, -t < "Data Quality Checking/ts2vec_results/global_metrics_power.csv"
 else
-    echo "No summary table found at: $SUMMARY_FILE"
+    echo "No power summary found."
+fi
+
+echo ""
+echo "=========================================================================="
+echo "                            3. TIME MODE ONLY                             "
+echo "=========================================================================="
+if [ -f "Data Quality Checking/ts2vec_results/global_metrics_time.csv" ]; then
+    column -s, -t < "Data Quality Checking/ts2vec_results/global_metrics_time.csv"
+else
+    echo "No time summary found."
 fi
 
 echo "=========================================================================="

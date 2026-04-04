@@ -269,11 +269,11 @@ def evaluate_embeddings(model, real_data, synth_data, appliance, mode='multivari
             f.write("\n".join(report_lines))
         print(f"   💾 Local Metrics saved: {os.path.join(out_dir, 'metrics.txt')}")
 
-    # --- Append to Global Summary Table ---
-    summary_file = os.path.join(RESULTS_DIR, "global_metrics_summary.csv")
+    # --- Append to Mode-Specific Summary Table ---
+    # Save a separate table for Multivariate, Power, and Time
+    summary_file = os.path.join(RESULTS_DIR, f"global_metrics_{mode.lower()}.csv")
     new_entry = pd.DataFrame([{
         "Appliance": appliance.upper(),
-        "Mode": mode.upper(),
         "Raw SWD": round(swd_raw, 4),
         "Discriminative Score": round(acc, 4),
         "Context-FID": round(fid_score, 4),
@@ -284,7 +284,7 @@ def evaluate_embeddings(model, real_data, synth_data, appliance, mode='multivari
         new_entry.to_csv(summary_file, mode='a', header=False, index=False)
     else:
         new_entry.to_csv(summary_file, mode='w', header=True, index=False)
-    print(f"   📊 Global Summary Updated: {summary_file}")
+    print(f"   📊 Table Updated: {summary_file}")
 
     # --- Visualization: LATENT (Feature Domain) ONLY ---
     print(f"\n🎨 Generating PCA & t-SNE visualizations (Latent Domain)...")
@@ -334,7 +334,7 @@ def evaluate_embeddings(model, real_data, synth_data, appliance, mode='multivari
         ax.scatter(X_tsne[n_vis:, 0], X_tsne[n_vis:, 1], c='#1f77b4', label='Synthetic', 
                    alpha=0.65, s=45, edgecolors='white', linewidths=0.5)
         
-        ax.set_title(f"t-SNE Manifold | Discriminative Score: {acc:.3f}", fontsize=12)
+        ax.set_title("t-SNE Manifold", fontsize=12)
         ax.legend(frameon=True, fontsize=11, loc='best')
         ax.grid(True, alpha=0.3)
         plt.tight_layout()
