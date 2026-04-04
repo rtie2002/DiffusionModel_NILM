@@ -181,7 +181,9 @@ def main():
         cols = ['aggregate'] + cols
         
     df_output = pd.DataFrame(data_filtered, columns=cols[:data_filtered.shape[1]])
-    output_path = os.path.splitext(input_path)[0] + '_filtered.csv'
+    
+    # Save as [appliance]_multivariate.csv in the same folder as the input
+    output_path = os.path.join(os.path.dirname(input_path), f"{appliance}_multivariate.csv")
     df_output.to_csv(output_path, index=False)
     
     print(f"✅ SUCCESS: Saved filtered & normalized CSV to: {os.path.basename(output_path)}")
