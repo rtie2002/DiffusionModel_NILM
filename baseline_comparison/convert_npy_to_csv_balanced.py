@@ -14,12 +14,26 @@ APPLIANCES = ['kettle', 'microwave', 'fridge', 'dishwasher', 'washingmachine']
 
 def main():
     parser = argparse.ArgumentParser(description='Balanced NPY to CSV Converter')
-    parser.add_argument('--input', type=str, help='Path to the synthetic .npy file')
+    parser.add_argument('--input', type=str, default=None, help='Path to the synthetic .npy file')
     args = parser.parse_args()
 
     input_path = args.input
+    
+    # NEW: Interactive prompt if no input provided
     if not input_path:
-        print("Usage: python convert_npy_to_csv_balanced.py --input path/to/data.npy")
+        print("\n" + "=" * 60)
+        print("BALANCED NPY TO CSV CONVERTER (AUTO-RESCALE)")
+        print("=" * 60)
+        input_path = input("Please enter the path to your .npy file: ").strip()
+        
+    # Clean up paths (remove quotes from shift+right-click copies)
+    if input_path.startswith('"') and input_path.endswith('"'):
+        input_path = input_path[1:-1]
+    if input_path.startswith("'") and input_path.endswith("'"):
+        input_path = input_path[1:-1]
+
+    if not input_path:
+        print("❌ Error: No file path provided.")
         return
 
     if not os.path.exists(input_path):
