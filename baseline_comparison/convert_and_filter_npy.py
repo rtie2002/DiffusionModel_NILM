@@ -123,12 +123,18 @@ def main():
     print(f"⚖️ Scaling complete: Synthetic data mapped to Wattage.")
 
     # 5. PART B: Application of Algorithm 1 (Filtering)
-    if config:
+    if config and appliance in config['appliances']:
         params = config['appliances'][appliance]
-        x_threshold = params['on_power_threshold']
+        on_thresh = params['on_power_threshold']
         l_window = config['algorithm1']['window_length']
+        
+        # INCREASE THRESHOLD FOR GAN DATA: 
+        # GAN jitter (e.g. 0.01) is often higher than real sensor noise.
+        # We use a 2.0x factor to ensure it only catches real peaks.
+        x_threshold = on_thresh * 2.0 
+        print(f"🧹 Logic: Real Threshold={on_thresh}W | GAN Filtering Threshold={x_threshold}W")
     else:
-        x_threshold = 50.0  # Safe default
+        x_threshold = 100.0  # Safe default for synthetic data
         l_window = 100
 
     print(f"🧹 Applying Smoothing & Filtering (Threshold={x_threshold}W, Window={l_window})...")
