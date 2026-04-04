@@ -104,12 +104,25 @@ def main():
     data_2d = syn_data.reshape(-1, n_features)
 
     # 4. PART A: Rescale to Watts (Linear Transform)
+    config = load_config()
+    
+    # Use config 'max_power' for better scale (ignores outliers)
+    if config and appliance in config['appliances']:
+        real_max = config['appliances'][appliance]['max_power']
+        real_min = 0.0 # Standard for these models
+        print(f"📊 Using Config Scale: [0, {real_max}W]")
+    else:
+        real_max = real_df[power_col].max()
+        real_min = real_df[power_col].min()
+        print(f"📊 Using CSV Scale: [{real_min:.2f}, {real_max:.2f}]")
+    
+    real_range = real_max - real_min
+
     # [0, 1] -> [Real Min, Real Max]
     data_2d[:, 0] = data_2d[:, 0] * (real_range + 1e-8) + real_min
-    print(f"⚖️ Applied Scale: Data converted to Watts range.")
+    print(f"⚖️ Scaling complete: Synthetic data mapped to Wattage.")
 
     # 5. PART B: Application of Algorithm 1 (Filtering)
-    config = load_config()
     if config:
         params = config['appliances'][appliance]
         x_threshold = params['on_power_threshold']
