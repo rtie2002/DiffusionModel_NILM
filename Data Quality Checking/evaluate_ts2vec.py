@@ -260,7 +260,24 @@ def evaluate_embeddings(model, real_data, synth_data, appliance, mode='multivari
         os.makedirs(out_dir, exist_ok=True)
         with open(os.path.join(out_dir, "metrics.txt"), "w") as f:
             f.write("\n".join(report_lines))
-        print(f"   💾 Metrics saved: {os.path.join(out_dir, 'metrics.txt')}")
+        print(f"   💾 Local Metrics saved: {os.path.join(out_dir, 'metrics.txt')}")
+
+    # --- Append to Global Summary Table ---
+    summary_file = os.path.join(RESULTS_DIR, "global_metrics_summary.csv")
+    new_entry = pd.DataFrame([{
+        "Appliance": appliance.upper(),
+        "Mode": mode.upper(),
+        "Raw SWD": round(swd_raw, 4),
+        "Discriminative Score": round(acc, 4),
+        "Context-FID": round(fid_score, 4),
+        "Latent SWD": round(swd_latent, 4)
+    }])
+    
+    if os.path.exists(summary_file):
+        new_entry.to_csv(summary_file, mode='a', header=False, index=False)
+    else:
+        new_entry.to_csv(summary_file, mode='w', header=True, index=False)
+    print(f"   📊 Global Summary Updated: {summary_file}")
 
     # --- Visualization: LATENT (Feature Domain) ONLY ---
     print(f"\n🎨 Generating PCA & t-SNE visualizations (Latent Domain)...")
