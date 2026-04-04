@@ -59,6 +59,33 @@ def algorithm2_smoothing(x, x_threshold, alpha=0.5):
             f_active = False
     return s
 
+def apply_smart_noise_filter(power_sequence, background_threshold=15.0, bridge_gap=30):
+    """Protects temporary dips inside an active cycle."""
+    power_sequence = power_sequence.copy()
+    n = len(power_sequence)
+    is_active = (power_sequence >= background_threshold).astype(int)
+    for i in range(1, n - bridge_gap):
+        if is_active[i-1] == 1 and is_active[i] == 0:
+            upcoming = is_active[i:i+bridge_gap]
+            if np.any(upcoming == 1):
+                next_active = np.where(upcoming == 1)[0][0]
+                is_active[i:i+next_active] = 1
+    power_sequence[is_active == 0] = 0.0
+    return power_sequence
+
+def validate_washing_machine_cycles(power_sequence, background_threshold=15.0, min_peak=1000.0, min_duration=80):
+    """Ensures cycles meet the washing machine signature (Peak & Duration)."""
+    power_sequence = power_sequence.copy()
+    is_active = (power_sequence >= background_threshold).astype(int)
+    diff = np.diff(np.concatenate(([0], is_active, [0])))
+    starts = np.where(diff == 1)[0]
+    ends = np.where(diff == -1)[0]
+    for start, end in zip(starts, ends):
+        segment = power_sequence[start:end]
+        if np.max(segment) < min_peak or (end - start) < min_duration:
+            power_sequence[start:end] = 0
+    return power_sequence
+
 def main():
     parser = argparse.ArgumentParser(description='Convert and Filter Synthetic NPY')
     parser.add_argument('--input', type=str, default=None, help='Path to synthetic .npy file')
@@ -118,15 +145,25 @@ def main():
         x_threshold = 50.0  # Safe default
         l_window = 100
 
-    print(f"🧹 Applying Smoothing & Filtering (Threshold={x_threshold}W, Window={l_window})...")
+    print(f"🧹 Applying Multi-Round Cleaning (Threshold={x_threshold}W, Window={l_window})...")
     
-    # 5.1: Algorithm 2 (EWMA Smoothing)
+    # ROUND 1: Algorithm 2 (EWMA Smoothing) - Suppress Jitter
     data_2d[:, 0] = algorithm2_smoothing(data_2d[:, 0], x_threshold, alpha=0.5)
     
-    # 5.2: Spike Removal (Algorithm 1)
-    data_2d[:, 0] = remove_isolated_spikes(data_2d[:, 0])
+    # ROUND 2: Smart Noise Masking - Zero out background but protect cycle dips
+    data_2d[:, 0] = apply_smart_noise_filter(data_2d[:, 0], background_threshold=x_threshold, bridge_gap=30)
     
-    # 5.3: Active Selection (Algorithm 1)
+    # ROUND 3: Spike Removal (Algorithm 1) - Cleanup isolated noise
+    data_2d[:, 0] = remove_isolated_spikes(data_2d[:, 0], background_threshold=x_threshold)
+    
+    # ROUND 4: Washing Machine Signature Validation
+    if appliance == 'washingmachine':
+        print(f"  ✨ Applying {appliance.upper()} Signature Check (min 1000W peak, min 80 steps)...")
+        data_2d[:, 0] = validate_washing_machine_cycles(
+            data_2d[:, 0], background_threshold=x_threshold, min_peak=1000.0, min_duration=80
+        )
+    
+    # 5.3: Active Selection (Algorithm 1 Extraction)
     # Using the cleaned data to find the 'ON' events
     t_start = np.where(data_2d[:, 0] >= x_threshold)[0]
     t_selected = []
