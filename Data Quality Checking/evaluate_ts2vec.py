@@ -280,7 +280,9 @@ def evaluate_embeddings(model, real_data, synth_data, appliance, mode='multivari
         print(f"   📸 Saved PCA  ({d_name}): {pca_path}")
 
         # --- t-SNE (separate file) ---
-        X_tsne = TSNE(n_components=2, perplexity=30, random_state=42).fit_transform(X_vis)
+        # Dynamically set perplexity for very small test datasets to avoid crashes
+        current_perplexity = min(30, max(2, len(X_vis) - 1))
+        X_tsne = TSNE(n_components=2, perplexity=current_perplexity, random_state=42).fit_transform(X_vis)
         fig, ax = plt.subplots(figsize=(9, 7))
         fig.suptitle(f"{appliance.upper()} | {mode.upper()} | {d_name} - t-SNE",
                      fontsize=14, fontweight='bold')
