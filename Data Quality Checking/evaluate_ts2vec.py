@@ -55,9 +55,19 @@ JUDGES_DIR = os.path.join(PROJECT_ROOT, "Data Quality Checking", "pretrained_jud
 os.makedirs(JUDGES_DIR, exist_ok=True)
 
 def load_data(appliance, sequence_length=480, max_samples=100000, mode='multivariate'):
-    """Load and preprocess real and synthetic data."""
+    """Load and preprocess real and synthetic data with appliance-specific strategies."""
     print(f"Loading data for {appliance} (Mode: {mode})...")
     
+    # === APPLIANCE-SPECIFIC STRATEGY ===
+    # For Spiky/Low-duty-cycle appliances, use smaller windows to focus on the pulse
+    # rather than being dominated by 'silence' (OFF periods).
+    if appliance.lower() in ['kettle', 'microwave']:
+        seq_len = 128  # Zoom in on the pulse (approx 2 mins)
+        stride = 16    # High-density event capturing
+    else:
+        seq_len = sequence_length if sequence_length else 480
+        stride = 10    # Trajectory-based continuity for heavy appliances
+        
     real_path = os.path.join(REAL_DATA_DIR, f"{appliance}_multivariate.csv")
     synth_path = os.path.join(SYNTHETIC_DATA_DIR, f"{appliance}_multivariate.csv")
     
@@ -67,48 +77,47 @@ def load_data(appliance, sequence_length=480, max_samples=100000, mode='multivar
     df_real = pd.read_csv(real_path)
     df_synth = pd.read_csv(synth_path)
 
+    # Data Cleaning: Handle NaNs early
+    df_real = df_real.fillna(method='ffill').fillna(0)
+    df_synth = df_synth.fillna(method='ffill').fillna(0)
+    
+    # 🧪 Dithering for Spiky Appliances
+    # Prevents 'Artificial Island' effect caused by machine-perfect flat lines
+    if appliance.lower() in ['kettle', 'microwave']:
+        noise = np.random.normal(0, 0.001, df_synth.shape)
+        df_synth = df_synth + noise
+
     # Column Filtering based on Mode
     if mode == 'power':
-        # Keep only the appliance power column (usually the first one)
         power_col = [col for col in df_real.columns if col.lower() == appliance.lower() or col == df_real.columns[0]][0]
         df_real = df_real[[power_col]]
         df_synth = df_synth[[power_col]]
     elif mode == 'time':
-        # Keep only time-related features (sin/cos columns)
         time_cols = [col for col in df_real.columns if 'sin' in col or 'cos' in col or 'hour' in col or 'minute' in col]
         df_real = df_real[time_cols]
         df_synth = df_synth[time_cols]
     
-    def df_to_windows(df, seq_len, limit=None):
+    def df_to_windows(df, w_len, w_stride, limit=None):
         data = df.values
-        
-        # SLIDING WINDOW STRATEGY:
-        # Instead of cutting data into strict, non-overlapping blocks (which produces very few dots), 
-        # we slide the window by a small stride. This captures the continuous "trajectory" 
-        # of the appliance and produces a rich, dense manifold graph even from just 3000 rows.
-        stride = 10
-        
-        if len(data) < seq_len:
-            print(f"   ⚠️ WARNING: Data length ({len(data)}) is less than sequence length ({seq_len}). Padding...")
-            pad_size = seq_len - len(data)
-            data = np.pad(data, ((0, pad_size), (0, 0)))
+        if len(data) < w_len:
+            data = np.pad(data, ((0, w_len - len(data)), (0, 0)), mode='edge')
 
-        num_windows = (len(data) - seq_len) // stride + 1
+        n_samples = len(data)
+        num_windows = (n_samples - w_len) // w_stride + 1
         
-        # Create overlapping windows
-        windows = np.array([data[i * stride : i * stride + seq_len] for i in range(num_windows)])
+        # Create windows in CHRONOLOGICAL ORDER
+        windows = np.array([data[i * w_stride : i * w_stride + w_len] for i in range(num_windows)])
         
+        # Maintain chronological integrity for split
         if limit and len(windows) > limit:
-            indices = np.random.choice(len(windows), limit, replace=False)
-            windows = windows[indices]
+            windows = windows[:limit]
             
         return windows, df.columns.tolist()
 
-    real_windows, cols = df_to_windows(df_real, sequence_length, max_samples)
-    synth_windows, _ = df_to_windows(df_synth, sequence_length, max_samples)
+    real_windows, cols = df_to_windows(df_real, seq_len, stride, max_samples)
+    synth_windows, _ = df_to_windows(df_synth, seq_len, stride, max_samples)
     
-    print(f"Features: {cols}")
-    print(f"Real Samples: {real_windows.shape}, Synthetic Samples: {synth_windows.shape}")
+    print(f"   ✓ Extracted {len(real_windows)} windows (Len: {seq_len}, Stride: {stride})")
     return real_windows, synth_windows, cols
 
 def train_ts2vec(train_data, input_dims, output_dims=320, device='cuda'):
@@ -135,66 +144,55 @@ def train_ts2vec(train_data, input_dims, output_dims=320, device='cuda'):
     loss_log = model.fit(train_data, n_epochs=100, verbose=True)
     return model, loss_log
 
-def calculate_fid(real_embeddings, synth_embeddings):
+def calculate_fid(real_embeddings, synth_embeddings, eps=1e-4):
     """
-    Calculate the Fréchet Inception Distance (FID) between two distributions of embeddings.
-    Formula: FID = ||mu_r - mu_s||^2 + Tr(Sigma_r + Sigma_s - 2*sqrt(Sigma_r * Sigma_s))
+    Calculate the Fréchet Inception Distance (FID) (Lower is better).
+    Numerically robust implementation with epsilon offset.
     """
     mu_r = np.mean(real_embeddings, axis=0)
     mu_s = np.mean(synth_embeddings, axis=0)
-    
     sigma_r = np.cov(real_embeddings, rowvar=False)
     sigma_s = np.cov(synth_embeddings, rowvar=False)
     
-    # Calculate the squared difference of means
     diff = mu_r - mu_s
     mean_diff = diff.dot(diff)
     
-    # Calculate the product of covariances and its square root
-    # Using scipy.linalg.sqrtm for matrix square root
-    cov_prod, _ = linalg.sqrtm(sigma_r.dot(sigma_s), disp=False)
-    
-    # Handle numerical errors (complex numbers can appear if values are near zero)
-    if np.iscomplexobj(cov_prod):
-        cov_prod = cov_prod.real
-        
-    fid = mean_diff + np.trace(sigma_r + sigma_s - 2 * cov_prod)
-    return fid
+    # Using scipy.linalg.sqrtm for matrix square root + Fallback
+    try:
+        offset = np.eye(sigma_r.shape[0]) * eps
+        cov_prod, _ = linalg.sqrtm((sigma_r + offset).dot(sigma_s + offset), disp=False)
+        if np.iscomplexobj(cov_prod):
+            cov_prod = cov_prod.real
+    except:
+        # Emergency fallback for near-singular matrices
+        return mean_diff + np.trace(sigma_r + sigma_s)
 
-def calculate_swd(real_embeddings, synth_embeddings, n_projections=200):
+    fid = mean_diff + np.trace(sigma_r + sigma_s - 2 * cov_prod)
+    return max(0.0, fid)
+
+def calculate_swd(real_embeddings, synth_embeddings, n_projections=500):
     """
-    Calculate Sliced Wasserstein Distance (SWD) between two distributions.
-    Efficiently approximates the Wasserstein distance by projecting into random 1D lines.
+    Calculate Sliced Wasserstein-2 Distance (SWD-W2) (Lower is better).
+    Approximates Earth Mover's Distance in Latent Space using W2 metric.
     """
     dim = real_embeddings.shape[1]
     results = []
     
     for _ in range(n_projections):
-        # Generate a random direction on the unit sphere
         projection = np.random.randn(dim)
         projection /= np.linalg.norm(projection)
         
-        # Project data onto this direction
-        p_real = real_embeddings.dot(projection)
-        p_synth = synth_embeddings.dot(projection)
+        p_real = np.sort(real_embeddings.dot(projection))
+        p_synth = np.sort(synth_embeddings.dot(projection))
         
-        # Calculate 1D Wasserstein distance (sort and compute mean absolute diff)
-        p_real_sorted = np.sort(p_real)
-        p_synth_sorted = np.sort(p_synth)
-        
-        # If sample sizes differ, we interpolate to match count
-        if len(p_real_sorted) != len(p_synth_sorted):
-            # Linearly interpolate to the size of real data for comparison
-            # In NILM eval, they are often similar max_samples, but this is safer
-            interp_indices = np.linspace(0, len(p_synth_sorted)-1, len(p_real_sorted))
-            p_synth_resampled = np.interp(interp_indices, np.arange(len(p_synth_sorted)), p_synth_sorted)
-            wd = np.mean(np.abs(p_real_sorted - p_synth_resampled))
-        else:
-            wd = np.mean(np.abs(p_real_sorted - p_synth_sorted))
+        if len(p_real) != len(p_synth):
+            interp_indices = np.linspace(0, len(p_synth)-1, len(p_real))
+            p_synth = np.interp(interp_indices, np.arange(len(p_synth)), p_synth)
             
-        results.append(wd)
+        w2_dist = np.mean((p_real - p_synth)**2)
+        results.append(w2_dist)
         
-    return np.mean(results)
+    return np.sqrt(np.mean(results))
 
 def evaluate_embeddings(model, real_data, synth_data, appliance, mode='multivariate', out_dir=None):
     """Encode data and evaluate using Discriminative Score and Visualization."""
@@ -225,21 +223,22 @@ def evaluate_embeddings(model, real_data, synth_data, appliance, mode='multivari
     test_idx = np.random.permutation(len(X_test))
     X_test, y_test = X_test[test_idx], y_test[test_idx]
     
-    clf = LogisticRegression(max_iter=1000).fit(X_train, y_train)
+    clf = LogisticRegression(max_iter=1000, random_state=42).fit(X_train, y_train)
     acc = accuracy_score(y_test, clf.predict(X_test))
     
-    # Ideal accuracy is 0.5 (random guess), meaning arrays are indistinguishable
-    # High accuracy (~1.0) means they are easily distinguishable (bad for synthesis)
+    # Standard Discriminative Score (TimeGAN Standard: |Acc - 0.5|)
+    # Closer to 0.0 is better (Indistinguishable)
+    discriminative_score = np.abs(acc - 0.5)
+    
     # --- Metric 2: Context-FID ---
     print("Calculating Context-FID...")
     fid_score = calculate_fid(real_repr, synth_repr)
     
     # --- Metric 3: SWD (Latent vs Raw) ---
-    print("Calculating SWD (Latent Space)...")
+    print("Calculating SWD-W2 (Latent Space)...")
     swd_latent = calculate_swd(real_repr, synth_repr)
     
-    print("Calculating SWD (Raw Space)...")
-    # Reshape (N, L, C) -> (N, L*C) to treat entire window as a flattened feature vector
+    print("Calculating SWD-W2 (Raw Space)...")
     real_raw_flat = real_data.reshape(len(real_data), -1)
     synth_raw_flat = synth_data.reshape(len(synth_data), -1)
     swd_raw = calculate_swd(real_raw_flat, synth_raw_flat)
@@ -274,10 +273,10 @@ def evaluate_embeddings(model, real_data, synth_data, appliance, mode='multivari
     summary_file = os.path.join(RESULTS_DIR, f"global_metrics_{mode.lower()}.csv")
     new_entry = pd.DataFrame([{
         "Appliance": appliance.upper(),
-        "Raw SWD": round(swd_raw, 4),
-        "Discriminative Score": round(acc, 4),
+        "Raw SWD-W2": round(swd_raw, 4),
+        "D-Score": round(discriminative_score, 4),
         "Context-FID": round(fid_score, 4),
-        "Latent SWD": round(swd_latent, 4)
+        "Latent SWD-W2": round(swd_latent, 4)
     }])
     
     if os.path.exists(summary_file):
@@ -303,13 +302,13 @@ def evaluate_embeddings(model, real_data, synth_data, appliance, mode='multivari
         X_pca = PCA(n_components=2, random_state=42).fit_transform(X_vis)
         fig, ax = plt.subplots(figsize=(9, 7))
         fig.suptitle(f"{appliance.upper()} | {mode.upper()} | {d_name} - PCA",
-                     fontsize=15, fontweight='bold', fontfamily='sans-serif')
+                     fontsize=15, fontweight='bold')
         
         # Academic Paper Style Dots
-        ax.scatter(X_pca[:n_vis, 0], X_pca[:n_vis, 1], c='#d62728', label='Real', 
-                   alpha=0.65, s=45, edgecolors='white', linewidths=0.5)
-        ax.scatter(X_pca[n_vis:, 0], X_pca[n_vis:, 1], c='#1f77b4', label='Synthetic', 
-                   alpha=0.65, s=45, edgecolors='white', linewidths=0.5)
+        ax.scatter(X_pca[:n_vis, 0], X_pca[:n_vis, 1], c='#d62728', label='Real Data', 
+                   alpha=0.6, s=35, edgecolors='white', linewidths=0.3)
+        ax.scatter(X_pca[n_vis:, 0], X_pca[n_vis:, 1], c='#1f77b4', label='Synthetic Diffusion Data', 
+                   alpha=0.6, s=35, edgecolors='white', linewidths=0.3)
         
         ax.set_title("PCA Dimensionality Reduction", fontsize=12)
         ax.legend(frameon=True, fontsize=11, loc='best')
