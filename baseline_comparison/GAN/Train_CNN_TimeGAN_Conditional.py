@@ -30,6 +30,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 from torch.nn.utils import spectral_norm
+from tqdm import tqdm
 
 # ==========================================
 # CONFIGURATION
@@ -40,18 +41,16 @@ BATCH_SIZE  = 128
 COND_DIM    = 8     # time features only (minute/hour/dow/month sin+cos)
                     # NOTE: Δpower REMOVED from input to prevent data leakage.
                     # Instead, derivative & phase-shift alignment enforced via LOSS.
-HIDDEN_DIM  = 96    # embedding space channels  ↑ (was 64) — more capacity
+HIDDEN_DIM  = 192
+AE_ITER    = 20000
+SUP_ITER   = 20000
+JOINT_ITER = 50000
 
-# Training iterations (3 phases)
-AE_ITER    = 10000    # Phase 1: AutoEncoder   ↑ (was 2000) — needs more time on sparse NILM peaks
-SUP_ITER   = 10000    # Phase 2: Supervisor    ↑ (was 3000) — need L_S < 0.005 before joint
-JOINT_ITER = 20000   # Phase 3: Joint         ↑ (was 5000) — match CGAN budget
-
-# Loss weights (C-TimeGAN paper, Table I)
-ETA    = 1.0         # supervised loss weight in G  ↓ (was 5.0) — allow phase shift, avoid zero-collapse
-LAMBDA = 1.0         # supervised loss weight in ER (λ)
-GAMMA  = 1.0         # E_hat discriminator weight   (γ)
-FOCAL  = 30.0        # ON-period focal penalty      ↑ (was 10) — higher weight for minority peaks
+# Loss weights
+ETA    = 1.0         # TimeGAN Joint Supervised Weight
+LAMBDA = 1.0         # AE Supervised Weight
+GAMMA  = 1.0         # E-hat Discriminator Weight
+FOCAL  = 30.0        # ON-period Focal Weight (for imbalanced spikes)
 
 # Script is at  <root>/baseline_comparison/GAN/Train_CNN_TimeGAN_Conditional.py
 # So go up 3 levels: GAN → baseline_comparison → project root
@@ -81,104 +80,91 @@ class ResBlock(nn.Module):
         return self.relu(x + self.net(x))
 
 class Embedder(nn.Module):
-    """E(X, C) → H  |  Maps real sequences into embedding space.
-    Upgraded with ResBlocks for gradient flow.
+    """E(X, C) → H  |  Upgraded to 4 ResBlocks for deep feature extraction.
     """
     def __init__(self, cond_dim=COND_DIM, hidden_dim=HIDDEN_DIM):
         super().__init__()
-        # Wider initial field (k=15) to capture ON/OFF edges of appliances
         self.init_conv = nn.Conv1d(1 + cond_dim, hidden_dim, 15, 1, 7)
-        self.res1 = ResBlock(hidden_dim)
-        self.res2 = ResBlock(hidden_dim)
-        self.final = nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 1)  # Linear output
+        self.res = nn.Sequential(*[ResBlock(hidden_dim) for _ in range(4)])
+        self.final = nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 1)
 
     def forward(self, x, c):
         h = self.init_conv(torch.cat([x, c.permute(0, 2, 1)], dim=1))
-        h = self.res1(h)
-        h = self.res2(h)
+        h = self.res(h)
         return self.final(h)
 
 
 class Recovery(nn.Module):
-    """R(H) → X̂  |  Upgraded with ResBlocks.
+    """R(H) → X̂  |  Upgraded to 192 channels (No Bottleneck).
     """
     def __init__(self, hidden_dim=HIDDEN_DIM):
         super().__init__()
-        self.init_conv = nn.Conv1d(hidden_dim, 64, 3, 1, 1)
-        self.res1 = ResBlock(64)
-        self.res2 = ResBlock(64)
+        self.init_conv = nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 1)
+        self.res = nn.Sequential(*[ResBlock(hidden_dim) for _ in range(4)])
         self.final = nn.Sequential(
-            nn.Conv1d(64, 1, 3, 1, 1),
+            nn.Conv1d(hidden_dim, 1, 3, 1, 1),
             nn.Softplus(beta=10))
 
     def forward(self, h):
         x = self.init_conv(h)
-        x = self.res1(x)
-        x = self.res2(x)
+        x = self.res(x)
         return torch.clamp(self.final(x), 0.0, 1.0)
 
 
 class Generator(nn.Module):
-    """G(Z, C) → Ê  |  Upgraded with Dilated Convolutions for 'Natural' waveforms.
-    Wide receptive fields help capture long washing machine cycles and sharp microwave peaks.
+    """G(Z, C) → Ê  |  Upgraded resolution and depth.
+    Input : Z [B, 100], C [B, T, cond_dim]
     """
     def __init__(self, cond_dim=COND_DIM, hidden_dim=HIDDEN_DIM):
         super().__init__()
         self.hidden_dim = hidden_dim
+        # Startup 192 x 16
         self.fc = nn.Linear(100, hidden_dim * 16)
         
-        def up_dilated(ic, oc, dilation):
+        def up_block(ic, oc):
             return nn.Sequential(
                 nn.Upsample(scale_factor=2, mode='linear', align_corners=False),
-                nn.Conv1d(ic, oc, 3, 1, dilation, dilation=dilation),
+                nn.Conv1d(ic, oc, 3, 1, 1),
                 nn.BatchNorm1d(oc),
                 nn.LeakyReLU(0.2, inplace=True),
+                ResBlock(oc),
                 ResBlock(oc))
 
-        # Increasing dilations: 1 -> 2 -> 4 -> 8  to capture global context
-        self.u1 = up_dilated(hidden_dim + cond_dim, hidden_dim, 1)
-        self.u2 = up_dilated(hidden_dim + cond_dim, hidden_dim, 2)
-        self.u3 = up_dilated(hidden_dim + cond_dim, hidden_dim, 4)
-        self.u4 = up_dilated(hidden_dim + cond_dim, hidden_dim, 8)
+        self.u1 = up_block(hidden_dim + cond_dim, hidden_dim)
+        self.u2 = up_block(hidden_dim + cond_dim, hidden_dim)
+        self.u3 = up_block(hidden_dim + cond_dim, hidden_dim)
+        self.u4 = up_block(hidden_dim + cond_dim, hidden_dim)
         self.final_conv = nn.Conv1d(hidden_dim + cond_dim, hidden_dim, 3, 1, 1)
 
     def forward(self, z, c):
         x   = self.fc(z).view(-1, self.hidden_dim, 16)
         c_p = c.permute(0, 2, 1)
         def gc(res): return nn.functional.interpolate(c_p, size=res, mode='nearest')
+        
         x = self.u1(torch.cat([x, gc(16)],  dim=1))
         x = self.u2(torch.cat([x, gc(32)],  dim=1))
         x = self.u3(torch.cat([x, gc(64)],  dim=1))
         x = self.u4(torch.cat([x, gc(128)], dim=1))
         x = nn.functional.interpolate(x, size=512, mode='nearest')
-        return self.final_conv(torch.cat([x, gc(512)], dim=1))  # Linear output
+        return self.final_conv(torch.cat([x, gc(512)], dim=1))
 
 
 class Supervisor(nn.Module):
-    """S(H) → Ĥ  |  Temporal next-step predictor in embedding space.
-    Learns the stepwise dynamics so that Ĥ[:,t] ≈ H[:,t+1].
-    Input : H [B,hidden_dim,T]
-    Output: Ĥ [B,hidden_dim,T]
+    """S(H) → Ĥ  |  Next-step predictor. Deepened to 4 ResBlocks.
     """
     def __init__(self, hidden_dim=HIDDEN_DIM):
         super().__init__()
-        # Dilated Pyramid: dilation=1,2,4,8 → sees 30+ timesteps in latent space
-        self.net = nn.Sequential(
-            nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 1,  dilation=1),
-            nn.BatchNorm1d(hidden_dim), nn.LeakyReLU(0.2, inplace=True),
+        self.res = nn.Sequential(
+            nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 1, dilation=1),
             ResBlock(hidden_dim),
-            nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 2,  dilation=2),
-            nn.BatchNorm1d(hidden_dim), nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 4,  dilation=4),
-            nn.BatchNorm1d(hidden_dim), nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 8,  dilation=8),
-            nn.BatchNorm1d(hidden_dim), nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 16, dilation=16),  # RF=47 → covers 60-80 step cycles
-            nn.BatchNorm1d(hidden_dim), nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv1d(hidden_dim, hidden_dim, 1))  # Linear output
+            ResBlock(hidden_dim),
+            nn.Conv1d(hidden_dim, hidden_dim, 3, 1, 4, dilation=4),
+            ResBlock(hidden_dim),
+            ResBlock(hidden_dim),
+            nn.Conv1d(hidden_dim, hidden_dim, 1))
 
     def forward(self, h):
-        return self.net(h)
+        return self.res(h)
 
 
 class Discriminator(nn.Module):
@@ -194,17 +180,18 @@ class Discriminator(nn.Module):
             return nn.Sequential(
                 spectral_norm(nn.Conv1d(ic, oc, 4, 2, 1)),
                 nn.LeakyReLU(0.2, inplace=True),
-                nn.Dropout(0.2))
+                nn.Dropout(0.25))
+        
+        # Heavy-duty Critique Chain: Match 192-dim Gen power
         self.conv = nn.Sequential(
-            cb(hidden_dim + cond_dim, 16),
-            cb(16, 32),
-            cb(32, 64),
+            cb(hidden_dim + cond_dim, 64),
             cb(64, 128),
-            nn.Conv1d(128, 1, 32, 1, 0),
+            cb(128, 256),
+            cb(256, 512),
+            nn.Conv1d(512, 1, 32, 1, 0),
             nn.Sigmoid())
 
     def forward(self, h, c):
-        # h:[B,hidden_dim,T]  c:[B,T,cond_dim]
         inp = torch.cat([h, c.permute(0, 2, 1)], dim=1)
         return self.conv(inp).view(-1, 1)
 
@@ -332,13 +319,17 @@ def train_appliance(appliance):
     for net in [E, R, G, S, D]:
         net.apply(weights_init)
 
-    lr = 0.0001
-    opt_ER = optim.Adam(list(E.parameters()) + list(R.parameters()),
-                        lr=0.0002, betas=(0.9, 0.999))
-    opt_S  = optim.Adam(S.parameters(), lr=0.0002,     betas=(0.9, 0.999))
-    opt_G  = optim.Adam(list(G.parameters()) + list(S.parameters()),
-                        lr=0.0002, betas=(0.5, 0.999))
-    opt_D  = optim.Adam(D.parameters(), lr=0.0001,     betas=(0.5, 0.999))
+    lr_init = 0.0001
+    opt_ER = optim.Adam(list(E.parameters()) + list(R.parameters()), lr=lr_init, betas=(0.5, 0.999))
+    opt_S  = optim.Adam(S.parameters(), lr=lr_init, betas=(0.5, 0.999))
+    opt_G  = optim.Adam(list(G.parameters()) + list(S.parameters()), lr=lr_init, betas=(0.5, 0.999))
+    opt_D  = optim.Adam(D.parameters(), lr=lr_init, betas=(0.5, 0.999))
+
+    # Schedulers to handle 100k iteration decay
+    sch_ER = optim.lr_scheduler.StepLR(opt_ER, step_size=30000, gamma=0.5)
+    sch_S  = optim.lr_scheduler.StepLR(opt_S,  step_size=30000, gamma=0.5)
+    sch_G  = optim.lr_scheduler.StepLR(opt_G,  step_size=30000, gamma=0.5)
+    sch_D  = optim.lr_scheduler.StepLR(opt_D,  step_size=30000, gamma=0.5)
 
     l_mse = nn.MSELoss()
     l_bce = nn.BCELoss()
@@ -358,7 +349,7 @@ def train_appliance(appliance):
     # ──────────────────────────────────────────────────────────
     print(f'\n🔧 Phase 1a: Shape-only AutoEncoder  ({AE_ITER//2} iters, no condition)...')
     # Use zero condition so E sees only power shape
-    for step in range(1, AE_ITER // 2 + 1):
+    for step in tqdm(range(1, AE_ITER // 2 + 1), desc="Phase 1a"):
         X, C = get_batch()
         opt_ER.zero_grad()
         C_zero  = torch.zeros_like(C)   # ← blind to time features
@@ -372,7 +363,7 @@ def train_appliance(appliance):
             print(f'  AE-shape [{step:4d}/{AE_ITER//2}]  L_R = {loss_er.item():.5f}')
 
     print(f'\n🔧 Phase 1b: Conditional AutoEncoder fine-tune ({AE_ITER//2} iters)...')
-    for step in range(1, AE_ITER // 2 + 1):
+    for step in tqdm(range(1, AE_ITER // 2 + 1), desc="Phase 1b"):
         X, C = get_batch()
         opt_ER.zero_grad()
         H       = E(X, C)              # ← now with real C for fine-tuning
@@ -389,7 +380,7 @@ def train_appliance(appliance):
     # Eq L_S = E[ ||H_{t+1} - S(H_t)||² ]   (temporal next-step)
     # ──────────────────────────────────────────────────────────
     print(f'\n🔧 Phase 2: Supervisor pre-training  ({SUP_ITER} iters)...')
-    for step in range(1, SUP_ITER + 1):
+    for step in tqdm(range(1, SUP_ITER + 1), desc="Phase 2"):
         X, C = get_batch()
         opt_S.zero_grad()
         with torch.no_grad():
@@ -419,13 +410,11 @@ def train_appliance(appliance):
     # ──────────────────────────────────────────────────────────
     print(f'\n🔥 Phase 3: Joint adversarial training  ({JOINT_ITER} iters)...')
 
-    for step in range(1, JOINT_ITER + 1):
-
-        # ── Generator + Supervisor  (4× update) ──────────────
-        for _ in range(4):
+    for step in tqdm(range(1, JOINT_ITER + 1), desc="Phase 3"):
+        # ── Generator + Supervisor ────────────
+        for _ in range(3):
             X, C = get_batch()
             z    = torch.randn(X.size(0), 100, device=device)
-            z2   = torch.randn(X.size(0), 100, device=device)  # 2nd noise for diversity
             opt_G.zero_grad()
 
             E_hat  = G(z, C)
@@ -434,85 +423,66 @@ def train_appliance(appliance):
             Y_fake   = D(H_hat, C)
             Y_fake_e = D(E_hat,  C)
 
-            # 1. Adversarial: fool the discriminator
+            # 1. Adversarial
             loss_g_U   = l_bce(Y_fake,   torch.ones_like(Y_fake))
             loss_g_U_e = l_bce(Y_fake_e, torch.ones_like(Y_fake_e))
 
-            # 2. Supervisor: temporal coherence in embedding space
+            # 2. Supervisor Coherence
             loss_g_s = l_mse(H_hat[:, :, :-1], E_hat[:, :, 1:])
 
-            # 3. Distribution matching: generated BATCH should have same
-            #    mean/std/percentiles as real BATCH (NOT per-sample copying)
-            real_std,  real_mean  = torch.std(X),     torch.mean(X)
-            fake_std,  fake_mean  = torch.std(X_hat), torch.mean(X_hat)
-            loss_g_V1 = torch.abs(fake_std  - real_std)
-            loss_g_V2 = torch.abs(fake_mean - real_mean)
-            # ON-period density: fraction of time steps > threshold should match
-            real_on_ratio = (X > 0.05).float().mean()
-            fake_on_ratio = (X_hat > 0.05).float().mean()
-            loss_g_V3 = torch.abs(fake_on_ratio - real_on_ratio)
+            # 3. STATISTICAL MATCH (Distribution level)
+            loss_g_V2 = torch.abs(torch.mean(X_hat) - torch.mean(X))
+            loss_g_V1 = torch.abs(torch.std(X_hat) - torch.std(X))
 
-            # 4. Spectral distribution match
+            # 4. SPECTRAL MATCH
             X_hat_fft   = torch.abs(torch.fft.rfft(X_hat.squeeze(1), dim=-1))
             X_fft       = torch.abs(torch.fft.rfft(X.squeeze(1),     dim=-1))
             loss_g_freq = torch.mean(torch.abs(X_hat_fft.mean(0) - X_fft.mean(0)))
 
-            # 5. Derivative DISTRIBUTION loss (NOT per-sample alignment!)
-            #    Match the HISTOGRAM of edge magnitudes across the batch.
-            #    This teaches the model that sharp edges EXIST without forcing
-            #    it to copy WHERE they occur from a specific training sample.
-            real_deriv_abs = (X[:, :, 1:] - X[:, :, :-1]).abs()   # [B, 1, T-1]
+            # 5. DERIVATIVE DISTRIBUTION MATCH (Statistical Edge Lock)
+            real_deriv_abs = (X[:, :, 1:] - X[:, :, :-1]).abs()
             fake_deriv_abs = (X_hat[:, :, 1:] - X_hat[:, :, :-1]).abs()
-            loss_g_deriv = torch.abs(fake_deriv_abs.mean() - real_deriv_abs.mean()) \
-                         + torch.abs(fake_deriv_abs.std()  - real_deriv_abs.std())
-
-            # 6. Diversity loss: same C, two different z → output must differ
-            with torch.no_grad():
-                E_hat2 = G(z2, C)
-                H_hat2 = S(E_hat2)
-                X_hat2 = R(H_hat2)
-
-            z_diff    = (z - z2).norm(dim=-1).mean()
-            x_diff    = (X_hat - X_hat2).abs().mean()
-            loss_g_div = torch.clamp(0.1 - x_diff / (z_diff + 1e-8), min=0.0)
-
-            # 7. Total Variation (TV) Smoothness: Reduce unnatural jitter
-            #    We only penalize TV lightly to keep edges sharp but surfaces smooth.
-            loss_g_tv = torch.mean(torch.abs(X_hat[:, :, 1:] - X_hat[:, :, :-1]))
-
-            # 8. Peak Power Match: Ensure microwave/kettle reach full power
-            real_peak = torch.max(X, dim=-1)[0].mean()
-            fake_peak = torch.max(X_hat, dim=-1)[0].mean()
-            loss_g_peak = torch.abs(fake_peak - real_peak)
+            loss_g_deriv = torch.abs(fake_deriv_abs.mean() - real_deriv_abs.mean()) + \
+                           torch.abs(fake_deriv_abs.std()  - real_deriv_abs.std())
 
             loss_g = (loss_g_U
                       + GAMMA * loss_g_U_e
                       + ETA   * torch.sqrt(loss_g_s + 1e-8)
                       + 10.0  * loss_g_V1 + 10.0 * loss_g_V2
-                      + 5.0   * loss_g_V3      # ON-period density match
-                      + 0.1   * loss_g_freq    # Spectral distribution
-                      + 3.0   * loss_g_deriv   # Edge sharpness distribution
-                      + 2.0   * loss_g_div     # Diversity
-                      + 0.5   * loss_g_tv      # NATURALNESS: Reduce jitter
-                      + 2.0   * loss_g_peak)   # PEAK INTENSITY: For microwave
+                      + 2.0   * loss_g_freq
+                      + 5.0   * loss_g_deriv)
             loss_g.backward()
             opt_G.step()
 
-        # ── Encoder + Recovery  (joint update) ───────────────
+        # ── Encoder + Recovery ────────────────
         X, C = get_batch()
         opt_ER.zero_grad()
         H       = E(X, C)
         X_tilde = R(H)
         H_sup   = S(H)
-        w       = torch.where(X > 0.05,
-                              torch.full_like(X, current_focal),
-                              torch.ones_like(X))
-        loss_er_mse   = torch.mean((X_tilde - X) ** 2 * w)
-        loss_er_l1    = torch.mean(torch.abs(X_tilde - X) * w)
-        loss_er       = loss_er_mse + 0.5 * loss_er_l1
-        loss_s_j  = l_mse(H_sup[:, :, :-1], H[:, :, 1:])
+        w       = torch.where(X > 0.05, torch.full_like(X, current_focal), torch.ones_like(X))
+        loss_er = torch.mean((X_tilde - X) ** 2 * w) + 0.5 * torch.mean(torch.abs(X_tilde - X) * w)
+        loss_s_j = l_mse(H_sup[:, :, :-1], H[:, :, 1:])
         (loss_er + LAMBDA * loss_s_j).backward()
         opt_ER.step()
+
+        # ── Discriminator ──
+        X, C = get_batch()
+        z    = torch.randn(X.size(0), 100, device=device)
+        opt_D.zero_grad()
+        with torch.no_grad():
+            H     = E(X, C)
+            E_hat = G(z, C)
+            H_hat = S(E_hat)
+        Y_real   = D(H,     C)
+        Y_fake   = D(H_hat, C)
+        loss_d   = l_bce(Y_real, torch.full_like(Y_real, 0.9)) + l_bce(Y_fake, torch.zeros_like(Y_fake))
+        if loss_d > 0.15:
+            loss_d.backward()
+            opt_D.step()
+
+        # Step Schedulers
+        sch_G.step(); sch_D.step(); sch_S.step(); sch_ER.step()
 
         # ── Discriminator ─────────────────────────────────────
         X, C = get_batch()
