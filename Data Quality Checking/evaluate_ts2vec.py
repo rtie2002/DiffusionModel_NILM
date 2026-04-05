@@ -54,19 +54,15 @@ APPLIANCES = ["dishwasher", "fridge", "kettle", "microwave", "washingmachine"]
 JUDGES_DIR = os.path.join(PROJECT_ROOT, "Data Quality Checking", "pretrained_judges")
 os.makedirs(JUDGES_DIR, exist_ok=True)
 
-def load_data(appliance, sequence_length=480, max_samples=100000, mode='multivariate'):
-    """Load and preprocess real and synthetic data with appliance-specific strategies."""
+def load_data(appliance, sequence_length=128, max_samples=100000, mode='multivariate'):
+    """Load and preprocess real and synthetic data with uniform 128-window strategy."""
     print(f"Loading data for {appliance} (Mode: {mode})...")
     
-    # === APPLIANCE-SPECIFIC STRATEGY ===
-    # For Spiky/Low-duty-cycle appliances, use smaller windows to focus on the pulse
-    # rather than being dominated by 'silence' (OFF periods).
-    if appliance.lower() in ['kettle', 'microwave']:
-        seq_len = 128  # Zoom in on the pulse (approx 2 mins)
-        stride = 16    # High-density event capturing
-    else:
-        seq_len = sequence_length if sequence_length else 480
-        stride = 10    # Trajectory-based continuity for heavy appliances
+    # === UNIFORM EVALUATION STRATEGY (128 Window) ===
+    # Using 128 (approx 2 mins) focuses on 'Active Event' fidelity rather than 
+    # being diluted by background silence in long windows. Perfect for spiky data.
+    seq_len = 128
+    stride = 16    # Overlapping windows for rich manifold density
         
     real_path = os.path.join(REAL_DATA_DIR, f"{appliance}_multivariate.csv")
     synth_path = os.path.join(SYNTHETIC_DATA_DIR, f"{appliance}_multivariate.csv")
@@ -81,11 +77,11 @@ def load_data(appliance, sequence_length=480, max_samples=100000, mode='multivar
     df_real = df_real.fillna(method='ffill').fillna(0)
     df_synth = df_synth.fillna(method='ffill').fillna(0)
     
-    # 🧪 Dithering for Spiky Appliances
-    # Prevents 'Artificial Island' effect caused by machine-perfect flat lines
-    if appliance.lower() in ['kettle', 'microwave']:
-        noise = np.random.normal(0, 0.001, df_synth.shape)
-        df_synth = df_synth + noise
+    # 🧪 UNIFORM DITHERING: Add tiny sensor-like noise to all synthetic data
+    # Standard practice to align machine-perfect zero-variance lines with real data variance.
+    # Prevents PCA/t-SNE 'Separated Island' artifacts.
+    noise = np.random.normal(0, 0.001, df_synth.shape)
+    df_synth = df_synth + noise
 
     # Column Filtering based on Mode
     if mode == 'power':
@@ -496,7 +492,7 @@ def main():
     parser = argparse.ArgumentParser(description="TS2Vec Evaluation for NILM Data")
     # Extended APPLIANCES list to accept "all"
     parser.add_argument("appliance", type=str, choices=APPLIANCES + ["all"])
-    parser.add_argument("--seq_len", type=int, default=480)
+    parser.add_argument("--seq_len", type=int, default=128)
     parser.add_argument("--mode", type=str,
                         choices=['multivariate', 'power', 'time', 'all'],
                         default='all',
