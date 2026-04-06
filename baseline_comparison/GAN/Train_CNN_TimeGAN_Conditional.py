@@ -50,7 +50,7 @@ JOINT_ITER = 50000
 ETA    = 1.0         # TimeGAN Joint Supervised Weight
 LAMBDA = 1.0         # AE Supervised Weight
 GAMMA  = 1.0         # E-hat Discriminator Weight
-FOCAL  = 30.0        # ON-period Focal Weight (for imbalanced spikes)
+FOCAL  = 10.0        # Balanced weight: Peak vs. Details (Reduced from 30)
 
 # Script is at  <root>/baseline_comparison/GAN/Train_CNN_TimeGAN_Conditional.py
 # So go up 3 levels: GAN → baseline_comparison → project root
@@ -95,7 +95,7 @@ class Embedder(nn.Module):
 
 
 class Recovery(nn.Module):
-    """R(H) → X̂  |  Upgraded to 192 channels (No Bottleneck).
+    """R(H) → X̂  |  Upgraded to 192 channels.
     """
     def __init__(self, hidden_dim=HIDDEN_DIM):
         super().__init__()
@@ -103,12 +103,12 @@ class Recovery(nn.Module):
         self.res = nn.Sequential(*[ResBlock(hidden_dim) for _ in range(4)])
         self.final = nn.Sequential(
             nn.Conv1d(hidden_dim, 1, 3, 1, 1),
-            nn.Softplus(beta=10))
+            nn.Sigmoid())
 
     def forward(self, h):
         x = self.init_conv(h)
         x = self.res(x)
-        return torch.clamp(self.final(x), 0.0, 1.0)
+        return self.final(x)
 
 
 class Generator(nn.Module):
@@ -450,20 +450,6 @@ def train_appliance(appliance):
         (loss_er + LAMBDA * loss_s_j).backward()
         opt_ER.step()
 
-        # ── Discriminator ──
-        X, C = get_batch()
-        z    = torch.randn(X.size(0), 100, device=device)
-        opt_D.zero_grad()
-        with torch.no_grad():
-            H     = E(X, C)
-            E_hat = G(z, C)
-            H_hat = S(E_hat)
-        Y_real   = D(H,     C)
-        Y_fake   = D(H_hat, C)
-        loss_d   = l_bce(Y_real, torch.full_like(Y_real, 0.9)) + l_bce(Y_fake, torch.zeros_like(Y_fake))
-        if loss_d > 0.15:
-            loss_d.backward()
-            opt_D.step()
 
         # Step Schedulers
         sch_G.step(); sch_D.step(); sch_S.step(); sch_ER.step()
