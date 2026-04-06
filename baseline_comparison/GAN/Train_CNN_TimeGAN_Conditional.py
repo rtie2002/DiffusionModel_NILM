@@ -509,8 +509,7 @@ def train_appliance(appliance):
                   f'D={loss_d.item():.4f} | '
                   f'ER={loss_er.item():.5f} | '
                   f'Deriv={loss_g_deriv.item():.5f} | '
-                  f'Div={loss_g_div.item():.4f} | '
-                  f'V3(ON)={loss_g_V3.item():.4f}')
+                  f'Freq={loss_g_freq.item():.4f}')
 
             E.eval(); G.eval(); S.eval(); R.eval()
             with torch.no_grad():
