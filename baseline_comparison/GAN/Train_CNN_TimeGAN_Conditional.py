@@ -423,34 +423,18 @@ def train_appliance(appliance):
             Y_fake   = D(H_hat, C)
             Y_fake_e = D(E_hat,  C)
 
-            # 1. Adversarial
+            # 1. Adversarial (Fool the Discriminator)
             loss_g_U   = l_bce(Y_fake,   torch.ones_like(Y_fake))
             loss_g_U_e = l_bce(Y_fake_e, torch.ones_like(Y_fake_e))
 
-            # 2. Supervisor Coherence
+            # 2. Supervisor Coherence (Embedding space temporal alignment)
             loss_g_s = l_mse(H_hat[:, :, :-1], E_hat[:, :, 1:])
 
-            # 3. STATISTICAL MATCH (Distribution level)
-            loss_g_V2 = torch.abs(torch.mean(X_hat) - torch.mean(X))
-            loss_g_V1 = torch.abs(torch.std(X_hat) - torch.std(X))
-
-            # 4. SPECTRAL MATCH
-            X_hat_fft   = torch.abs(torch.fft.rfft(X_hat.squeeze(1), dim=-1))
-            X_fft       = torch.abs(torch.fft.rfft(X.squeeze(1),     dim=-1))
-            loss_g_freq = torch.mean(torch.abs(X_hat_fft.mean(0) - X_fft.mean(0)))
-
-            # 5. DERIVATIVE DISTRIBUTION MATCH (Statistical Edge Lock)
-            real_deriv_abs = (X[:, :, 1:] - X[:, :, :-1]).abs()
-            fake_deriv_abs = (X_hat[:, :, 1:] - X_hat[:, :, :-1]).abs()
-            loss_g_deriv = torch.abs(fake_deriv_abs.mean() - real_deriv_abs.mean()) + \
-                           torch.abs(fake_deriv_abs.std()  - real_deriv_abs.std())
-
+            # Generate pure textures via Adversarial Training!
+            # Removed V1, V2, Freq, and Deriv as they cause square-wave mode collapse.
             loss_g = (loss_g_U
                       + GAMMA * loss_g_U_e
-                      + ETA   * torch.sqrt(loss_g_s + 1e-8)
-                      + 10.0  * loss_g_V1 + 10.0 * loss_g_V2
-                      + 2.0   * loss_g_freq
-                      + 5.0   * loss_g_deriv)
+                      + ETA   * torch.sqrt(loss_g_s + 1e-8))
             loss_g.backward()
             opt_G.step()
 
@@ -505,11 +489,10 @@ def train_appliance(appliance):
         # ── Logging + waveform progress ───────────────────────
         if step % 100 == 0:
             print(f'  Joint [{step:4d}/{JOINT_ITER}] '
-                  f'G={loss_g.item():.4f} | '
+                  f'G_Adv={loss_g_U.item():.4f} | '
+                  f'G_Sup={loss_g_s.item():.4f} | '
                   f'D={loss_d.item():.4f} | '
-                  f'ER={loss_er.item():.5f} | '
-                  f'Deriv={loss_g_deriv.item():.5f} | '
-                  f'Freq={loss_g_freq.item():.4f}')
+                  f'ER={loss_er.item():.5f}')
 
             E.eval(); G.eval(); S.eval(); R.eval()
             with torch.no_grad():
