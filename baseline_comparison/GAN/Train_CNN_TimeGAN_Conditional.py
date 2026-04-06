@@ -42,8 +42,8 @@ COND_DIM    = 8     # time features only (minute/hour/dow/month sin+cos)
                     # NOTE: Δpower REMOVED from input to prevent data leakage.
                     # Instead, derivative & phase-shift alignment enforced via LOSS.
 HIDDEN_DIM  = 192
-AE_ITER    = 20000
-SUP_ITER   = 20000
+AE_ITER    = 10000
+SUP_ITER   = 10000
 JOINT_ITER = 50000
 
 # Loss weights
