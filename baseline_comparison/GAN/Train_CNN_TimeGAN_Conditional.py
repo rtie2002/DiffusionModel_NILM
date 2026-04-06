@@ -44,7 +44,7 @@ COND_DIM    = 8     # time features only (minute/hour/dow/month sin+cos)
 HIDDEN_DIM  = 192
 AE_ITER    = 10000
 SUP_ITER   = 10000
-JOINT_ITER = 50000
+JOINT_ITER = 30000
 
 # Loss weights
 ETA    = 1.0         # TimeGAN Joint Supervised Weight
