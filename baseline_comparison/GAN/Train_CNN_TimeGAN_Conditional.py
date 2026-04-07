@@ -243,9 +243,9 @@ def train_appliance(appliance):
     # Microwave is extremely sparse/short → boost Focal weight to prevent zero-collapse.
     # Washing machine needs smoothness.
     current_focal = FOCAL
-    if "microwave" in appliance.lower():
-        current_focal = 100.0  # Intense focus on the short microwave bursts
-        print(f'   → ⚡ Microwave detected: Boosting FOCAL to {current_focal}')
+    if "microwave" in appliance.lower() or "kettle" in appliance.lower():
+        current_focal = 100.0  # Intense focus on the short bursts
+        print(f'   → ⚡ {appliance.capitalize()} detected: Boosting FOCAL to {current_focal}')
     elif "washing" in appliance.lower():
         current_focal = 50.0   # Help with long complex cycles
 
@@ -347,9 +347,8 @@ def train_appliance(appliance):
     # This prevents the Embedder from learning a C→X shortcut,
     # which is the root cause of memorization.
     # ──────────────────────────────────────────────────────────
-    print(f'\n🔧 Phase 1a: Shape-only AutoEncoder  ({AE_ITER//2} iters, no condition)...')
-    # Use zero condition so E sees only power shape
-    for step in tqdm(range(1, AE_ITER // 2 + 1), desc="Phase 1a"):
+    pbar1a = tqdm(range(1, AE_ITER // 2 + 1), desc="Phase 1a")
+    for step in pbar1a:
         X, C = get_batch()
         opt_ER.zero_grad()
         C_zero  = torch.zeros_like(C)   # ← blind to time features
@@ -359,11 +358,11 @@ def train_appliance(appliance):
         loss_er = torch.mean((X_tilde - X)**2 * w) + 0.5 * torch.mean(torch.abs(X_tilde - X) * w)
         loss_er.backward()
         opt_ER.step()
-        if step % 200 == 0:
-            print(f'  AE-shape [{step:4d}/{AE_ITER//2}]  L_R = {loss_er.item():.5f}')
+        if step % 100 == 0:
+            pbar1a.set_postfix({"L_R": f"{loss_er.item():.5f}"})
 
-    print(f'\n🔧 Phase 1b: Conditional AutoEncoder fine-tune ({AE_ITER//2} iters)...')
-    for step in tqdm(range(1, AE_ITER // 2 + 1), desc="Phase 1b"):
+    pbar1b = tqdm(range(1, AE_ITER // 2 + 1), desc="Phase 1b")
+    for step in pbar1b:
         X, C = get_batch()
         opt_ER.zero_grad()
         H       = E(X, C)              # ← now with real C for fine-tuning
@@ -372,15 +371,15 @@ def train_appliance(appliance):
         loss_er = torch.mean((X_tilde - X)**2 * w) + 0.5 * torch.mean(torch.abs(X_tilde - X) * w)
         loss_er.backward()
         opt_ER.step()
-        if step % 200 == 0:
-            print(f'  AE-cond  [{step:4d}/{AE_ITER//2}]  L_R = {loss_er.item():.5f}')
+        if step % 100 == 0:
+            pbar1b.set_postfix({"L_R": f"{loss_er.item():.5f}"})
 
     # ──────────────────────────────────────────────────────────
     # PHASE 2 : Supervisor Pre-training  (S,  E frozen)
     # Eq L_S = E[ ||H_{t+1} - S(H_t)||² ]   (temporal next-step)
     # ──────────────────────────────────────────────────────────
-    print(f'\n🔧 Phase 2: Supervisor pre-training  ({SUP_ITER} iters)...')
-    for step in tqdm(range(1, SUP_ITER + 1), desc="Phase 2"):
+    pbar2 = tqdm(range(1, SUP_ITER + 1), desc="Phase 2")
+    for step in pbar2:
         X, C = get_batch()
         opt_S.zero_grad()
         with torch.no_grad():
@@ -390,8 +389,8 @@ def train_appliance(appliance):
         loss_s = l_mse(H_sup[:, :, :-1], H[:, :, 1:])
         loss_s.backward()
         opt_S.step()
-        if step % 200 == 0:
-            print(f'  SUP [{step:4d}/{SUP_ITER}]  L_S = {loss_s.item():.5f}')
+        if step % 100 == 0:
+            pbar2.set_postfix({"L_S": f"{loss_s.item():.5f}"})
 
     # ──────────────────────────────────────────────────────────
     # PHASE 3 : Joint Adversarial Training  (all 5 networks)
@@ -408,9 +407,8 @@ def train_appliance(appliance):
     #     not per-sample alignment (which caused copying)
     #   - Diversity loss: same C + two different z → must differ
     # ──────────────────────────────────────────────────────────
-    print(f'\n🔥 Phase 3: Joint adversarial training  ({JOINT_ITER} iters)...')
-
-    for step in tqdm(range(1, JOINT_ITER + 1), desc="Phase 3"):
+    pbar3 = tqdm(range(1, JOINT_ITER + 1), desc="Phase 3")
+    for step in pbar3:
         # ── Generator + Supervisor ────────────
         for _ in range(3):
             X, C = get_batch()
@@ -474,11 +472,12 @@ def train_appliance(appliance):
 
         # ── Logging + waveform progress ───────────────────────
         if step % 100 == 0:
-            print(f'  Joint [{step:4d}/{JOINT_ITER}] '
-                  f'G_Adv={loss_g_U.item():.4f} | '
-                  f'G_Sup={loss_g_s.item():.4f} | '
-                  f'D={loss_d.item():.4f} | '
-                  f'ER={loss_er.item():.5f}')
+            pbar3.set_postfix({
+                "G": f"{loss_g_U.item():.3f}",
+                "S": f"{loss_g_s.item():.3f}",
+                "D": f"{loss_d.item():.3f}",
+                "ER": f"{loss_er.item():.4f}"
+            })
 
             E.eval(); G.eval(); S.eval(); R.eval()
             with torch.no_grad():
