@@ -155,6 +155,20 @@ def main():
             resample(str(sample_seconds) + 'S').mean().bfill(limit=1)#bfill(limit=1)
         df_align = df_align.dropna()
 
+        # ── DATE FILTERING ──
+        start_date = CONFIG['processing']['testing'].get('start_date')
+        end_date = CONFIG['processing']['testing'].get('end_date')
+        if start_date:
+            print(f"    Filtering data from: {start_date}")
+            df_align = df_align[df_align.index >= pd.to_datetime(start_date)]
+        if end_date:
+            print(f"    Filtering data until: {end_date}")
+            df_align = df_align[df_align.index <= pd.to_datetime(end_date)]
+
+        if len(df_align) == 0:
+            print(f"    ⚠️ Warning: No data left after date filtering for House {h}!")
+            continue
+
         df_align.reset_index(inplace=True)
         
         # Extract temporal features from timestamp and apply sin/cos encoding

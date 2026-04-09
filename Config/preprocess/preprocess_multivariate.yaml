@@ -16,17 +16,25 @@ normalization:
   aggregate_std: 814       # Std Dev for cleaning/normalizing aggregate (mains) channel
 
 processing:
-  sample_seconds: 6       # Sampling rate (resamples raw 6s data to 1 min)
-  
+  sample_seconds: 60       # Sampling rate (resamples raw 6s data to 1 min)
+
   # Settings for multivariate_ukdale_preprocess_training+validating.py
   training:
-    validation_percent: 20  # Percentage of data to use for validation (split from tail)
-    testing_percent: 20     # Percentage of data to use for testing (usually 0 for training script)
+    validation_percent: 0  # Percentage of data to use for validation (split from tail)
+    testing_percent: 0     # Percentage of data to use for testing (usually 0 for training script)
+    # Date filtering — null = use all available data
+    # Format: "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS"
+    start_date: "2014-01-01"
+    end_date: "2014-12-31"
 
   # Settings for multivariate_ukdale_preprocess_testing.py
   testing:
-    validation_percent: 0  # Typically 0 for testing script
-    testing_percent: 0   # Use 100% of the loaded data for generating test set
+    validation_percent: 0   # Typically 0 for testing script
+    testing_percent: 0      # Use 100% of the loaded data for generating test set
+    # Date filtering — null = use all available data
+    # Format: "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS"
+    start_date: null
+    end_date: null
 
 
 # ====================================================================================================
@@ -67,7 +75,7 @@ appliances:
     std: 800
     max_power: 3969              # Updated to match real_max_power
     on_power_threshold: 200
-    real_max_power: 3969
+    real_max_power: 3323
     max_power_clip: 3969
     train:
       houses: [1, 5]
@@ -81,7 +89,7 @@ appliances:
     std: 400
     max_power: 350
     on_power_threshold: 50
-    real_max_power: 350
+    real_max_power: 33
     max_power_clip: 350      # Clipped max for filtering, as per original config
     train:
       houses: [1, 5]
@@ -94,7 +102,7 @@ appliances:
     mean: 700
     std: 1000
     max_power: 3964
-    on_power_threshold: 10
+    on_power_threshold: 50
     real_max_power: 3964
     max_power_clip: 3964
     train:
@@ -108,7 +116,7 @@ appliances:
     mean: 400
     std: 700
     max_power: 3999
-    on_power_threshold: 20
+    on_power_threshold: 15
     real_max_power: 3999
     max_power_clip: 3999
     train:
