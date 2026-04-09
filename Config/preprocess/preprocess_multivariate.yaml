@@ -16,17 +16,25 @@ normalization:
   aggregate_std: 814       # Std Dev for cleaning/normalizing aggregate (mains) channel
 
 processing:
-  sample_seconds: 6       # Sampling rate (resamples raw 6s data to 1 min)
-  
+  sample_seconds: 60       # Sampling rate (resamples raw 6s data to 1 min)
+
   # Settings for multivariate_ukdale_preprocess_training+validating.py
   training:
-    validation_percent: 20  # Percentage of data to use for validation (split from tail)
-    testing_percent: 20     # Percentage of data to use for testing (usually 0 for training script)
+    validation_percent: 0  # Percentage of data to use for validation (split from tail)
+    testing_percent: 0     # Percentage of data to use for testing (usually 0 for training script)
+    # Date filtering — null = use all available data
+    # Format: "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS"
+    start_date: "2014-01-01"
+    end_date: "2014-12-31"
 
   # Settings for multivariate_ukdale_preprocess_testing.py
   testing:
-    validation_percent: 0  # Typically 0 for testing script
-    testing_percent: 0   # Use 100% of the loaded data for generating test set
+    validation_percent: 0   # Typically 0 for testing script
+    testing_percent: 0      # Use 100% of the loaded data for generating test set
+    # Date filtering — null = use all available data
+    # Format: "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS"
+    start_date: null
+    end_date: null
 
 
 # ====================================================================================================
