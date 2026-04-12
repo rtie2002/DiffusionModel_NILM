@@ -72,33 +72,55 @@ for app in "${APPLIANCES[@]}"; do
     echo -e "\n>>> Processing Appliance: [${app^^}]"
 
     BASE_CONFIG="Config/${app}.yaml"
-    INPUT_CSV="${app}_multivariate.csv"
+    
+    # ── High Discovery Logic for CSV ──────────────────────────────────────────
+    # Check possible locations and suffixes
+    POSSIBLE_LOCATIONS=("Data/datasets" ".")
+    POSSIBLE_SUFFIXES=("multivariate.csv" "training_.csv")
+    
+    INPUT_CSV=""
+    for loc in "${POSSIBLE_LOCATIONS[@]}"; do
+        for suf in "${POSSIBLE_SUFFIXES[@]}"; do
+            path="${loc}/${app}_${suf}"
+            if [ -f "$path" ]; then
+                INPUT_CSV="$path"
+                break 2
+            fi
+        done
+    done
 
     if [ ! -f "$BASE_CONFIG" ]; then
         echo "  Warning: Config not found: $BASE_CONFIG — skipping"
         continue
     fi
-    if [ ! -f "$INPUT_CSV" ]; then
-        echo "  Warning: Input CSV not found: $INPUT_CSV — skipping"
+    if [ -z "$INPUT_CSV" ]; then
+        echo "  Warning: Input CSV for $app not found (checked Data/datasets/ and .) — skipping"
         continue
     fi
 
+    DATA_ROOT=$(dirname "$INPUT_CSV")
+    echo "  Found Data : $INPUT_CSV"
+
     # ── STEP 1: Split CSV into quarters ──────────────────────────────────────
-    echo -e "\n  [1/4] Splitting $INPUT_CSV into quarters..."
+    echo -e "\n  [1/4] Splitting $(basename "$INPUT_CSV") into quarters..."
     python preprocess_NILMformer/split_csv_by_quarter.py \
         --input "$INPUT_CSV" \
-        --output_dir "."
+        --output_dir "$DATA_ROOT"
 
-    # Detect which quarters were actually created
+    # Detect which quarters were actually created in the SAME directory as input
     AVAILABLE_QUARTERS=()
     for q in Q1 Q2 Q3 Q4; do
-        if [ -f "${app}_multivariate_${q}.csv" ]; then
+        # Handle cases where naming was _multivariate or _training_
+        # basename strips directory, then we check for results of splitting
+        # script's output naming logic (it appends _Q1 before .csv)
+        base_name=$(basename "$INPUT_CSV" .csv)
+        if [ -f "${DATA_ROOT}/${base_name}_${q}.csv" ]; then
             AVAILABLE_QUARTERS+=("$q")
         fi
     done
 
     if [ ${#AVAILABLE_QUARTERS[@]} -eq 0 ]; then
-        echo "  Error: No quarterly CSVs created for $app — skipping"
+        echo "  Error: No quarterly CSVs created for $app in $DATA_ROOT — skipping"
         continue
     fi
     echo "  Available quarters: ${AVAILABLE_QUARTERS[*]}"
@@ -109,7 +131,8 @@ for app in "${APPLIANCES[@]}"; do
         --base_config "$BASE_CONFIG" \
         --appliance "$app" \
         --quarters "${AVAILABLE_QUARTERS[@]}" \
-        --csv_dir "."
+        --csv_dir "$DATA_ROOT" \
+        --source_csv "$INPUT_CSV"
 
     # ── STEP 3: Train each quarter model ─────────────────────────────────────
     if [ "$TRAIN" = true ]; then

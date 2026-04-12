@@ -28,13 +28,20 @@ import yaml
 def generate_configs(base_config_path: str,
                      appliance: str,
                      quarters: list,
-                     csv_dir: str = '.') -> dict:
+                     csv_dir: str = '.',
+                     source_csv: str = None) -> dict:
     """
     Generate one YAML config per quarter.
     Returns {quarter_label: output_config_path}.
     """
     with open(base_config_path, 'r') as f:
         base_cfg = yaml.safe_load(f)
+
+    # Detect suffix from source_csv if provided (e.g. "washingmachine_training_")
+    if source_csv:
+        base_name = os.path.splitext(os.path.basename(source_csv))[0]
+    else:
+        base_name = f"{appliance}_multivariate"
 
     config_dir = os.path.dirname(os.path.abspath(base_config_path))
     created = {}
@@ -43,7 +50,7 @@ def generate_configs(base_config_path: str,
         cfg = copy.deepcopy(base_cfg)
 
         # ── data_root ──────────────────────────────────────────────────────────
-        csv_name = f"{appliance}_multivariate_{q}.csv"
+        csv_name = f"{base_name}_{q}.csv"
         csv_path = os.path.join(csv_dir, csv_name).replace('\\', '/')
         cfg['dataloader']['train_dataset']['params']['data_root'] = csv_path
 
@@ -77,10 +84,12 @@ def main():
                         help='Quarters to generate configs for (default: Q1 Q2 Q3 Q4)')
     parser.add_argument('--csv_dir', default='.',
                         help='Directory containing the quarterly CSVs (default: .)')
+    parser.add_argument('--source_csv', default=None,
+                        help='The original CSV file used as a template for naming.')
     args = parser.parse_args()
 
     print(f"[generate_quarter_configs] Appliance: {args.appliance}")
-    generate_configs(args.base_config, args.appliance, args.quarters, args.csv_dir)
+    generate_configs(args.base_config, args.appliance, args.quarters, args.csv_dir, args.source_csv)
     print("Done.")
 
 
