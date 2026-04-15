@@ -58,7 +58,10 @@ class CustomDataset(Dataset):
         missing_ratio=None,
         style='separate', 
         distribution='geometric', 
-        mean_mask_length=3
+        mean_mask_length=3,
+        boost_factor=None,
+        boost_threshold=0.2,
+        save_train_npy=False
     ):
         super(CustomDataset, self).__init__()
         assert period in ['train', 'test'], 'period must be train or test.'
@@ -66,6 +69,9 @@ class CustomDataset(Dataset):
             assert ~(predict_length is not None or missing_ratio is not None), ''
         self.name, self.pred_len, self.missing_ratio = name, predict_length, missing_ratio
         self.style, self.distribution, self.mean_mask_length = style, distribution, mean_mask_length
+        self.boost_factor = boost_factor
+        self.boost_threshold = boost_threshold
+        self.save_train_npy = save_train_npy
         self.rawdata, self.scaler = self.read_data(data_root, self.name)
         self.dir = os.path.join(output_dir, 'samples')
         os.makedirs(self.dir, exist_ok=True)
@@ -115,18 +121,59 @@ class CustomDataset(Dataset):
             
         train_indices, test_indices = self.divide(indices, proportion, seed)
 
+        # DENSITY & CONTINUITY BOOSTER (Apply to Training only)
+        if self.period == 'train' and len(train_indices) > 0:
+            if self.name.lower() == 'fridge':
+                print(f"  [Continuity Booster] Skipping for {self.name} as requested (Avoiding over-boosting)")
+            else:
+                print(f"  [Continuity Booster] Analyzing training windows for transitions...")
+                active_ids = []
+                
+                # Aligned with old branch: handle threshold scaling for [-1, 1] data
+                if self.auto_norm:
+                    internal_threshold = (self.boost_threshold * 2) - 1.0
+                else:
+                    internal_threshold = self.boost_threshold
+
+                for idx in train_indices:
+                    if np.max(data[idx : idx + self.window, 0]) > internal_threshold:
+                        active_ids.append(idx)
+                
+                active_ids = np.array(active_ids)
+                if len(active_ids) > 0:
+                    # Default to 4 (previous behavior) unless manually overridden
+                    current_boost = self.boost_factor if self.boost_factor is not None else 4
+                    
+                    if current_boost > 1:
+                        boosted_versions = [train_indices]
+                        for _ in range(int(current_boost) - 1):
+                            jitter = np.random.randint(-2, 3, size=len(active_ids))
+                            jittered_active = np.clip(active_ids + jitter, 0, self.sample_num_total - 1)
+                            boosted_versions.append(jittered_active)
+                        
+                        train_indices = np.concatenate(boosted_versions)
+                        print(f"  [Continuity Booster] Found {len(active_ids)} active windows. Training set boosted to {len(train_indices)} samples (Factor: {current_boost}).")
+                    else:
+                        print(f"  [Continuity Booster] Boost factor is 1. No dataset expansion applied.")
+
         # CRITICAL FIX: Sort indices to maintain temporal order (Jan -> Dec)
         # Without this, 'divide' returns shuffled random indices!
         train_indices = np.sort(train_indices)
         test_indices = np.sort(test_indices)
 
         if self.save2npy:
+            # Always save test set (needed for evaluation metrics)
             if 1 - proportion > 0:
                 self._save_chunked_npy(data, test_indices, os.path.join(self.dir, f"{self.name}_ground_truth_{self.window}_test.npy"), unnormalize=True)
                 self._save_chunked_npy(data, test_indices, os.path.join(self.dir, f"{self.name}_norm_truth_{self.window}_test.npy"), unnormalize=False)
             
-            self._save_chunked_npy(data, train_indices, os.path.join(self.dir, f"{self.name}_ground_truth_{self.window}_train.npy"), unnormalize=True)
-            self._save_chunked_npy(data, train_indices, os.path.join(self.dir, f"{self.name}_norm_truth_{self.window}_train.npy"), unnormalize=False)
+            # Save training set ONLY if explicitly requested (prevents 100GB+ disk usage)
+            if self.save_train_npy:
+                self._save_chunked_npy(data, train_indices, os.path.join(self.dir, f"{self.name}_ground_truth_{self.window}_train.npy"), unnormalize=True)
+                self._save_chunked_npy(data, train_indices, os.path.join(self.dir, f"{self.name}_norm_truth_{self.window}_train.npy"), unnormalize=False)
+            else:
+                if len(train_indices) > 500000:
+                    print(f"  [Dataset] Skipping training NPY save (Dataset is large: {len(train_indices)} samples). Use save_train_npy=True to override.")
 
         train_data = LazyWindows(data, train_indices, self.window)
         test_data = LazyWindows(data, test_indices, self.window)
