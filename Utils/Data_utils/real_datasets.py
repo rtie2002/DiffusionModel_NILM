@@ -133,25 +133,36 @@ class CustomDataset(Dataset):
 
         return train_data, test_data
 
-    def _save_chunked_npy(self, data, indices, filename, unnormalize=True, chunk_size=1000):
+    def _save_chunked_npy(self, data, indices, filename, unnormalize=True, chunk_size=250):
         if len(indices) == 0:
             return
         
-        print(f"Memory-efficient saving (chunked) to {filename}...")
+        # Estimate size to warn user
+        total_size_gb = (len(indices) * self.window * self.var_num * 4) / (1024**3)
+        print(f"  [Save] {os.path.basename(filename)} ({total_size_gb:.2f} GB)...")
+        
         shape = (len(indices), self.window, self.var_num)
         # Using open_memmap to write a valid .npy file piece by piece
-        # Default to float32 to save space
         fp = open_memmap(filename, dtype='float32', mode='w+', shape=shape)
+        
+        # Pre-allocate one chunk buffer to reuse memory
+        chunk_buffer = np.zeros((chunk_size, self.window, self.var_num), dtype=np.float32)
         
         for i in range(0, len(indices), chunk_size):
             end = min(i + chunk_size, len(indices))
+            current_batch_size = end - i
             chunk_idx = indices[i:end]
-            # Create the windows for this chunk
-            chunk_windows = np.stack([data[idx : idx + self.window] for idx in chunk_idx])
+            
+            # Use manual copy to avoid creating many small list/slice objects
+            for j, idx in enumerate(chunk_idx):
+                chunk_buffer[j] = data[idx : idx + self.window]
+            
+            # Take view of the filled portion
+            current_chunk = chunk_buffer[:current_batch_size]
             
             if unnormalize:
-                # Unnormalize this chunk
-                d = chunk_windows.reshape(-1, self.var_num)
+                # In-place/efficient unnormalization
+                d = current_chunk.reshape(-1, self.var_num)
                 
                 # For multivariate (9 cols), only inverse-transform power
                 if self.var_num == 9:
@@ -169,9 +180,9 @@ class CustomDataset(Dataset):
                         d = unnormalize_to_zero_to_one(d)
                     d = self.scaler.inverse_transform(d)
                 
-                chunk_windows = d.reshape(-1, self.window, self.var_num)
+                current_chunk = d.reshape(-1, self.window, self.var_num)
             
-            fp[i:end] = chunk_windows.astype(np.float32)
+            fp[i:end] = current_chunk.astype(np.float32)
             
         # Flush and close
         del fp

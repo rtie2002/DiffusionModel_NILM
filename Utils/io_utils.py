@@ -65,7 +65,17 @@ def seed_everything(seed, cudnn_deterministic=False):
 def merge_opts_to_config(config, opts):
     def modify_dict(c, nl, v):
         if len(nl) == 1:
-            c[nl[0]] = type(c[nl[0]])(v)
+            target_type = type(c[nl[0]])
+            if target_type == bool and isinstance(v, str):
+                v_lower = v.lower()
+                if v_lower in ('true', '1', 't', 'y', 'yes'):
+                    c[nl[0]] = True
+                elif v_lower in ('false', '0', 'f', 'n', 'no'):
+                    c[nl[0]] = False
+                else:
+                    c[nl[0]] = target_type(v)
+            else:
+                c[nl[0]] = target_type(v)
         else:
             # print(nl)
             c[nl[0]] = modify_dict(c[nl[0]], nl[1:], v)
