@@ -324,6 +324,13 @@ class Diffusion(nn.Module):
                     leave=False)
 
         # Reverse diffusion process
+        import os
+        import numpy as np
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        save_dir = f"diffusion_steps_{timestamp}"
+        os.makedirs(save_dir, exist_ok=True)
+
         for t in pbar:
             # ⚓ BOUNDARY STITCHING: If we have boundary conditions from a previous window,
             # we inject them as noisy anchors at step t to force continuity.
@@ -351,6 +358,11 @@ class Diffusion(nn.Module):
             
             # Force time features to stay as conditions (prevent drift)
             img[:, :, self.feature_size:] = condition
+            
+            # Save intermediate steps for qualitative analysis (e.g., every 200 steps)
+            if t % 200 == 0 or t == self.num_timesteps - 1:
+                file_path = os.path.join(save_dir, f"step_{t}.npy")
+                np.save(file_path, img.detach().cpu().numpy())
         
         return img  # (B, seq_length, feature_size + condition_dim)
 
