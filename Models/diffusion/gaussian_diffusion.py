@@ -85,16 +85,25 @@ class Diffusion(nn.Module):
         else:
             raise ValueError(f'unknown beta schedule {beta_schedule}')
 
+        # betas = strength of noise at each timestep
+        # alphas = 1 - betas = strength of signal at each timestep
         alphas = 1. - betas
+
+        # t=1: ᾱ₁ = α₁
+        # t=2: ᾱ₂ = α₁ × α₂
+        # t=3: ᾱ₃ = α₁ × α₂ × α₃ 
+        # ......
         alphas_cumprod = torch.cumprod(alphas, dim=0)
+
+        #Generate:[1, ᾱ₁, ᾱ₂, ᾱ₃, ..., ᾱ_{T-1}]
         alphas_cumprod_prev = F.pad(alphas_cumprod[:-1], (1, 0), value=1.)
 
+        # Calculate timesteps based on length of betas
         timesteps, = betas.shape
         self.num_timesteps = int(timesteps)
         self.loss_type = loss_type
 
         # sampling related parameters
-
         self.sampling_timesteps = default(
             sampling_timesteps, timesteps)  # default num sampling timesteps to number of timesteps at training
 
@@ -109,44 +118,94 @@ class Diffusion(nn.Module):
         register_buffer('alphas_cumprod', alphas_cumprod)
         register_buffer('alphas_cumprod_prev', alphas_cumprod_prev)
 
+        #**************************************************************************************#
         # calculations for diffusion q(x_t | x_{t-1}) and others
+        # Physic Meaning: Direct convert clean data to noisy data, x_t by adding noise
 
+        # q(x_t | x_{t-1}) = N(x_t; sqrt(α_t)x_{t-1}, (1-α_t)I)
+        # Markov Process: x_t only depends on x_{t-1}
+        # Defination: Define how data been noised (forward process)
+
+        # q(x_t | x_{t-1}) = N(x_t; sqrt(α_t)x_{t-1}, (1-α_t)I) equivalent to 
+        # x_t = sqrt(ᾱ_t) * x_0 + sqrt(1 - ᾱ_t) * ε
+        # Sampling process: x_0 -> x_1 -> x_2 -> ... -> x_T
+        # where ε ~ N(0, I)
+        #**************************************************************************************#
+
+        # x_t = sqrt(ᾱ_t) * x_0 + sqrt(1 - ᾱ_t) * ε
+        # (1) sqrt(ᾱ_t)
         register_buffer('sqrt_alphas_cumprod', torch.sqrt(alphas_cumprod))
+        # (2) sqrt(1 - ᾱ_t)
         register_buffer('sqrt_one_minus_alphas_cumprod', torch.sqrt(1. - alphas_cumprod))
+        # (3) log(1 - ᾱ_t)
         register_buffer('log_one_minus_alphas_cumprod', torch.log(1. - alphas_cumprod))
+        # (4) 1 / sqrt(ᾱ_t)
         register_buffer('sqrt_recip_alphas_cumprod', torch.sqrt(1. / alphas_cumprod))
+        # (5) sqrt(1 / ᾱ_t - 1)
         register_buffer('sqrt_recipm1_alphas_cumprod', torch.sqrt(1. / alphas_cumprod - 1))
 
+        #**************************************************************************************#
         # calculations for posterior q(x_{t-1} | x_t, x_0)
+        # Physic Meaning: Reverse process, remove noise from x_t to get x_{t-1}
+        # q(x_{t-1} | x_t, x_0) = N(x_{t-1}; μ(x_t, x_0), σ^2(t))
+        # Defination: Define how data been denoised (reverse process)
+        # Sampling process: x_T -> x_{T-1} -> ... -> x_0
 
+
+        #**************************************************************************************#
+
+
+        # posterior_variance = β_t * (1 - ᾱ_{t-1}) / (1 - ᾱ_t)
         posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
 
         # above: equal to 1. / (1. / (1. - alpha_cumprod_tm1) + alpha_t / beta_t)
-
         register_buffer('posterior_variance', posterior_variance)
 
         # below: log calculation clipped because the posterior variance is 0 at the beginning of the diffusion chain
-
         register_buffer('posterior_log_variance_clipped', torch.log(posterior_variance.clamp(min=1e-20)))
+        # (1) μ_1 = β_t * sqrt(ᾱ_{t-1}) / (1 - ᾱ_t)
         register_buffer('posterior_mean_coef1', betas * torch.sqrt(alphas_cumprod_prev) / (1. - alphas_cumprod))
+        # (2) μ_2 = (1 - ᾱ_{t-1}) * sqrt(α_t) / (1 - ᾱ_t)
         register_buffer('posterior_mean_coef2', (1. - alphas_cumprod_prev) * torch.sqrt(alphas) / (1. - alphas_cumprod))
 
+        # q(x_{t-1} | x_t, x_0) = N(x_{t-1}; μ(x_t, x_0), σ^2(t))
+        # μt = c1 * x0 + c2 * xt
+        # c1 = β_t * sqrt(ᾱ_{t-1}) / (1 - ᾱ_t)
+        # c2 = (1 - ᾱ_{t-1}) * sqrt(α_t) / (1 - ᾱ_t)
+        # μt =  β_t * sqrt(ᾱ_{t-1}) / (1 - ᾱ_t) * x0 + (1 - ᾱ_{t-1}) * sqrt(α_t) / (1 - ᾱ_t) * xt
+        # σ^2(t) = β_t * (1 - ᾱ_{t-1}) / (1 - ᾱ_t)
+
         # calculate reweighting
-        
         register_buffer('loss_weight', torch.sqrt(alphas) * torch.sqrt(1. - alphas_cumprod) / betas / 100)
 
+    # x_t = sqrt(ᾱ_t) * x_0 + sqrt(1 - ᾱ_t) * ε
+
+
+    # ε = (x_t - sqrt(ᾱ_t) * x_0) / sqrt(1 - ᾱ_t)
+    # ε = (sqrt(ᾱ_t) * x_0 + sqrt(1 - ᾱ_t) * ε - sqrt(ᾱ_t) * x_0) / sqrt(1 - ᾱ_t)
+    # ε = (sqrt(1 - ᾱ_t) * ε) / sqrt(1 - ᾱ_t)
+    # ε = ε
+   
+    # Use x0 to predict ε
     def predict_noise_from_start(self, x_t, t, x0):
         return (
                 (extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t - x0) /
                 extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape)
         )
     
+     # Use ε to predict x0
     def predict_start_from_noise(self, x_t, t, noise):
         return (
             extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t -
             extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape) * noise
         )
 
+    # q(x_{t-1} | x_t, x_0) = N(x_{t-1}; μ(x_t, x_0), σ^2(t))
+    # μt = c1 * x0 + c2 * xt
+    # c1 = β_t * sqrt(ᾱ_{t-1}) / (1 - ᾱ_t)
+    # c2 = (1 - ᾱ_{t-1}) * sqrt(α_t) / (1 - ᾱ_t)
+    # μt =  β_t * sqrt(ᾱ_{t-1}) / (1 - ᾱ_t) * x0 + (1 - ᾱ_{t-1}) * sqrt(α_t) / (1 - ᾱ_t) * xt
+    # σ^2(t) = β_t * (1 - ᾱ_{t-1}) / (1 - ᾱ_t)
     def q_posterior(self, x_start, x_t, t):
         posterior_mean = (
                 extract(self.posterior_mean_coef1, t, x_t.shape) * x_start +
@@ -171,30 +230,59 @@ class Diffusion(nn.Module):
         
         return model_output
 
+    # Function to predict x0, then derived ε
     def model_predictions(self, x, t, clip_x_start=False, padding_masks=None):
+
+        #Step 0: Assume all timesteps are valid (no padding)
         if padding_masks is None:
             padding_masks = torch.ones(x.shape[0], self.seq_length, dtype=bool, device=x.device)
 
+        #Step 1: Clip x0 to [-1, 1]
         maybe_clip = partial(torch.clamp, min=-1., max=1.) if clip_x_start else identity
+
+        #Step 2: Predict x0
         x_start = self.output(x, t, padding_masks)
+
+        #Step 3: Clip x0 to [-1, 1]
         x_start = maybe_clip(x_start)
+
+        #Step 4: Use x0 to predict ε
         pred_noise = self.predict_noise_from_start(x, t, x_start)
         return pred_noise, x_start
 
+    # Function to calculate posterior mean and variance
+    # posterior mean and variance is the parameter to calculate p(x_{t-1} | x_t, x_0)
     def p_mean_variance(self, x, t, clip_denoised=True):
+
+        #Step 1: get x0 from model
         _, x_start = self.model_predictions(x, t)
         if clip_denoised:
             x_start.clamp_(-1., 1.)
+        
+        #Step 2: get posterior mean and variance
+        # Real goal is to get p(x_{t-1} | x_t)
+        # But we can't get it directly, so we use q(x_{t-1} | x_t, x_0)
+
+        # q(x_{t-1} | x_t, x_0) = N(x_{t-1}; μ(x_t, x_0), σ^2(t))
+        # μt = c1 * x0 + c2 * xt
+        # c1 = β_t * sqrt(ᾱ_{t-1}) / (1 - ᾱ_t)
+        # c2 = (1 - ᾱ_{t-1}) * sqrt(α_t) / (1 - ᾱ_t)
+        # μt =  β_t * sqrt(ᾱ_{t-1}) / (1 - ᾱ_t) * x0 + (1 - ᾱ_{t-1}) * sqrt(α_t) / (1 - ᾱ_t) * xt
+        # σ^2(t) = β_t * (1 - ᾱ_{t-1}) / (1 - ᾱ_t)
         model_mean, posterior_variance, posterior_log_variance = \
             self.q_posterior(x_start=x_start, x_t=x, t=t)
         return model_mean, posterior_variance, posterior_log_variance, x_start
 
     def p_sample(self, x, t: int, clip_denoised=True):
+
+        #Step 0: Construct batched times, t
         batched_times = torch.full((x.shape[0],), t, device=x.device, dtype=torch.long)
+        
+        #Step 1: Get posterior mean (μt) and variance (σ^2(t))
         model_mean, _, model_log_variance, x_start = \
             self.p_mean_variance(x=x, t=batched_times, clip_denoised=clip_denoised)
         
-        # CRITICAL FIX: Only add noise to power dimension, not time features!
+        #Step 2: Add noise to the power dimension
         if t > 0:
             noise = torch.randn_like(x)
             # Zero out noise for time features (columns 1-8)
@@ -203,18 +291,25 @@ class Diffusion(nn.Module):
         else:
             noise = 0.
         
+        #Step 3: Get x_{t-1} (Sample from the posterior distribution)
         pred_img = model_mean + (0.5 * model_log_variance).exp() * noise
         return pred_img, x_start
 
+    # Sampling Process (DDPM)
     @torch.no_grad()
     def sample(self, shape):
         device = self.betas.device
+        #Step 1: Start with random noise
         img = torch.randn(shape, device=device)
+        #Step 2: Iterate from T to 0
         for t in tqdm(reversed(range(0, self.num_timesteps)),
                       desc='sampling loop time step', total=self.num_timesteps):
+            # Although mathematically we want to sample from p(x_{t-1} | x_t), 
+            # we can't get it directly, so we use q(x_{t-1} | x_t, x_0)
             img, _ = self.p_sample(img, t)
         return img
 
+    # Sampling Process (DDIM)
     @torch.no_grad()
     def fast_sample(self, shape, clip_denoised=True):
         batch, device, total_timesteps, sampling_timesteps, eta = \
@@ -246,11 +341,16 @@ class Diffusion(nn.Module):
 
         return img
 
+    #  Generate multi-time-step (MTS) data
     def generate_mts(self, batch_size=16):
+        # Read model config
         feature_size, seq_length = self.feature_size, self.seq_length
+        # Select sampling mode
         sample_fn = self.fast_sample if self.fast_sampling else self.sample
+        # Use sampling function to generate data
         return sample_fn((batch_size, seq_length, feature_size))
 
+    # Synthetic Data Generation Pipeline, condition on time features
     @torch.no_grad()
     def generate_with_conditions(self, condition, batch_size=None):
         """
@@ -263,6 +363,8 @@ class Diffusion(nn.Module):
         Returns:
             (B, seq_length, feature_size + condition_dim) - Generated power + time features
         """
+
+        #Confirm batch size and sequence length
         if condition is not None:
             batch_size = condition.shape[0]
             seq_length = condition.shape[1]
@@ -271,14 +373,16 @@ class Diffusion(nn.Module):
             if batch_size is None:
                 raise ValueError("Either condition or batch_size must be provided")
         
-        # Initialize noise for full dimensions (power + time features)
+        # Step 1: Initialize noise for full dimensions (power + time features)
         img = torch.randn(batch_size, seq_length, self.feature_size + self.condition_dim).to(condition.device)
         
-        # Replace time feature part with actual conditions
+        # Step 2: Replace time feature part with actual conditions
         img[:, :, self.feature_size:] = condition
         
         # 🚀 REAL-TIME PROGRESS MONITOR (For RTX 4090 Denoising)
         from tqdm.auto import tqdm
+
+        # Step 3: Reverse diffusion process
         pbar = tqdm(reversed(range(0, self.num_timesteps)), 
                     total=self.num_timesteps, 
                     desc='[Denoising Step]', 
@@ -286,8 +390,9 @@ class Diffusion(nn.Module):
 
         # Reverse diffusion process
         for t in pbar:
+            # Step 4: Denoise using p_sample
             img, _ = self.p_sample(img, t)
-            # Force time features to stay as conditions (prevent drift)
+            # Step 5: Force time features to stay as conditions (prevent drift)
             img[:, :, self.feature_size:] = condition
         
         return img  # (B, seq_length, feature_size + condition_dim)
