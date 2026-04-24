@@ -145,10 +145,7 @@ def main():
 
     # Setup Plot
     fig, ax1 = plt.subplots(figsize=(14, 8))
-    # Make room on the right side for checkboxes by changing right from 0.90 to 0.82
-    plt.subplots_adjust(bottom=0.20, left=0.08, right=0.80, top=0.92)
-    
-    from matplotlib.widgets import CheckButtons
+    plt.subplots_adjust(bottom=0.20, left=0.08, right=0.90, top=0.92)
     
     current_window = 0
     
@@ -181,21 +178,20 @@ def main():
             lines_time.append(line)
         ax2.set_ylabel('Time Features')
     
-    # Explicit Checkboxes Control
+    # Interactive legend
     lines = [line_power] + lines_time
     labels = [l.get_label() for l in lines]
     
-    # Create CheckButtons UI on the right panel
-    ax_check = plt.axes([0.82, 0.4, 0.16, 0.45])
-    visibility = [l.get_visible() for l in lines]
-    check = CheckButtons(ax_check, labels, visibility)
+    # CRITICAL: Because ax2 is naturally drawn over ax1, its transparent background blocks clicks to ax1's legend.
+    # Therefore, we MUST attach the legend to ax2 so that the clicks register on the topmost layer!
+    legend_ax = ax2 if ax2 is not None else ax1
+    legend = legend_ax.legend(lines, labels, loc='upper right')
     
-    def set_visible(label):
-        index = labels.index(label)
-        lines[index].set_visible(not lines[index].get_visible())
-        fig.canvas.draw_idle()
-        
-    check.on_clicked(set_visible)
+    for leg_line in legend.get_lines(): 
+        leg_line.set_picker(True)
+        leg_line.set_pickradius(5)
+    for leg_text in legend.get_texts(): 
+        leg_text.set_picker(True)
 
     # Controls
     ax_slider = plt.axes([0.08, 0.12, 0.50, 0.03])
@@ -239,6 +235,21 @@ def main():
 
     def on_scale(val): update_view_range(); fig.canvas.draw_idle()
 
+    def on_pick(event):
+        """Handle legend pick events to toggle line visibility"""
+        leg_lines, leg_texts = legend.get_lines(), legend.get_texts()
+        
+        for i, (ll, orig_line) in enumerate(zip(leg_lines, lines)):
+            if event.artist == ll or event.artist == leg_texts[i]:
+                vis = not orig_line.get_visible()
+                orig_line.set_visible(vis)
+                
+                ll.set_alpha(1.0 if vis else 0.2)
+                leg_texts[i].set_alpha(1.0 if vis else 0.3)
+                
+                fig.canvas.draw_idle()
+                return
+
     window_slider.on_changed(update)
     scale_slider.on_changed(on_scale)
     btn_prev.on_clicked(lambda e: window_slider.set_val(max(0, int(window_slider.val) - 1)))
@@ -270,6 +281,7 @@ def main():
     btn_zoom_sel.on_clicked(lambda e: (selection_state.update({'saved_xlim': ax1.get_xlim(), 'saved_ylim': ax1.get_ylim()}), ax1.set_xlim(selection_state['x_min'], selection_state['x_max']), ax1.set_ylim(selection_state['y_min'], selection_state['y_max']), fig.canvas.draw_idle()) if selection_state['x_min'] else None)
     btn_clear_sel.on_clicked(lambda e: (ax1.set_xlim(selection_state['saved_xlim']) if selection_state['saved_xlim'] else None, ax1.set_ylim(selection_state['saved_ylim']) if selection_state['saved_ylim'] else None, selection_state.update({'x_min': None, 'rect': (selection_state['rect'].remove() if selection_state['rect'] else None)}), fig.canvas.draw_idle()))
 
+    fig.canvas.mpl_connect('pick_event', on_pick)
     fig.canvas.mpl_connect('button_press_event', on_press)
     fig.canvas.mpl_connect('motion_notify_event', on_move)
     fig.canvas.mpl_connect('button_release_event', on_release)
