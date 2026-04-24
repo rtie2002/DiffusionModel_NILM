@@ -295,7 +295,16 @@ def main():
         # Re-draw only the visible lines
         for l in lines:
             if l.get_visible():
-                ax_sq.plot(l.get_xdata(), l.get_ydata(), 
+                x_val = l.get_xdata()
+                y_val = l.get_ydata().copy()
+                
+                # Magic trick: Hiding the "0 Watts" baseline so only the spikes float
+                # We check if it's the Power line (not time features) and mask values near 0
+                label = l.get_label()
+                if label not in ['minute_sin', 'minute_cos', 'hour_sin', 'hour_cos', 'dow_sin', 'dow_cos', 'month_sin', 'month_cos']:
+                    y_val[y_val < 5.0] = np.nan
+                    
+                ax_sq.plot(x_val, y_val, 
                            color=l.get_color(), 
                            alpha=l.get_alpha() or 1.0, 
                            linestyle=l.get_linestyle(), 
