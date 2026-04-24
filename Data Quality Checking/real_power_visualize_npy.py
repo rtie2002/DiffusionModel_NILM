@@ -292,19 +292,11 @@ def main():
         # Fill the entire canvas, no margins, no padding
         ax_sq = fig_sq.add_axes([0, 0, 1, 1])
         
-        # Re-draw only the visible lines
+        # Re-draw only the Appliance Power line, completely ignoring the dashed time-features 
+        # (which look like false '0-axis lines' across the bottom)
         for l in lines:
-            if l.get_visible():
-                x_val = l.get_xdata()
-                y_val = l.get_ydata().copy()
-                
-                # Magic trick: Hiding the "0 Watts" baseline so only the spikes float
-                # We check if it's the Power line (not time features) and mask values near 0
-                label = l.get_label()
-                if label not in ['minute_sin', 'minute_cos', 'hour_sin', 'hour_cos', 'dow_sin', 'dow_cos', 'month_sin', 'month_cos']:
-                    y_val[y_val < 5.0] = np.nan
-                    
-                ax_sq.plot(x_val, y_val, 
+            if l.get_label() == 'Appliance Power' and l.get_visible():
+                ax_sq.plot(l.get_xdata(), l.get_ydata(), 
                            color=l.get_color(), 
                            alpha=l.get_alpha() or 1.0, 
                            linestyle=l.get_linestyle(), 
