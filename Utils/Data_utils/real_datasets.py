@@ -116,7 +116,8 @@ class CustomDataset(Dataset):
         train_indices, test_indices = self.divide(indices, proportion, seed)
 
         # DENSITY & CONTINUITY BOOSTER (Apply to Training only)
-        if self.period == 'train' and len(train_indices) > 0:
+        enable_booster = False  # Hard-disabled for pure baseline branch testing
+        if enable_booster and self.period == 'train' and len(train_indices) > 0:
             if self.name and self.name.lower() == 'fridge':
                 print(f"  [Continuity Booster] Skipping for {self.name} (Avoiding over-boosting for fridge)")
             else:
