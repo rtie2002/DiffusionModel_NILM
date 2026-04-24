@@ -205,7 +205,8 @@ def main():
     ax_reset = plt.axes([0.76, 0.12, 0.12, 0.04]); btn_reset = Button(ax_reset, 'Auto-Fit Y')
     
     ax_zoom_sel = plt.axes([0.62, 0.07, 0.10, 0.04]); btn_zoom_sel = Button(ax_zoom_sel, 'Zoom Sel')
-    ax_clear_sel = plt.axes([0.73, 0.07, 0.15, 0.04]); btn_clear_sel = Button(ax_clear_sel, 'Clear Sel')
+    ax_clear_sel = plt.axes([0.73, 0.07, 0.12, 0.04]); btn_clear_sel = Button(ax_clear_sel, 'Clear Sel')
+    ax_save_sq = plt.axes([0.86, 0.07, 0.09, 0.04]); btn_save_sq = Button(ax_save_sq, 'Save SQ')
 
     def update_view_range():
         if not line_power.get_visible(): return
@@ -280,6 +281,44 @@ def main():
 
     btn_zoom_sel.on_clicked(lambda e: (selection_state.update({'saved_xlim': ax1.get_xlim(), 'saved_ylim': ax1.get_ylim()}), ax1.set_xlim(selection_state['x_min'], selection_state['x_max']), ax1.set_ylim(selection_state['y_min'], selection_state['y_max']), fig.canvas.draw_idle()) if selection_state['x_min'] else None)
     btn_clear_sel.on_clicked(lambda e: (ax1.set_xlim(selection_state['saved_xlim']) if selection_state['saved_xlim'] else None, ax1.set_ylim(selection_state['saved_ylim']) if selection_state['saved_ylim'] else None, selection_state.update({'x_min': None, 'rect': (selection_state['rect'].remove() if selection_state['rect'] else None)}), fig.canvas.draw_idle()))
+
+    def save_square_picture(event):
+        print("\n[Export] Generating High-Resolution Square Image...")
+        xlim = ax1.get_xlim()
+        ylim = ax1.get_ylim()
+        
+        # Create a detached, pure white square figure (8x8 inches)
+        fig_sq = plt.figure(figsize=(8, 8), facecolor='white')
+        # Fill the entire canvas, no margins, no padding
+        ax_sq = fig_sq.add_axes([0, 0, 1, 1])
+        
+        # Re-draw only the visible lines
+        for l in lines:
+            if l.get_visible():
+                ax_sq.plot(l.get_xdata(), l.get_ydata(), 
+                           color=l.get_color(), 
+                           alpha=l.get_alpha() or 1.0, 
+                           linestyle=l.get_linestyle(), 
+                           linewidth=l.get_linewidth())
+                
+        # Constrain exactly to the current zoom/view state
+        ax_sq.set_xlim(xlim)
+        ax_sq.set_ylim(ylim)
+        
+        # Erase grid, ticks, and spine framework
+        ax_sq.axis('off')
+        
+        # Generate filename
+        base_name = os.path.basename(file_path).replace('.npy', '')
+        idx = int(window_slider.val)
+        out_path = os.path.join(os.path.dirname(file_path), f"SQ_HQ_{base_name}_win{idx}.png")
+        
+        # Save explicitly at 300 DPI (publish quality)
+        fig_sq.savefig(out_path, dpi=300)
+        plt.close(fig_sq)
+        print(f"✓ Masterpiece saved successfully to {out_path} 🖼️\n")
+
+    btn_save_sq.on_clicked(save_square_picture)
 
     fig.canvas.mpl_connect('pick_event', on_pick)
     fig.canvas.mpl_connect('button_press_event', on_press)
