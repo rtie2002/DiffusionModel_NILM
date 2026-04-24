@@ -426,5 +426,43 @@ def main():
             np.save(filt_path, samples)
             print(f"✓ Saved FILTERED samples to: {filt_path}")
 
+            # ==================== 【Auto-PostProcessing for Intermediate Steps】 ====================
+            print("\n[Auto-PostProcessing] Auto-detecting and converting intermediate steps into real Watts...")
+            search_dir = args.save_dir 
+            # Detect any files starting with step_ and ending with .npy
+            step_files = [f for f in os.listdir(search_dir) if f.startswith('step_') and f.endswith('.npy') and 'real_watts' not in f]
+            
+            for step_file in step_files:
+                file_path = os.path.join(search_dir, step_file)
+                try:
+                    raw_data = np.load(file_path)
+                    # Extract purely the power channel (0-th dim)
+                    B, L = raw_data.shape[0], raw_data.shape[1]
+                    power_raw = raw_data[:, :, 0:1]
+                    
+                    # 1. Expand from neural [-1, 1] pseudo-space to [0, 1] percentage space
+                    power_01 = (power_raw + 1.0) * 0.5
+                    power_flat = power_01.reshape(-1, 1)
+                    
+                    # 2. Map to physical Appliance Watts utilizing the ground truth dataset scaler
+                    power_recovered = dataset.scaler.inverse_transform(power_flat)
+                    power_recovered = power_recovered.reshape(B, L, 1)
+                    
+                    # Swap in the recovered power while preserving any time features
+                    if raw_data.shape[-1] > 1:
+                        final_step_data = np.concatenate([power_recovered, raw_data[:, :, 1:]], axis=2)
+                    else:
+                        final_step_data = power_recovered
+                        
+                    # 3. Save side-by-side with _real_watts appended
+                    save_name = os.path.join(search_dir, step_file.replace('.npy', '_real_watts.npy'))
+                    np.save(save_name, final_step_data)
+                except Exception as e:
+                    print(f"  [Warning] Skipped {step_file} due to: {e}")
+                
+            if len(step_files) > 0:
+                print(f"✓ Successfully un-normalized {len(step_files)} intermediate steps! ⚡ (Saved as _real_watts.npy)")
+            # ========================================================================================
+
 if __name__ == '__main__':
     main()
