@@ -143,7 +143,7 @@ class AllAppliancesViewer:
                 ax_synth.plot(np.arange(len(vals)), vals, color='blue', linewidth=1.0)
                 ax_synth.text(0.05, 0.9, f"Mean: {np.mean(vals):.3f}", transform=ax_synth.transAxes, fontsize=8)
             
-            ax_synth.set_title(f"(Synthetic)", fontsize=10, fontweight='bold', color='darkblue')
+            ax_synth.set_title(f"{label}\n(Synthetic)", fontsize=10, fontweight='bold', color='darkblue')
             ax_synth.set_ylim(0, y_max) # Sync Y-axis with Real
             ax_synth.grid(True, alpha=0.3)
             ax_synth.set_xlabel("Time (samples)", fontsize=8)
@@ -265,7 +265,7 @@ class AllAppliancesViewer:
                 ax_synth.plot(np.arange(len(vals)), vals, color='blue', linewidth=1.0)
                 ax_synth.text(0.05, 0.9, f"Mean: {np.mean(vals):.3f}", transform=ax_synth.transAxes, fontsize=8)
             
-            ax_synth.set_title(f"(Synthetic)", fontsize=10, fontweight='bold', color='darkblue')
+            ax_synth.set_title(f"{label}\n(Synthetic)", fontsize=10, fontweight='bold', color='darkblue')
             ax_synth.set_ylim(0, y_max)
             ax_synth.grid(True, alpha=0.3)
             ax_synth.set_xlabel("Time (samples)", fontsize=8)
