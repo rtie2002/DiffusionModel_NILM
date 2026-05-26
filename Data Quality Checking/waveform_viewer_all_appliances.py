@@ -132,7 +132,7 @@ class AllAppliancesViewer:
             ax_real.set_title(f"{label}\n(Real Origin)", fontsize=10, fontweight='bold', color='darkred')
             ax_real.set_ylim(0, y_max)
             ax_real.grid(True, alpha=0.3)
-            ax_real.set_xticks([]) # Hide x-ticks for top row
+            ax_real.set_xlabel("Time (samples)", fontsize=8)
             
             # --- Plot Synthetic Data ---
             synth_data = self.data[appliance]['synthetic']
@@ -254,7 +254,7 @@ class AllAppliancesViewer:
             ax_real.set_title(f"{label}\n(Real Origin)", fontsize=10, fontweight='bold', color='darkred')
             ax_real.set_ylim(0, y_max)
             ax_real.grid(True, alpha=0.3)
-            ax_real.set_xticks([])
+            ax_real.set_xlabel("Time (samples)", fontsize=8)
             
             # --- Synthetic ---
             synth_data = self.data[appliance]['synthetic']
