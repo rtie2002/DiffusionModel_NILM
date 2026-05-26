@@ -30,6 +30,13 @@ SYNTHETIC_DATA_DIR = os.path.join(BASE_DIR, "Data", "datasets", "synthetic_proce
 
 APPLIANCES = ["dishwasher", "fridge", "kettle", "microwave", "washingmachine"]
 APPLIANCE_LABELS = ["Dishwasher", "Fridge", "Kettle", "Microwave", "Washing Machine"]
+MAX_POWER = {
+    "dishwasher": 3964,
+    "fridge": 350,
+    "kettle": 3998,
+    "microwave": 3969,
+    "washingmachine": 3999
+}
 WINDOW_SIZE = 480  # Default window size (8 hours at 1-min resolution)
 
 
@@ -60,6 +67,8 @@ class AllAppliancesViewer:
             # Load real data
             if os.path.exists(real_file):
                 df = pd.read_csv(real_file)
+                # Convert normalized value back to Watts
+                df[appliance] = df[appliance] * MAX_POWER[appliance]
                 self.data[appliance]['real'] = df
                 max_val = max(max_val, df[appliance].max())
                 print(f"  {appliance:15} - Real: {len(df):>8} samples", end="")
@@ -69,6 +78,8 @@ class AllAppliancesViewer:
             # Load synthetic data
             if os.path.exists(synthetic_file):
                 df = pd.read_csv(synthetic_file)
+                # Convert normalized value back to Watts
+                df[appliance] = df[appliance] * MAX_POWER[appliance]
                 self.data[appliance]['synthetic'] = df
                 max_val = max(max_val, df[appliance].max())
                 print(f" | Synthetic: {len(df):>8} samples")
@@ -131,12 +142,11 @@ class AllAppliancesViewer:
             if real_window is not None and len(real_window) > 0:
                 vals = real_window[appliance].values
                 ax_real.plot(np.arange(len(vals)), vals, color='red', linewidth=1.0)
-                ax_real.text(0.05, 0.9, f"Mean: {np.mean(vals):.3f}", transform=ax_real.transAxes, fontsize=9, fontweight='bold')
             
-            ax_real.set_title(f"{label}\n(Real Origin)", fontsize=13, fontweight='bold', color='darkred')
+            ax_real.set_title(f"{label} (Real Origin)", fontsize=15, fontweight='bold', color='darkred')
             ax_real.set_ylim(0, y_max)
             ax_real.grid(True, alpha=0.3)
-            ax_real.set_xlabel("Time (samples)", fontsize=11, fontweight='semibold')
+            ax_real.set_xlabel("Time (samples)", fontsize=15, fontweight='semibold')
             
             # --- Plot Synthetic Data ---
             synth_data = self.data[appliance]['synthetic']
@@ -145,21 +155,20 @@ class AllAppliancesViewer:
             if synth_window is not None and len(synth_window) > 0:
                 vals = synth_window[appliance].values
                 ax_synth.plot(np.arange(len(vals)), vals, color='blue', linewidth=1.0)
-                ax_synth.text(0.05, 0.9, f"Mean: {np.mean(vals):.3f}", transform=ax_synth.transAxes, fontsize=9, fontweight='bold')
             
-            ax_synth.set_title(f"{label}\n(Synthetic)", fontsize=13, fontweight='bold', color='darkblue')
+            ax_synth.set_title(f"{label} (Synthetic)", fontsize=15, fontweight='bold', color='darkblue')
             ax_synth.set_ylim(0, y_max) # Sync Y-axis with Real
             ax_synth.grid(True, alpha=0.3)
-            ax_synth.set_xlabel("Time (samples)", fontsize=11, fontweight='semibold')
+            ax_synth.set_xlabel("Time (samples)", fontsize=15, fontweight='semibold')
             
             # Add Y-label only to the first column
             if i == 0:
-                ax_real.set_ylabel("Power", fontsize=12, fontweight='bold')
-                ax_synth.set_ylabel("Power", fontsize=12, fontweight='bold')
+                ax_real.set_ylabel("Active Power (W)", fontsize=15, fontweight='bold')
+                ax_synth.set_ylabel("Active Power (W)", fontsize=15, fontweight='bold')
             
             # Tick formatting for clarity
             for ax in [ax_real, ax_synth]:
-                ax.tick_params(axis='both', which='major', labelsize=10)
+                ax.tick_params(axis='both', which='major', labelsize=13)
                 for tick_label in ax.get_xticklabels() + ax.get_yticklabels():
                     tick_label.set_fontweight('semibold')
         
@@ -259,7 +268,6 @@ class AllAppliancesViewer:
             if real_window is not None and len(real_window) > 0:
                 vals = real_window[appliance].values
                 ax_real.plot(np.arange(len(vals)), vals, color='red', linewidth=1.0)
-                ax_real.text(0.05, 0.9, f"Mean: {np.mean(vals):.3f}", transform=ax_real.transAxes, fontsize=9, fontweight='bold')
             
             ax_real.set_title(f"{label}\n(Real Origin)", fontsize=13, fontweight='bold', color='darkred')
             ax_real.set_ylim(0, y_max)
@@ -273,7 +281,6 @@ class AllAppliancesViewer:
             if synth_window is not None and len(synth_window) > 0:
                 vals = synth_window[appliance].values
                 ax_synth.plot(np.arange(len(vals)), vals, color='blue', linewidth=1.0)
-                ax_synth.text(0.05, 0.9, f"Mean: {np.mean(vals):.3f}", transform=ax_synth.transAxes, fontsize=9, fontweight='bold')
             
             ax_synth.set_title(f"{label}\n(Synthetic)", fontsize=13, fontweight='bold', color='darkblue')
             ax_synth.set_ylim(0, y_max)
@@ -281,8 +288,8 @@ class AllAppliancesViewer:
             ax_synth.set_xlabel("Time (samples)", fontsize=11, fontweight='semibold')
             
             if i == 0:
-                ax_real.set_ylabel("Power", fontsize=12, fontweight='bold')
-                ax_synth.set_ylabel("Power", fontsize=12, fontweight='bold')
+                ax_real.set_ylabel("Active Power (W)", fontsize=12, fontweight='bold')
+                ax_synth.set_ylabel("Active Power (W)", fontsize=12, fontweight='bold')
             
             # Tick formatting for clarity
             for ax in [ax_real, ax_synth]:
