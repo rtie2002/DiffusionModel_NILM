@@ -269,10 +269,10 @@ class AllAppliancesViewer:
                 vals = real_window[appliance].values
                 ax_real.plot(np.arange(len(vals)), vals, color='red', linewidth=1.0)
             
-            ax_real.set_title(f"{label}\n(Real Origin)", fontsize=13, fontweight='bold', color='darkred')
+            ax_real.set_title(f"{label} (Real Origin)", fontsize=15, fontweight='bold', color='darkred')
             ax_real.set_ylim(0, y_max)
             ax_real.grid(True, alpha=0.3)
-            ax_real.set_xlabel("Time (samples)", fontsize=11, fontweight='semibold')
+            ax_real.set_xlabel("Time (samples)", fontsize=15, fontweight='semibold')
             
             # --- Synthetic ---
             synth_data = self.data[appliance]['synthetic']
@@ -282,24 +282,25 @@ class AllAppliancesViewer:
                 vals = synth_window[appliance].values
                 ax_synth.plot(np.arange(len(vals)), vals, color='blue', linewidth=1.0)
             
-            ax_synth.set_title(f"{label}\n(Synthetic)", fontsize=13, fontweight='bold', color='darkblue')
+            ax_synth.set_title(f"{label} (Synthetic)", fontsize=15, fontweight='bold', color='darkblue')
             ax_synth.set_ylim(0, y_max)
             ax_synth.grid(True, alpha=0.3)
-            ax_synth.set_xlabel("Time (samples)", fontsize=11, fontweight='semibold')
+            ax_synth.set_xlabel("Time (samples)", fontsize=15, fontweight='semibold')
             
             if i == 0:
-                ax_real.set_ylabel("Active Power (W)", fontsize=12, fontweight='bold')
-                ax_synth.set_ylabel("Active Power (W)", fontsize=12, fontweight='bold')
+                ax_real.set_ylabel("Active Power (W)", fontsize=15, fontweight='bold')
+                ax_synth.set_ylabel("Active Power (W)", fontsize=15, fontweight='bold')
             
             # Tick formatting for clarity
             for ax in [ax_real, ax_synth]:
-                ax.tick_params(axis='both', which='major', labelsize=10)
+                ax.tick_params(axis='both', which='major', labelsize=13)
                 for tick_label in ax.get_xticklabels() + ax.get_yticklabels():
                     tick_label.set_fontweight('semibold')
 
         self.fig.suptitle(f'Real (Top) vs Synthetic (Bottom) Comparison\n'
                          f'(Samples {self.start_idx} to {self.start_idx + self.window_size})', 
                          fontsize=18, fontweight='bold')
+        plt.tight_layout(rect=[0, 0.08, 1, 0.92])
         self.fig.canvas.draw_idle()
 
 
