@@ -95,11 +95,15 @@ class AllAppliancesViewer:
         if self.fig is not None:
             plt.close(self.fig)
         
+        # Set default font settings for clarity
+        plt.rcParams['font.sans-serif'] = ['Arial', 'Liberation Sans', 'DejaVu Sans', 'sans-serif']
+        plt.rcParams['axes.unicode_minus'] = False
+        
         # Create figure with 2 rows x 5 columns
         self.fig = plt.figure(figsize=(20, 10))
         self.fig.suptitle(f'Real (Top) vs Synthetic (Bottom) Comparison\n'
                          f'(Samples {self.start_idx} to {self.start_idx + self.window_size})', 
-                         fontsize=16, fontweight='bold')
+                         fontsize=18, fontweight='bold')
         
         self.axes_real = []
         self.axes_synth = []
@@ -127,12 +131,12 @@ class AllAppliancesViewer:
             if real_window is not None and len(real_window) > 0:
                 vals = real_window[appliance].values
                 ax_real.plot(np.arange(len(vals)), vals, color='red', linewidth=1.0)
-                ax_real.text(0.05, 0.9, f"Mean: {np.mean(vals):.3f}", transform=ax_real.transAxes, fontsize=8)
+                ax_real.text(0.05, 0.9, f"Mean: {np.mean(vals):.3f}", transform=ax_real.transAxes, fontsize=9, fontweight='bold')
             
-            ax_real.set_title(f"{label}\n(Real Origin)", fontsize=10, fontweight='bold', color='darkred')
+            ax_real.set_title(f"{label}\n(Real Origin)", fontsize=13, fontweight='bold', color='darkred')
             ax_real.set_ylim(0, y_max)
             ax_real.grid(True, alpha=0.3)
-            ax_real.set_xlabel("Time (samples)", fontsize=8)
+            ax_real.set_xlabel("Time (samples)", fontsize=11, fontweight='semibold')
             
             # --- Plot Synthetic Data ---
             synth_data = self.data[appliance]['synthetic']
@@ -141,17 +145,23 @@ class AllAppliancesViewer:
             if synth_window is not None and len(synth_window) > 0:
                 vals = synth_window[appliance].values
                 ax_synth.plot(np.arange(len(vals)), vals, color='blue', linewidth=1.0)
-                ax_synth.text(0.05, 0.9, f"Mean: {np.mean(vals):.3f}", transform=ax_synth.transAxes, fontsize=8)
+                ax_synth.text(0.05, 0.9, f"Mean: {np.mean(vals):.3f}", transform=ax_synth.transAxes, fontsize=9, fontweight='bold')
             
-            ax_synth.set_title(f"{label}\n(Synthetic)", fontsize=10, fontweight='bold', color='darkblue')
+            ax_synth.set_title(f"{label}\n(Synthetic)", fontsize=13, fontweight='bold', color='darkblue')
             ax_synth.set_ylim(0, y_max) # Sync Y-axis with Real
             ax_synth.grid(True, alpha=0.3)
-            ax_synth.set_xlabel("Time (samples)", fontsize=8)
+            ax_synth.set_xlabel("Time (samples)", fontsize=11, fontweight='semibold')
             
             # Add Y-label only to the first column
             if i == 0:
-                ax_real.set_ylabel("Power", fontsize=10)
-                ax_synth.set_ylabel("Power", fontsize=10)
+                ax_real.set_ylabel("Power", fontsize=12, fontweight='bold')
+                ax_synth.set_ylabel("Power", fontsize=12, fontweight='bold')
+            
+            # Tick formatting for clarity
+            for ax in [ax_real, ax_synth]:
+                ax.tick_params(axis='both', which='major', labelsize=10)
+                for tick_label in ax.get_xticklabels() + ax.get_yticklabels():
+                    tick_label.set_fontweight('semibold')
         
         # Add navigation buttons
         self._add_navigation_buttons()
@@ -217,7 +227,7 @@ class AllAppliancesViewer:
         def on_save(event):
             filename = f"split_comparison_{self.start_idx}_{self.window_size}.png"
             save_path = os.path.join(BASE_DIR, "Data Quality Checking", filename)
-            self.fig.savefig(save_path, dpi=150, bbox_inches='tight')
+            self.fig.savefig(save_path, dpi=300, bbox_inches='tight')
             print(f"Saved: {save_path}")
         
         btn_prev.on_clicked(on_prev)
@@ -249,12 +259,12 @@ class AllAppliancesViewer:
             if real_window is not None and len(real_window) > 0:
                 vals = real_window[appliance].values
                 ax_real.plot(np.arange(len(vals)), vals, color='red', linewidth=1.0)
-                ax_real.text(0.05, 0.9, f"Mean: {np.mean(vals):.3f}", transform=ax_real.transAxes, fontsize=8)
+                ax_real.text(0.05, 0.9, f"Mean: {np.mean(vals):.3f}", transform=ax_real.transAxes, fontsize=9, fontweight='bold')
             
-            ax_real.set_title(f"{label}\n(Real Origin)", fontsize=10, fontweight='bold', color='darkred')
+            ax_real.set_title(f"{label}\n(Real Origin)", fontsize=13, fontweight='bold', color='darkred')
             ax_real.set_ylim(0, y_max)
             ax_real.grid(True, alpha=0.3)
-            ax_real.set_xlabel("Time (samples)", fontsize=8)
+            ax_real.set_xlabel("Time (samples)", fontsize=11, fontweight='semibold')
             
             # --- Synthetic ---
             synth_data = self.data[appliance]['synthetic']
@@ -263,20 +273,26 @@ class AllAppliancesViewer:
             if synth_window is not None and len(synth_window) > 0:
                 vals = synth_window[appliance].values
                 ax_synth.plot(np.arange(len(vals)), vals, color='blue', linewidth=1.0)
-                ax_synth.text(0.05, 0.9, f"Mean: {np.mean(vals):.3f}", transform=ax_synth.transAxes, fontsize=8)
+                ax_synth.text(0.05, 0.9, f"Mean: {np.mean(vals):.3f}", transform=ax_synth.transAxes, fontsize=9, fontweight='bold')
             
-            ax_synth.set_title(f"{label}\n(Synthetic)", fontsize=10, fontweight='bold', color='darkblue')
+            ax_synth.set_title(f"{label}\n(Synthetic)", fontsize=13, fontweight='bold', color='darkblue')
             ax_synth.set_ylim(0, y_max)
             ax_synth.grid(True, alpha=0.3)
-            ax_synth.set_xlabel("Time (samples)", fontsize=8)
+            ax_synth.set_xlabel("Time (samples)", fontsize=11, fontweight='semibold')
             
             if i == 0:
-                ax_real.set_ylabel("Power", fontsize=10)
-                ax_synth.set_ylabel("Power", fontsize=10)
+                ax_real.set_ylabel("Power", fontsize=12, fontweight='bold')
+                ax_synth.set_ylabel("Power", fontsize=12, fontweight='bold')
+            
+            # Tick formatting for clarity
+            for ax in [ax_real, ax_synth]:
+                ax.tick_params(axis='both', which='major', labelsize=10)
+                for tick_label in ax.get_xticklabels() + ax.get_yticklabels():
+                    tick_label.set_fontweight('semibold')
 
         self.fig.suptitle(f'Real (Top) vs Synthetic (Bottom) Comparison\n'
                          f'(Samples {self.start_idx} to {self.start_idx + self.window_size})', 
-                         fontsize=16, fontweight='bold')
+                         fontsize=18, fontweight='bold')
         self.fig.canvas.draw_idle()
 
 
