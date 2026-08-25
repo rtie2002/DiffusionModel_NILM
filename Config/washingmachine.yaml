@@ -50,7 +50,7 @@ dataloader:
       window: 512
       save2npy: True
       neg_one_to_one: True
-      seed: 2024
+      seed: 2025
       period: train
 
   batch_size: 128     # Increased for 4090 efficiency

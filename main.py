@@ -36,7 +36,7 @@ def parse_args():
 
     parser.add_argument('--cudnn_deterministic', action='store_true', default=False,
                         help='set cudnn.deterministic True')
-    parser.add_argument('--seed', type=int, default=2024,
+    parser.add_argument('--seed', type=int, default=2025,
                         help='seed for initializing training.')
     parser.add_argument('--gpu', type=int, default=None,
                         help='GPU id to use. If given, only the specific gpu will be'
@@ -115,6 +115,7 @@ def main():
 
     logger = Logger(args)
     logger.save_config(config)
+    logger.log_info(f'Random seed: {args.seed}')
 
     model = instantiate_from_config(config['model']).to(device)
     
@@ -245,7 +246,9 @@ def main():
 
             print(f"Generated data shape: {samples.shape}")
             print(f"Data Unnormalized Range: {samples[:,:,0].min():.4f} to {samples[:,:,0].max():.4f}W")
-            np.save(os.path.join(args.save_dir, f'ddpm_fake_{args.name}.npy'), samples)
+            output_path = os.path.join(args.save_dir, f'ddpm_fake_{args.name}.npy')
+            np.save(output_path, samples)
+            logger.log_info(f'Generated samples: {samples.shape[0]}, output shape: {samples.shape}, output file: {output_path}')
 
 if __name__ == '__main__':
     main()

@@ -10,12 +10,13 @@ TRAIN=false
 SAMPLE=false
 MILESTONE=10
 GPU=0
+SEED=2025
 PROPORTION=1.0
 SAMPLE_NUM=0
 
 # Help message
 usage() {
-    echo "Usage: $0 [--train] [--sample] [--milestone M] [--gpu G] [--proportion P] [--sample_num N] [--appliances a,b,c]"
+    echo "Usage: $0 [--train] [--sample] [--milestone M] [--gpu G] [--seed S] [--proportion P] [--sample_num N] [--appliances a,b,c]"
     echo "Example: $0 --train --sample --appliances fridge,microwave"
     exit 1
 }
@@ -27,6 +28,7 @@ while [[ "$#" -gt 0 ]]; do
         --sample) SAMPLE=true ;;
         --milestone) MILESTONE="$2"; shift ;;
         --gpu) GPU="$2"; shift ;;
+        --seed) SEED="$2"; shift ;;
         --proportion) PROPORTION="$2"; shift ;;
         --sample_num) SAMPLE_NUM="$2"; shift ;;
         --appliances) IFS=',' read -ra APPLIANCES <<< "$2"; shift ;;
@@ -41,17 +43,89 @@ if [ "$TRAIN" = false ] && [ "$SAMPLE" = false ]; then
     SAMPLE=true
 fi
 
+format_duration() {
+    local seconds="$1"
+    if [ -z "$seconds" ] || [ "$seconds" = "NA" ]; then
+        echo "NA"
+        return
+    fi
+
+    local whole="${seconds%.*}"
+    local hours=$((whole / 3600))
+    local minutes=$(((whole % 3600) / 60))
+    local secs=$((whole % 60))
+
+    if [ "$hours" -gt 0 ]; then
+        printf "%02d:%02d:%02d" "$hours" "$minutes" "$secs"
+    else
+        printf "%02d:%02d" "$minutes" "$secs"
+    fi
+}
+
+get_npy_shape() {
+    local path="$1"
+    if [ ! -f "$path" ]; then
+        return
+    fi
+
+    python -c "import sys, numpy as np; a=np.load(sys.argv[1], mmap_mode='r'); print(','.join(map(str, a.shape)))" "$path" 2>/dev/null || true
+}
+
+get_latest_runtime_from_log() {
+    local log_path="$1"
+    local label="$2"
+    if [ ! -f "$log_path" ]; then
+        return
+    fi
+
+    grep "$label, time:" "$log_path" | tail -n 1 | sed -E 's/.*time: ([0-9.]+).*/\1/'
+}
+
+get_latest_parameter_count_from_log() {
+    local log_path="$1"
+    if [ ! -f "$log_path" ]; then
+        echo "NA"
+        return
+    fi
+
+    local count
+    count=$(grep "overall.*trainable" "$log_path" | tail -n 1 | sed -E "s/.*overall.*trainable': '([^']+)'.*/\1/")
+    if [ -z "$count" ]; then
+        echo "NA"
+    else
+        echo "$count"
+    fi
+}
+
+summary_dir="OUTPUT"
+mkdir -p "$summary_dir"
+summary_csv="$summary_dir/revision_reproducibility_summary.csv"
+summary_md="$summary_dir/revision_reproducibility_summary.md"
+
+echo "Appliance,GeneratedSamples,RandomSeed,TrainingTimeSeconds,TrainingTime,SamplingTimeSeconds,SamplingTime,ModelParameters,OutputShape,OutputFile" > "$summary_csv"
+echo "| Appliance | Generated samples | Random seed | Training time | Sampling time | Model parameters | Output shape |" > "$summary_md"
+echo "|---|---:|---:|---:|---:|---:|---|" >> "$summary_md"
+
 echo "===================================================="
 echo "   Linux Diffusion Automation: ACTIVE"
 echo "===================================================="
 echo "Appliances: ${APPLIANCES[*]}"
 echo "GPU ID: $GPU"
+echo "Random Seed: $SEED"
 echo "Milestone: $MILESTONE"
 echo "Proportion: $PROPORTION"
 echo "===================================================="
 
 for app in "${APPLIANCES[@]}"; do
     echo -e "\n>>> Processing Appliance: [${app^^}]"
+
+    runName="${app}_multivariate"
+    outputDir="OUTPUT/$runName"
+    logPath="$outputDir/logs/log.txt"
+    expectedOutput="$outputDir/ddpm_fake_${runName}.npy"
+    trainElapsedSeconds=""
+    sampleElapsedSeconds=""
+    dynamicSampleNum=""
     
     configPath="Config/$app.yaml"
     if [ ! -f "$configPath" ]; then
@@ -62,15 +136,21 @@ for app in "${APPLIANCES[@]}"; do
     # --- Step 1: Training ---
     if [ "$TRAIN" = true ]; then
         echo "--- [1/2] Starting Training for $app ---"
+        trainStart=$(date +%s)
         python main.py --train \
-            --name "${app}_multivariate" \
+            --name "$runName" \
             --config "$configPath" \
             --tensorboard \
             --gpu $GPU \
+            --seed "$SEED" \
             --opts dataloader.train_dataset.params.save2npy False \
-            dataloader.train_dataset.params.proportion $PROPORTION
+            dataloader.train_dataset.params.proportion $PROPORTION \
+            dataloader.train_dataset.params.seed "$SEED"
+        trainStatus=$?
+        trainEnd=$(date +%s)
+        trainElapsedSeconds=$((trainEnd - trainStart))
         
-        if [ $? -ne 0 ]; then
+        if [ $trainStatus -ne 0 ]; then
             echo "Error: Training failed for $app"
             exit 1
         fi
@@ -118,21 +198,66 @@ for app in "${APPLIANCES[@]}"; do
             fi
         fi
 
+        sampleStart=$(date +%s)
         python main.py \
-            --name "${app}_multivariate" \
+            --name "$runName" \
             --config "$configPath" \
             --sample 1 \
             --milestone $MILESTONE \
             --sample_num $dynamicSampleNum \
             --sampling_mode "ordered_non_overlapping" \
-            --gpu $GPU
+            --gpu $GPU \
+            --seed "$SEED" \
+            --opts dataloader.train_dataset.params.seed "$SEED"
+        sampleStatus=$?
+        sampleEnd=$(date +%s)
+        sampleElapsedSeconds=$((sampleEnd - sampleStart))
             
-        if [ $? -ne 0 ]; then
+        if [ $sampleStatus -ne 0 ]; then
             echo "Error: Sampling failed for $app"
             exit 1
         fi
+
+        if [ -f "$expectedOutput" ]; then
+            echo "Successfully generated: $expectedOutput"
+        else
+            echo "Warning: Output file not found at expected location: $expectedOutput"
+        fi
     fi
+
+    if [ -z "$trainElapsedSeconds" ]; then
+        trainElapsedSeconds=$(get_latest_runtime_from_log "$logPath" "Training done")
+    fi
+    if [ -z "$sampleElapsedSeconds" ]; then
+        sampleElapsedSeconds=$(get_latest_runtime_from_log "$logPath" "Sampling done")
+    fi
+
+    outputShape=$(get_npy_shape "$expectedOutput")
+    if [ -n "$outputShape" ]; then
+        generatedSamples="${outputShape%%,*}"
+    elif [ -n "$dynamicSampleNum" ]; then
+        generatedSamples="$dynamicSampleNum"
+        outputShape="not found"
+    else
+        generatedSamples="NA"
+        outputShape="not found"
+    fi
+
+    parameterCount=$(get_latest_parameter_count_from_log "$logPath")
+    trainingTime=$(format_duration "$trainElapsedSeconds")
+    samplingTime=$(format_duration "$sampleElapsedSeconds")
+    trainSecondsForCsv=${trainElapsedSeconds:-NA}
+    sampleSecondsForCsv=${sampleElapsedSeconds:-NA}
+
+    printf '"%s","%s","%s","%s","%s","%s","%s","%s","%s","%s"\n' \
+        "$app" "$generatedSamples" "$SEED" "$trainSecondsForCsv" "$trainingTime" \
+        "$sampleSecondsForCsv" "$samplingTime" "$parameterCount" "$outputShape" "$expectedOutput" >> "$summary_csv"
+    echo "| $app | $generatedSamples | $SEED | $trainingTime | $samplingTime | $parameterCount | $outputShape |" >> "$summary_md"
 done
+
+echo -e "\nReproducibility summary saved to:"
+echo "  $summary_csv"
+echo "  $summary_md"
 
 echo -e "\n===================================================="
 echo "   All Linux tasks completed successfully!"
