@@ -16,7 +16,7 @@ def display_scores(results):
    print('Final Score: ', f'{mean} \xB1 {sigma}')
 
 
-def train_test_divide (data_x, data_x_hat, data_t, data_t_hat, train_rate=0.8):
+def train_test_divide(data_x, data_x_hat, data_t, data_t_hat, train_rate=0.8, seed=2025):
   """Divide train and test data for both original and synthetic data.
   
   Args:
@@ -28,7 +28,8 @@ def train_test_divide (data_x, data_x_hat, data_t, data_t_hat, train_rate=0.8):
   """
   # Divide train/test index (original data)
   no = len(data_x)
-  idx = np.random.permutation(no)
+  rng = np.random.default_rng(seed)
+  idx = rng.permutation(no)
   train_idx = idx[:int(no*train_rate)]
   test_idx = idx[int(no*train_rate):]
     
@@ -39,7 +40,7 @@ def train_test_divide (data_x, data_x_hat, data_t, data_t_hat, train_rate=0.8):
     
   # Divide train/test index (synthetic data)
   no = len(data_x_hat)
-  idx = np.random.permutation(no)
+  idx = rng.permutation(no)
   train_idx = idx[:int(no*train_rate)]
   test_idx = idx[int(no*train_rate):]
   
@@ -70,7 +71,7 @@ def extract_time (data):
   return time, max_seq_len
 
 
-def visualization(ori_data, generated_data, analysis, compare=3000):
+def visualization(ori_data, generated_data, analysis, compare=3000, seed=2025):
     """Using PCA or tSNE for generated and original data visualization.
   
   Args:
@@ -80,7 +81,8 @@ def visualization(ori_data, generated_data, analysis, compare=3000):
   """
     # Analysis sample size (for faster computation)
     anal_sample_no = min([compare, ori_data.shape[0]])
-    idx = np.random.permutation(ori_data.shape[0])[:anal_sample_no]
+    rng = np.random.default_rng(seed)
+    idx = rng.permutation(ori_data.shape[0])[:anal_sample_no]
 
     # Data preprocessing
     # ori_data = np.asarray(ori_data)
@@ -130,7 +132,7 @@ def visualization(ori_data, generated_data, analysis, compare=3000):
         prep_data_final = np.concatenate((prep_data, prep_data_hat), axis=0)
 
         # TSNE anlaysis
-        tsne = TSNE(n_components=2, verbose=1, perplexity=40, n_iter=300)
+        tsne = TSNE(n_components=2, verbose=1, perplexity=40, n_iter=300, random_state=seed)
         tsne_results = tsne.fit_transform(prep_data_final)
 
         # Plotting
