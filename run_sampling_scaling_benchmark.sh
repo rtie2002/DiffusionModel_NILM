@@ -3,17 +3,17 @@
 set -euo pipefail
 
 APPLIANCE="fridge"
-COUNTS=("1000" "2000" "3000" "4000")
+COUNTS=("392" "784" "1176" "1568")
 MILESTONE=10
 SEED=2025
 GPU=0
-BATCH_SIZE=1000
+BATCH_SIZE=392
 BATCH_SIZES=()
 WARMUP_COUNT=16
 OUTPUT_DIR="OUTPUT"
 
 usage() {
-    echo "Usage: $0 [--appliance fridge] [--counts \"1000 2000 3000 4000\"] [--batch-size 1000] [--batch-sizes \"1 10 100 1000\"] [--milestone 10] [--seed 2025] [--gpu 0] [--warmup-count 16]"
+    echo "Usage: $0 [--appliance fridge] [--counts \"392 784 1176 1568\"] [--batch-size 392] [--batch-sizes \"1 10 100 392\"] [--milestone 10] [--seed 2025] [--gpu 0] [--warmup-count 16]"
     exit 1
 }
 

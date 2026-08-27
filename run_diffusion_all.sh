@@ -13,11 +13,14 @@ GPU=0
 SEED=2025
 PROPORTION=1.0
 SAMPLE_NUM=0
+REPORT_ONOFF=true
+ONOFF_ONLY=false
 
 # Help message
 usage() {
-    echo "Usage: $0 [--train] [--sample] [--milestone M] [--gpu G] [--seed S] [--proportion P] [--sample_num N] [--appliances a,b,c]"
+    echo "Usage: $0 [--train] [--sample] [--milestone M] [--gpu G] [--seed S] [--proportion P] [--sample_num N] [--appliances a,b,c] [--onoff-report-only] [--no-onoff-report]"
     echo "Example: $0 --train --sample --appliances fridge,microwave"
+    echo "Example: $0 --onoff-report-only"
     exit 1
 }
 
@@ -32,13 +35,18 @@ while [[ "$#" -gt 0 ]]; do
         --proportion) PROPORTION="$2"; shift ;;
         --sample_num) SAMPLE_NUM="$2"; shift ;;
         --appliances) IFS=',' read -ra APPLIANCES <<< "$2"; shift ;;
+        --onoff-report-only) ONOFF_ONLY=true; REPORT_ONOFF=true ;;
+        --no-onoff-report) REPORT_ONOFF=false ;;
         *) usage ;;
     esac
     shift
 done
 
 # If neither Train nor Sample is specified, do both
-if [ "$TRAIN" = false ] && [ "$SAMPLE" = false ]; then
+if [ "$ONOFF_ONLY" = true ]; then
+    TRAIN=false
+    SAMPLE=false
+elif [ "$TRAIN" = false ] && [ "$SAMPLE" = false ]; then
     TRAIN=true
     SAMPLE=true
 fi
@@ -101,6 +109,8 @@ summary_dir="OUTPUT"
 mkdir -p "$summary_dir"
 summary_csv="$summary_dir/revision_reproducibility_summary.csv"
 summary_md="$summary_dir/revision_reproducibility_summary.md"
+onoff_csv="$summary_dir/active_window_proportions.csv"
+onoff_md="$summary_dir/active_window_proportions.md"
 
 echo "Appliance,GeneratedSamples,RandomSeed,TrainingTimeSeconds,TrainingTime,SamplingTimeSeconds,SamplingTime,ModelParameters,OutputShape,OutputFile" > "$summary_csv"
 echo "| Appliance | Generated samples | Random seed | Training time | Sampling time | Model parameters | Output shape |" > "$summary_md"
@@ -114,7 +124,37 @@ echo "GPU ID: $GPU"
 echo "Random Seed: $SEED"
 echo "Milestone: $MILESTONE"
 echo "Proportion: $PROPORTION"
+echo "ON/OFF Report: $REPORT_ONOFF"
 echo "===================================================="
+
+if [ "$REPORT_ONOFF" = true ]; then
+    config_args=()
+    for app in "${APPLIANCES[@]}"; do
+        configPath="Config/$app.yaml"
+        if [ -f "$configPath" ]; then
+            config_args+=("$configPath")
+        else
+            echo "Warning: Config file not found for ON/OFF report: $configPath"
+        fi
+    done
+
+    if [ "${#config_args[@]}" -gt 0 ]; then
+        echo "--- Generating Active-Window ON/OFF Proportion Report ---"
+        python report_booster_onoff_proportions.py \
+            --configs "${config_args[@]}" \
+            --seed "$SEED" \
+            --proportion "$PROPORTION" \
+            --output-csv "$onoff_csv" \
+            --output-md "$onoff_md"
+    fi
+fi
+
+if [ "$ONOFF_ONLY" = true ]; then
+    echo -e "\nON/OFF proportion report saved to:"
+    echo "  $onoff_csv"
+    echo "  $onoff_md"
+    exit 0
+fi
 
 for app in "${APPLIANCES[@]}"; do
     echo -e "\n>>> Processing Appliance: [${app^^}]"
@@ -258,6 +298,10 @@ done
 echo -e "\nReproducibility summary saved to:"
 echo "  $summary_csv"
 echo "  $summary_md"
+if [ "$REPORT_ONOFF" = true ]; then
+    echo "  $onoff_csv"
+    echo "  $onoff_md"
+fi
 
 echo -e "\n===================================================="
 echo "   All Linux tasks completed successfully!"
