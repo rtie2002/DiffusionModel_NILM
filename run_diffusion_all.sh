@@ -139,7 +139,7 @@ if [ "$REPORT_ONOFF" = true ]; then
     done
 
     if [ "${#config_args[@]}" -gt 0 ]; then
-        echo "--- Generating Active-Window ON/OFF Proportion Report ---"
+        echo "--- Generating ON/OFF Proportion Reports ---"
         python report_booster_onoff_proportions.py \
             --configs "${config_args[@]}" \
             --seed "$SEED" \

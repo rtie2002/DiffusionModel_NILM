@@ -52,6 +52,9 @@ dataloader:
       neg_one_to_one: True
       seed: 2025
       period: train
+      boost_factor: 4
+      boost_threshold: 0.2
+      jitter_limit: 2
 
   batch_size: 128     # Increased for 4090 efficiency
   sample_size: 256

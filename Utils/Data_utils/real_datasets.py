@@ -61,6 +61,7 @@ class CustomDataset(Dataset):
         mean_mask_length=3,
         boost_factor=None,
         boost_threshold=0.2,
+        jitter_limit=2,
         save_train_npy=False
     ):
         super(CustomDataset, self).__init__()
@@ -71,6 +72,7 @@ class CustomDataset(Dataset):
         self.style, self.distribution, self.mean_mask_length = style, distribution, mean_mask_length
         self.boost_factor = boost_factor
         self.boost_threshold = boost_threshold
+        self.jitter_limit = jitter_limit
         self.save_train_npy = save_train_npy
         self.rawdata, self.scaler = self.read_data(data_root, self.name)
         self.dir = os.path.join(output_dir, 'samples')
@@ -123,32 +125,30 @@ class CustomDataset(Dataset):
 
         # DENSITY & CONTINUITY BOOSTER (Apply to Training only)
         if self.period == 'train' and len(train_indices) > 0:
-            if self.name.lower() == 'fridge':
-                print(f"  [Continuity Booster] Skipping for {self.name} as requested (Avoiding over-boosting)")
-            else:
-                print(f"  [Continuity Booster] Analyzing training windows for transitions...")
-                active_ids = []
-                threshold = self.boost_threshold
-                for idx in train_indices:
-                    if np.max(data[idx : idx + self.window, 0]) > threshold:
-                        active_ids.append(idx)
+            print(f"  [Continuity Booster] Analyzing training windows for transitions...")
+            active_ids = []
+            threshold = self.boost_threshold
+            for idx in train_indices:
+                if np.max(data[idx : idx + self.window, 0]) > threshold:
+                    active_ids.append(idx)
+            
+            active_ids = np.array(active_ids)
+            if len(active_ids) > 0:
+                # Default to 4 unless manually overridden in the appliance YAML.
+                current_boost = self.boost_factor if self.boost_factor is not None else 4
                 
-                active_ids = np.array(active_ids)
-                if len(active_ids) > 0:
-                    # Default to 4 (previous behavior) unless manually overridden
-                    current_boost = self.boost_factor if self.boost_factor is not None else 4
+                if current_boost > 1:
+                    boosted_versions = [train_indices]
+                    jitter_limit = int(self.jitter_limit)
+                    for _ in range(int(current_boost) - 1):
+                        jitter = np.random.randint(-jitter_limit, jitter_limit + 1, size=len(active_ids))
+                        jittered_active = np.clip(active_ids + jitter, 0, self.sample_num_total - 1)
+                        boosted_versions.append(jittered_active)
                     
-                    if current_boost > 1:
-                        boosted_versions = [train_indices]
-                        for _ in range(int(current_boost) - 1):
-                            jitter = np.random.randint(-2, 3, size=len(active_ids))
-                            jittered_active = np.clip(active_ids + jitter, 0, self.sample_num_total - 1)
-                            boosted_versions.append(jittered_active)
-                        
-                        train_indices = np.concatenate(boosted_versions)
-                        print(f"  [Continuity Booster] Found {len(active_ids)} active windows. Training set boosted to {len(train_indices)} samples (Factor: {current_boost}).")
-                    else:
-                        print(f"  [Continuity Booster] Boost factor is 1. No dataset expansion applied.")
+                    train_indices = np.concatenate(boosted_versions)
+                    print(f"  [Continuity Booster] Found {len(active_ids)} active windows. Training set boosted to {len(train_indices)} samples (Factor: {current_boost}, Jitter: +/-{jitter_limit}).")
+                else:
+                    print(f"  [Continuity Booster] Boost factor is 1. No dataset expansion applied.")
 
         # CRITICAL FIX: Sort indices to maintain temporal order (Jan -> Dec)
         # Without this, 'divide' returns shuffled random indices!
